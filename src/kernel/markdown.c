@@ -116,10 +116,6 @@ static void md_parse_line(const char *raw_line, char *output, MDLineType *type, 
         *type = MD_LINE_BLOCKQUOTE;
         i++;
         if (raw_line[i] == ' ') i++;
-    } else if (raw_line[i] == '`') {
-        // Code block
-        *type = MD_LINE_CODE;
-        i++;
     }
     
     // Parse inline formatting and copy content
@@ -215,26 +211,36 @@ void markdown_open_file(const char *filename) {
     int line = 0;
     int col = 0;
     char raw_line[256] = "";
+    bool in_code_block = false;
     
     for (int i = 0; i < bytes_read && line < MD_MAX_LINES; i++) {
         char ch = buffer[i];
         
         if (ch == '\n') {
             raw_line[col] = 0;
-            
-            // Parse the raw line
-            char parsed_content[256];
-            MDLineType type;
-            int indent;
-            md_parse_line(raw_line, parsed_content, &type, &indent);
-            
-            // Store parsed line
-            md_strcpy(lines[line].content, parsed_content);
-            lines[line].length = md_strlen(parsed_content);
-            lines[line].type = type;
-            lines[line].indent_level = indent;
-            
-            line++;
+
+            if (raw_line[0] == '`' && raw_line[1] == '`' && raw_line[2] == '`') {
+                in_code_block = !in_code_block;
+            } else {
+                if (in_code_block) {
+                    md_strcpy(lines[line].content, raw_line);
+                    lines[line].length = md_strlen(raw_line);
+                    lines[line].type = MD_LINE_CODE;
+                    lines[line].indent_level = 0;
+                    line++;
+                } else {
+                    char parsed_content[256];
+                    MDLineType type;
+                    int indent;
+                    md_parse_line(raw_line, parsed_content, &type, &indent);
+                    md_strcpy(lines[line].content, parsed_content);
+                    lines[line].length = md_strlen(parsed_content);
+                    lines[line].type = type;
+                    lines[line].indent_level = indent;
+                    line++;
+                }
+            }
+
             col = 0;
             raw_line[0] = 0;
         } else if (col < 255) {
@@ -245,16 +251,24 @@ void markdown_open_file(const char *filename) {
     // Handle last line if no trailing newline
     if (col > 0 && line < MD_MAX_LINES) {
         raw_line[col] = 0;
-        char parsed_content[256];
-        MDLineType type;
-        int indent;
-        md_parse_line(raw_line, parsed_content, &type, &indent);
-        
-        md_strcpy(lines[line].content, parsed_content);
-        lines[line].length = md_strlen(parsed_content);
-        lines[line].type = type;
-        lines[line].indent_level = indent;
-        line++;
+        if (raw_line[0] == '`' && raw_line[1] == '`' && raw_line[2] == '`') {
+        } else if (in_code_block) {
+            md_strcpy(lines[line].content, raw_line);
+            lines[line].length = md_strlen(raw_line);
+            lines[line].type = MD_LINE_CODE;
+            lines[line].indent_level = 0;
+            line++;
+        } else {
+            char parsed_content[256];
+            MDLineType type;
+            int indent;
+            md_parse_line(raw_line, parsed_content, &type, &indent);
+            md_strcpy(lines[line].content, parsed_content);
+            lines[line].length = md_strlen(parsed_content);
+            lines[line].type = type;
+            lines[line].indent_level = indent;
+            line++;
+        }
     }
     
     line_count = line;
@@ -331,7 +345,7 @@ static void md_paint(Window *win) {
                 text_color = 0xFF808080;  // Gray
                 break;
             case MD_LINE_CODE:
-                text_color = 0xFF800000;  // Dark red
+                text_color = COLOR_WHITE;
                 break;
             default:
                 text_color = COLOR_BLACK;
@@ -371,7 +385,6 @@ static void md_paint(Window *win) {
             }
             line_segment[segment_len] = 0;
             
-            // Word-based wrapping: if we didn't reach end of string, find last space
             if (char_idx < text_len && segment_len > 0) {
                 // Look for the last space in the segment
                 int last_space = -1;
@@ -382,7 +395,6 @@ static void md_paint(Window *win) {
                     }
                 }
                 
-                // If we found a space, break there
                 if (last_space > 0) {
                     segment_len = last_space;
                     line_segment[segment_len] = 0;
@@ -395,6 +407,10 @@ static void md_paint(Window *win) {
                 }
             }
             
+            if (line->type == MD_LINE_CODE && segment_len > 0) {
+                draw_rect(x_offset - 2, line_y - 2, (segment_len * MD_CHAR_WIDTH) + 4, 12, COLOR_BLACK);
+            }
+
             // Draw special elements for first wrapped line of this markdown line
             if (local_display_line == 0) {
                 switch (line->type) {
@@ -413,10 +429,6 @@ static void md_paint(Window *win) {
                     case MD_LINE_BLOCKQUOTE:
                         // Draw left border
                         draw_rect(x_offset - 4, line_y, 2, line_height, 0xFF404080);
-                        break;
-                    case MD_LINE_CODE:
-                        // Draw background for code
-                        draw_rect(x_offset - 2, line_y, (max_chars_per_line * MD_CHAR_WIDTH) + 4, line_height, 0xFFF0F0F0);
                         break;
                     default:
                         break;
@@ -438,8 +450,7 @@ static void md_paint(Window *win) {
             if (char_idx >= text_len) break;
         }
         
-        // Move display line forward by the actual number of wrapped lines created
-        // Each wrapped line uses one MD_LINE_HEIGHT worth of space
+
         display_line += wrapped_line_count;
         
         i++;
@@ -451,8 +462,7 @@ static void md_paint(Window *win) {
 static void md_handle_key(Window *win, char c) {
     (void)win;  // Suppress unused warning
     
-    // Handle scrolling with arrow keys and W/S
-    // 17 = UP arrow, 18 = DOWN arrow (from ps2 keyboard mapping)
+
     if (c == 'w' || c == 'W' || c == 17) {  // Page up or UP arrow
         scroll_top -= 3;
         if (scroll_top < 0) scroll_top = 0;

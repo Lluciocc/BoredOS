@@ -75,7 +75,7 @@ static void explorer_handle_right_click(Window *win, int x, int y);
 static void explorer_handle_file_context_menu_click(Window *win, int x, int y);
 static void explorer_perform_paste(Window *win, const char *dest_dir);
 static void explorer_perform_move_internal(Window *win, const char *source_path, const char *dest_dir);
-static void explorer_copy_recursive(const char *src_path, const char *dest_path);
+static bool explorer_copy_recursive(const char *src_path, const char *dest_path);
 Window* explorer_create_window(const char *path);
 
 extern bool is_dragging_file;
@@ -433,11 +433,11 @@ bool explorer_clipboard_has_content(void) {
     return clipboard_action != 0 && clipboard_path[0] != 0;
 }
 
-static void explorer_copy_recursive(const char *src_path, const char *dest_path) {
+static bool explorer_copy_recursive(const char *src_path, const char *dest_path) {
     if (fat32_is_directory(src_path)) {
-        fat32_mkdir(dest_path);
+        if (!fat32_mkdir(dest_path)) return false;
         FAT32_FileInfo *files = (FAT32_FileInfo*)kmalloc(64 * sizeof(FAT32_FileInfo));
-        if (!files) return;
+        if (!files) return false;
         
         int count = fat32_list_directory(src_path, files, 64);
         for (int i = 0; i < count; i++) {
@@ -452,23 +452,29 @@ static void explorer_copy_recursive(const char *src_path, const char *dest_path)
             if (d_sub[explorer_strlen(d_sub)-1] != '/') explorer_strcat(d_sub, "/");
             explorer_strcat(d_sub, files[i].name);
             
-            explorer_copy_recursive(s_sub, d_sub);
+            if (!explorer_copy_recursive(s_sub, d_sub)) { kfree(files); return false; }
         }
         kfree(files);
+        return true;
     } else {
         // Copy file
         FAT32_FileHandle *src = fat32_open(src_path, "r");
         FAT32_FileHandle *dst = fat32_open(dest_path, "w");
+        bool success = false;
         if (src && dst) {
             uint8_t *buf = (uint8_t*)kmalloc(4096);
             if (buf) {
                 int bytes;
-                while ((bytes = fat32_read(src, buf, 4096)) > 0) fat32_write(dst, buf, bytes);
+                success = true;
+                while ((bytes = fat32_read(src, buf, 4096)) > 0) {
+                    if (fat32_write(dst, buf, bytes) != bytes) { success = false; break; }
+                }
                 kfree(buf);
             }
         }
         if (src) fat32_close(src);
         if (dst) fat32_close(dst);
+        return success;
     }
 }
 
@@ -513,8 +519,16 @@ void explorer_clipboard_paste(Window *win, const char *dest_dir) {
     ExplorerState *state = (ExplorerState*)win->data;
     if (!explorer_clipboard_has_content()) return;
     
+    // Prevent pasting a directory into itself or its subdirectories
+    if (explorer_str_starts_with(dest_dir, clipboard_path)) {
+        int src_len = explorer_strlen(clipboard_path);
+        if (dest_dir[src_len] == '\0' || dest_dir[src_len] == '/') {
+            return;
+        }
+    }
+
     // Check for collision
-    char filename[256];
+    char filename[FAT32_MAX_FILENAME];
     int len = explorer_strlen(clipboard_path);
     int i = len - 1;
     while (i >= 0 && clipboard_path[i] != '/') i--;
@@ -522,7 +536,7 @@ void explorer_clipboard_paste(Window *win, const char *dest_dir) {
     for (int k = i + 1; k < len; k++) filename[j++] = clipboard_path[k];
     filename[j] = 0;
     
-    char dest_path[256];
+    char dest_path[FAT32_MAX_PATH];
     explorer_strcpy(dest_path, dest_dir);
     if (dest_path[explorer_strlen(dest_path) - 1] != '/') {
         explorer_strcat(dest_path, "/");
@@ -1760,7 +1774,7 @@ void explorer_refresh_all(void) {
 static void explorer_perform_move_internal(Window *win, const char *source_path, const char *dest_dir) {
     (void)win;
     // 1. Extract filename
-    char filename[256];
+    char filename[FAT32_MAX_FILENAME];
     int len = explorer_strlen(source_path);
     int i = len - 1;
     while (i >= 0 && source_path[i] != '/') i--;
@@ -1769,7 +1783,7 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
     filename[j] = 0;
     
     // 2. Build dest path
-    char dest_path[256];
+    char dest_path[FAT32_MAX_PATH];
     explorer_strcpy(dest_path, dest_dir);
     if (dest_path[explorer_strlen(dest_path) - 1] != '/') {
         explorer_strcat(dest_path, "/");
@@ -1782,7 +1796,7 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
     }
     
     if (explorer_str_starts_with(dest_path, "/RecycleBin") && !explorer_str_starts_with(source_path, "/RecycleBin")) {
-        char origin_path[256];
+        char origin_path[FAT32_MAX_PATH];
         explorer_strcpy(origin_path, dest_path);
         explorer_strcat(origin_path, ".origin");
         FAT32_FileHandle *fh = fat32_open(origin_path, "w");
@@ -1793,16 +1807,16 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
     }
 
     if (!explorer_str_starts_with(dest_path, "/RecycleBin") && explorer_str_starts_with(source_path, "/RecycleBin")) {
-        char origin_path[256];
+        char origin_path[FAT32_MAX_PATH];
         explorer_strcpy(origin_path, source_path);
         explorer_strcat(origin_path, ".origin");
         fat32_delete(origin_path);
     }
 
-    explorer_copy_recursive(source_path, dest_path);
-        
-    // 4. Delete source (Move operation)
-    explorer_delete_permanently(source_path);
+    if (explorer_copy_recursive(source_path, dest_path)) {
+        // 4. Delete source (Move operation)
+        explorer_delete_permanently(source_path);
+    }
         
     // Refresh
     explorer_refresh_all();
@@ -1810,8 +1824,17 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
 
 void explorer_import_file_to(Window *win, const char *source_path, const char *dest_dir) {
     ExplorerState *state = (ExplorerState*)win->data;
+
+    // Prevent moving a directory into itself or its subdirectories
+    if (explorer_str_starts_with(dest_dir, source_path)) {
+        int src_len = explorer_strlen(source_path);
+        if (dest_dir[src_len] == '\0' || dest_dir[src_len] == '/') {
+            return;
+        }
+    }
+
     // Check for collision
-    char filename[256];
+    char filename[FAT32_MAX_FILENAME];
     int len = explorer_strlen(source_path);
     int i = len - 1;
     while (i >= 0 && source_path[i] != '/') i--;
@@ -1819,7 +1842,7 @@ void explorer_import_file_to(Window *win, const char *source_path, const char *d
     for (int k = i + 1; k < len; k++) filename[j++] = source_path[k];
     filename[j] = 0;
     
-    char dest_path[256];
+    char dest_path[FAT32_MAX_PATH];
     explorer_strcpy(dest_path, dest_dir);
     if (dest_path[explorer_strlen(dest_path) - 1] != '/') explorer_strcat(dest_path, "/");
     explorer_strcat(dest_path, filename);

@@ -1,6 +1,7 @@
 #include <stddef.h>
 #include "graphics.h"
 #include "font.h"
+#include "io.h"
 
 static struct limine_framebuffer *g_fb = NULL;
 static uint32_t g_bg_color = 0xFF696969;  // Dark gray background
@@ -69,6 +70,9 @@ static void merge_dirty_rect(int x, int y, int w, int h) {
 }
 
 void graphics_mark_dirty(int x, int y, int w, int h) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+
     // Clamp to screen bounds
     if (x < 0) {
         w += x;
@@ -85,9 +89,13 @@ void graphics_mark_dirty(int x, int y, int w, int h) {
         h = get_screen_height() - y;
     }
     
-    if (w <= 0 || h <= 0) return;
+    if (w <= 0 || h <= 0) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
+        return;
+    }
     
     merge_dirty_rect(x, y, w, h);
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 void graphics_mark_screen_dirty(void) {
@@ -103,7 +111,10 @@ DirtyRect graphics_get_dirty_rect(void) {
 }
 
 void graphics_clear_dirty(void) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     g_dirty.active = false;
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 void put_pixel(int x, int y, uint32_t color) {

@@ -1,4 +1,6 @@
 #include "fat32.h"
+#include "memory_manager.h"
+#include "io.h"
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -116,6 +118,9 @@ static void extract_parent_path(const char *path, char *parent) {
 
 // Normalize path (remove .., ., etc)
 void fat32_normalize_path(const char *path, char *normalized) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+
     char temp[FAT32_MAX_PATH];
     int temp_len = 0;
 
@@ -173,6 +178,7 @@ void fat32_normalize_path(const char *path, char *normalized) {
     }
     
     fs_strcpy(normalized, temp);
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 // Find file entry by path
@@ -237,8 +243,10 @@ static bool check_desktop_limit(const char *normalized_path) {
         }
         
         // Count files in /Desktop
-        FAT32_FileInfo info[256]; // Temp buffer
+        FAT32_FileInfo *info = (FAT32_FileInfo*)kmalloc(256 * sizeof(FAT32_FileInfo));
+        if (!info) return true;
         int count = fat32_list_directory("/Desktop", info, 256);
+        kfree(info);
         if (count >= desktop_file_limit) return false;
     }
     return true;
@@ -276,6 +284,9 @@ void fat32_set_desktop_limit(int limit) {
 }
 
 FAT32_FileHandle* fat32_open(const char *path, const char *mode) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+
     char normalized[FAT32_MAX_PATH];
     fat32_normalize_path(path, normalized);
     
@@ -284,24 +295,32 @@ FAT32_FileHandle* fat32_open(const char *path, const char *mode) {
     if (mode[0] == 'r') {
         // Read mode
         if (!entry || (entry->attributes & ATTR_DIRECTORY)) {
+            asm volatile("push %0; popfq" : : "r"(rflags));
             return NULL;  // File not found or is directory
         }
     } else if (mode[0] == 'w' || (mode[0] == 'a')) {
         // Write/append mode - create if not exists
         if (!entry) {
             if (!check_desktop_limit(normalized)) {
+                asm volatile("push %0; popfq" : : "r"(rflags));
                 return NULL;
             }
             
             entry = find_free_entry();
-            if (!entry) return NULL;
+            if (!entry) {
+                asm volatile("push %0; popfq" : : "r"(rflags));
+                return NULL;
+            }
             
             entry->used = true;
             fs_strcpy(entry->full_path, normalized);
             extract_filename(normalized, entry->filename);
             extract_parent_path(normalized, entry->parent_path);
             entry->start_cluster = allocate_cluster();
-            if (!entry->start_cluster) return NULL;
+            if (!entry->start_cluster) {
+                asm volatile("push %0; popfq" : : "r"(rflags));
+                return NULL;
+            }
             entry->size = 0;
             entry->attributes = 0;  // Regular file
         }
@@ -313,7 +332,10 @@ FAT32_FileHandle* fat32_open(const char *path, const char *mode) {
     
     // Find free handle
     FAT32_FileHandle *handle = find_free_handle();
-    if (!handle) return NULL;
+    if (!handle) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
+        return NULL;
+    }
     
     handle->valid = true;
     handle->cluster = entry->start_cluster;
@@ -341,17 +363,24 @@ FAT32_FileHandle* fat32_open(const char *path, const char *mode) {
         handle->cluster = current_cluster;
     }
     
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return handle;
 }
 
 void fat32_close(FAT32_FileHandle *handle) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     if (handle) {
         handle->valid = false;
     }
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 int fat32_read(FAT32_FileHandle *handle, void *buffer, int size) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     if (!handle || !handle->valid || handle->mode != 0) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return -1;
     }
     
@@ -388,11 +417,15 @@ int fat32_read(FAT32_FileHandle *handle, void *buffer, int size) {
         }
     }
     
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return bytes_read;
 }
 
 int fat32_write(FAT32_FileHandle *handle, const void *buffer, int size) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     if (!handle || !handle->valid || (handle->mode != 1 && handle->mode != 2)) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return -1;
     }
     
@@ -404,7 +437,10 @@ int fat32_write(FAT32_FileHandle *handle, const void *buffer, int size) {
          uint32_t next = fat_table[handle->cluster];
          if (next >= 0xFFFFFFF8) {
              next = allocate_cluster();
-             if (!next) return 0;
+             if (!next) {
+                 asm volatile("push %0; popfq" : : "r"(rflags));
+                 return 0;
+             }
              fat_table[handle->cluster] = next;
          }
          handle->cluster = next;
@@ -451,11 +487,15 @@ int fat32_write(FAT32_FileHandle *handle, const void *buffer, int size) {
         }
     }
     
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return bytes_written;
 }
 
 int fat32_seek(FAT32_FileHandle *handle, int offset, int whence) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     if (!handle || !handle->valid) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return -1;
     }
     
@@ -474,23 +514,31 @@ int fat32_seek(FAT32_FileHandle *handle, int offset, int whence) {
     }
     
     handle->position = new_position;
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return new_position;
 }
 
 bool fat32_mkdir(const char *path) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     char normalized[FAT32_MAX_PATH];
     fat32_normalize_path(path, normalized);
     
     if (find_file(normalized)) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return false;  // Already exists
     }
     
     if (!check_desktop_limit(normalized)) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return false;
     }
     
     FileEntry *entry = find_free_entry();
-    if (!entry) return false;
+    if (!entry) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
+        return false;
+    }
     
     entry->used = true;
     fs_strcpy(entry->full_path, normalized);
@@ -500,43 +548,58 @@ bool fat32_mkdir(const char *path) {
     entry->size = 0;
     entry->attributes = ATTR_DIRECTORY;
     
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
 
 bool fat32_rmdir(const char *path) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     char normalized[FAT32_MAX_PATH];
     fat32_normalize_path(path, normalized);
     
     FileEntry *entry = find_file(normalized);
     if (!entry || !(entry->attributes & ATTR_DIRECTORY)) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return false;
     }
     
     entry->used = false;
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
 
 bool fat32_delete(const char *path) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     char normalized[FAT32_MAX_PATH];
     fat32_normalize_path(path, normalized);
     
     FileEntry *entry = find_file(normalized);
     if (!entry || (entry->attributes & ATTR_DIRECTORY)) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return false;
     }
     
     entry->used = false;
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
 
 bool fat32_exists(const char *path) {
-    return find_file(path) != NULL;
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    bool res = find_file(path) != NULL;
+    asm volatile("push %0; popfq" : : "r"(rflags));
+    return res;
 }
 
 bool fat32_rename(const char *old_path, const char *new_path) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     FileEntry *entry = find_file(old_path);
-    if (!entry) return false;
-    if (find_file(new_path)) return false; // Destination exists
+    if (!entry) { asm volatile("push %0; popfq" : : "r"(rflags)); return false; }
+    if (find_file(new_path)) { asm volatile("push %0; popfq" : : "r"(rflags)); return false; } // Destination exists
 
     int old_len = fs_strlen(old_path);
 
@@ -572,20 +635,28 @@ bool fat32_rename(const char *old_path, const char *new_path) {
             fs_strcat(files[i].parent_path, suffix);
         }
     }
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
 
 bool fat32_is_directory(const char *path) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     FileEntry *entry = find_file(path);
-    return entry && (entry->attributes & ATTR_DIRECTORY);
+    bool res = entry && (entry->attributes & ATTR_DIRECTORY);
+    asm volatile("push %0; popfq" : : "r"(rflags));
+    return res;
 }
 
 int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entries) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     char normalized[FAT32_MAX_PATH];
     fat32_normalize_path(path, normalized);
     
     FileEntry *dir = find_file(normalized);
     if (!dir || !(dir->attributes & ATTR_DIRECTORY)) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return 0;  // Not a directory
     }
     
@@ -600,23 +671,30 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
         }
     }
     
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return count;
 }
 
 bool fat32_chdir(const char *path) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     char normalized[FAT32_MAX_PATH];
     fat32_normalize_path(path, normalized);
     
     FileEntry *entry = find_file(normalized);
     if (!entry || !(entry->attributes & ATTR_DIRECTORY)) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return false;
     }
     
     fs_strcpy(current_dir, normalized);
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
 
 void fat32_get_current_dir(char *buffer, int size) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     int len = fs_strlen(current_dir);
     if (len >= size) len = size - 1;
     
@@ -624,4 +702,5 @@ void fat32_get_current_dir(char *buffer, int size) {
         buffer[i] = current_dir[i];
     }
     buffer[len] = 0;
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }

@@ -11,10 +11,7 @@ send_eoi:
     push rax
     mov al, 0x20
     out 0x20, al ; Master PIC
-    ; If IRQ > 7, send to Slave too (Mouse is IRQ 12)
-    ; We'll handle this in the specific wrappers or C code.
-    ; Actually, simpler to do EOI in C or here.
-    ; Let's just do it in C.
+
     pop rax
     ret
 

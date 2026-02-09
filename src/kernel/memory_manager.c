@@ -148,23 +148,30 @@ void* kmalloc(size_t size) {
         memory_manager_init();
     }
     
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+
     if (size == 0 || size > memory_pool_size) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return NULL;
     }
     
     // Check if we can allocate
     if (total_allocated + size > memory_pool_size) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return NULL;
     }
     
     // Find free space
     void *ptr = find_free_space(size);
     if (ptr == NULL) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return NULL;
     }
     
     // Add block entry
     if (block_count >= MAX_ALLOCATIONS) {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         return NULL;
     }
     
@@ -185,6 +192,7 @@ void* kmalloc(size_t size) {
     // Clear memory
     mem_memset(ptr, 0, size);
     
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return ptr;
 }
 
@@ -193,6 +201,9 @@ void kfree(void *ptr) {
         return;
     }
     
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+
     // Find and free the block
     for (int i = 0; i < block_count; i++) {
         if (block_list[i].allocated && block_list[i].address == ptr) {
@@ -204,9 +215,11 @@ void kfree(void *ptr) {
                 block_list[j] = block_list[j + 1];
             }
             block_count--;
+            asm volatile("push %0; popfq" : : "r"(rflags));
             return;
         }
     }
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 void* krealloc(void *ptr, size_t new_size) {

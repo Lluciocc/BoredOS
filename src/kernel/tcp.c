@@ -195,7 +195,6 @@ void tcp_close(tcp_socket_t *sock) {
 
 int tcp_read(tcp_socket_t *sock, char *buffer, int max_len) {
     if (!sock) return 0;
-    // Simple copy of what we have
     int count = 0;
     for (int i = 0; i < sock->rx_pos && i < max_len; i++) {
         buffer[i] = sock->rx_buffer[i];

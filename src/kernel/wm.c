@@ -976,6 +976,7 @@ void wm_handle_click(int x, int y) {
                 }
                 
                 if (can_paste) {
+                    int old_count = desktop_icon_count;
                     if (desktop_menu_target_icon != -1 && desktop_icons[desktop_menu_target_icon].type == 1) {
                         // Paste into folder
                         char path[128] = "/Desktop/";
@@ -987,6 +988,20 @@ void wm_handle_click(int x, int y) {
                         explorer_clipboard_paste(&win_explorer, "/Desktop");
                     }
                     refresh_desktop_icons();
+
+                    // If auto-align is OFF and we pasted to the background, place at click location
+                    if (!desktop_auto_align && desktop_icon_count > old_count && desktop_menu_target_icon == -1) {
+                        int new_idx = desktop_icon_count - 1;
+                        desktop_icons[new_idx].x = desktop_menu_x - 20;
+                        desktop_icons[new_idx].y = desktop_menu_y - 20;
+                        if (desktop_snap_to_grid) {
+                            int col = (desktop_icons[new_idx].x - 20 + 40) / 80;
+                            int row = (desktop_icons[new_idx].y - 20 + 40) / 80;
+                            if (col < 0) col = 0; if (row < 0) row = 0;
+                            desktop_icons[new_idx].x = 20 + col * 80;
+                            desktop_icons[new_idx].y = 20 + row * 80;
+                        }
+                    }
                 }
             }
             else if (item == 3 && desktop_menu_target_icon != -1) { // Delete
@@ -1496,20 +1511,17 @@ void wm_handle_right_click(int x, int y) {
                             wm_show_message("Error", "Desktop is full!");
                         } else {
                             explorer_import_file_to(&win_explorer, drag_file_path, "/Desktop");
-                            refresh_desktop_icons();
                         }
                         
                         // Handle insertion at specific position
+                        char filename[64];
+                        int len = 0; while(drag_file_path[len]) len++;
+                        int s = len - 1; while(s >= 0 && drag_file_path[s] != '/') s--;
+                        s++;
+                        int d = 0; while(drag_file_path[s] && d < 63) filename[d++] = drag_file_path[s++];
+                        filename[d] = 0;
+
                         if (desktop_auto_align && !msg_box_visible) {
-                            // Find the newly added icon (it will be at the end)
-                            // Extract filename from drag_file_path
-                            char filename[64];
-                            int len = 0; while(drag_file_path[len]) len++;
-                            int s = len - 1; while(s >= 0 && drag_file_path[s] != '/') s--;
-                            s++;
-                            int d = 0; while(drag_file_path[s] && d < 63) filename[d++] = drag_file_path[s++];
-                            filename[d] = 0;
-                            
                             int new_idx = -1;
                             for(int i=0; i<desktop_icon_count; i++) {
                                 if (str_eq(desktop_icons[i].name, filename) == 0) {
@@ -1533,6 +1545,21 @@ void wm_handle_right_click(int x, int y) {
                                 desktop_icons[target_idx] = temp;
                                 
                                 refresh_desktop_icons(); // Re-apply layout
+                            }
+                        } else if (!desktop_auto_align && !msg_box_visible) {
+                            for(int i=0; i<desktop_icon_count; i++) {
+                                if (str_eq(desktop_icons[i].name, filename) == 0) {
+                                    desktop_icons[i].x = mx - 20;
+                                    desktop_icons[i].y = my - 20;
+                                    if (desktop_snap_to_grid) {
+                                        int col = (desktop_icons[i].x - 20 + 40) / 80;
+                                        int row = (desktop_icons[i].y - 20 + 40) / 80;
+                                        if (col < 0) col = 0; if (row < 0) row = 0;
+                                        desktop_icons[i].x = 20 + col * 80;
+                                        desktop_icons[i].y = 20 + row * 80;
+                                    }
+                                    break;
+                                }
                             }
                         }
                     } else if (!dropped_on_target) {

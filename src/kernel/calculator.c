@@ -60,7 +60,6 @@ static void fixed_to_str(long long n, char *buf) {
     }
     frac_buf[f_idx] = 0;
     
-    // If we have a fraction, add it to buffer (reversed first)
     if (f_idx > 0) {
         for (int i = f_idx - 1; i >= 0; i--) {
             temp[pos++] = frac_buf[i];

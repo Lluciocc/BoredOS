@@ -11,7 +11,6 @@ _start:
     ; Ensure interrupts are disabled
     cli
     
-    ; Setup stack is handled by Limine, but we can re-align if paranoid
     ; (Limine guarantees 16-byte alignment)
 
     ; Call the C kernel entry point

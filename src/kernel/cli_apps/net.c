@@ -140,7 +140,6 @@ void cli_cmd_udptest(char *args){
 
 void cli_cmd_msgrc(char *args) {
     (void)args;
-    // Reset message count since we are viewing them
     cmd_reset_msg_count();
 
     FAT32_FileHandle *fh = fat32_open("messages", "r");
