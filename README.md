@@ -1,13 +1,12 @@
 # Brew OS 1.45 Beta
 BrewOS is now in a Beta stage as i have brought over all apps from brewkernel and have made the DE a lot more usable and stable.
 
-
-![Screenshot 2026-02-10 at 18 59 10](https://github.com/user-attachments/assets/d8602e1a-dc76-4997-a91f-999b23ba3fc3)
-*this screenshot might be outdated*
-
 <img src="asciiart.png" width="200" /> </br>
 Brew Kernel is a simple x86_64 hobbyist operating system. 
 It features a DE (and WM), a FAT32 filesystem, customizable UI and much much more!
+
+![Screenshot 2026-02-10 at 18 59 10](https://github.com/user-attachments/assets/d8602e1a-dc76-4997-a91f-999b23ba3fc3)
+*this screenshot might be outdated*
 
 ## Features
 - Drag and drop mouse centered UI
