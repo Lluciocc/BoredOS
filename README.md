@@ -19,9 +19,13 @@ It features a DE (and WM), a FAT32 filesystem, customizable UI and much much mor
 - Text editor
 - Markdown Viewer
 - Minesweeper
+- Markdown Viewer
+- GUI Text editor
+- Paint application
 - IDT
 - Ability to run on actual x86_64 hardware
 - CLI
+- (Limited) C Compiler
 
 ## Prerequisites
 
