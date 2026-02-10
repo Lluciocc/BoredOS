@@ -134,9 +134,29 @@ void put_pixel(int x, int y, uint32_t color) {
 }
 
 void draw_rect(int x, int y, int w, int h, uint32_t color) {
-    for (int i = 0; i < h; i++) {
-        for (int j = 0; j < w; j++) {
-            put_pixel(x + j, y + i, color);
+    if (!g_fb) return;
+
+    int x1 = x, y1 = y, x2 = x + w, y2 = y + h;
+    
+    if (g_clip_enabled) {
+        if (x1 < g_clip_x) x1 = g_clip_x;
+        if (y1 < g_clip_y) y1 = g_clip_y;
+        if (x2 > g_clip_x + g_clip_w) x2 = g_clip_x + g_clip_w;
+        if (y2 > g_clip_y + g_clip_h) y2 = g_clip_y + g_clip_h;
+    }
+
+    if (x1 < 0) x1 = 0;
+    if (y1 < 0) y1 = 0;
+    if (x2 > (int)g_fb->width) x2 = g_fb->width;
+    if (y2 > (int)g_fb->height) y2 = g_fb->height;
+
+    if (x1 >= x2 || y1 >= y2) return;
+
+    for (int i = y1; i < y2; i++) {
+        uint32_t *row = &g_back_buffer[i * g_fb->width + x1];
+        int len = x2 - x1;
+        for (int j = 0; j < len; j++) {
+            row[j] = color;
         }
     }
 }
@@ -144,6 +164,15 @@ void draw_rect(int x, int y, int w, int h, uint32_t color) {
 void draw_char(int x, int y, char c, uint32_t color) {
     unsigned char uc = (unsigned char)c;
     if (uc > 127) return;
+
+    // Fast rejection: if the character is entirely outside the clipping/dirty rect, skip it
+    if (g_clip_enabled) {
+        if (x + 8 <= g_clip_x || x >= g_clip_x + g_clip_w ||
+            y + 8 <= g_clip_y || y >= g_clip_y + g_clip_h) {
+            return;
+        }
+    }
+
     const uint8_t *glyph = font8x8_basic[uc];
 
     for (int row = 0; row < 8; row++) {
@@ -174,13 +203,18 @@ void draw_desktop_background(void) {
     if (!g_fb) return;
     
     if (g_use_pattern) {
-        // Draw tiled pattern
-        for (int y = 0; y < (int)g_fb->height; y++) {
-            for (int x = 0; x < (int)g_fb->width; x++) {
-                int px = x % PATTERN_SIZE;
-                int py = y % PATTERN_SIZE;
-                uint32_t color = g_bg_pattern[py * PATTERN_SIZE + px];
-                put_pixel(x, y, color);
+        // Optimized tiled pattern: only draw within the clipping/dirty rect
+        int x1 = 0, y1 = 0, x2 = g_fb->width, y2 = g_fb->height;
+        if (g_clip_enabled) {
+            x1 = g_clip_x; y1 = g_clip_y;
+            x2 = g_clip_x + g_clip_w; y2 = g_clip_y + g_clip_h;
+        }
+
+        for (int y = y1; y < y2; y++) {
+            uint32_t *row = &g_back_buffer[y * g_fb->width + x1];
+            int py = y % PATTERN_SIZE;
+            for (int x = x1; x < x2; x++) {
+                *row++ = g_bg_pattern[py * PATTERN_SIZE + (x % PATTERN_SIZE)];
             }
         }
     } else {
@@ -214,20 +248,27 @@ void graphics_clear_back_buffer(uint32_t color) {
 }
 
 void graphics_flip_buffer(void) {
-    if (!g_fb) return;
-    
-    // Copy back buffer to framebuffer
-    uint32_t *src = g_back_buffer;
-    uint8_t *dst = (uint8_t *)g_fb->address;
-    
-    for (int y = 0; y < (int)g_fb->height; y++) {
-        // Copy one scanline
-        uint32_t *dst_row = (uint32_t *)dst;
-        for (int x = 0; x < (int)g_fb->width; x++) {
-            dst_row[x] = src[x];
+    if (!g_fb || !g_dirty.active) return;
+
+    int x = g_dirty.x;
+    int y = g_dirty.y;
+    int w = g_dirty.w;
+    int h = g_dirty.h;
+
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > (int)g_fb->width) w = g_fb->width - x;
+    if (y + h > (int)g_fb->height) h = g_fb->height - y;
+
+    if (w <= 0 || h <= 0) return;
+
+    for (int i = 0; i < h; i++) {
+        int curr_y = y + i;
+        uint32_t *src_row = &g_back_buffer[curr_y * g_fb->width + x];
+        uint32_t *dst_row = (uint32_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
+        for (int j = 0; j < w; j++) {
+            dst_row[j] = src_row[j];
         }
-        src += g_fb->width;
-        dst += g_fb->pitch;
     }
 }
 

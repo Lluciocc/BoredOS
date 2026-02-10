@@ -88,8 +88,8 @@ static int desktop_icon_count = 0;
 // Desktop Settings
 bool desktop_snap_to_grid = true;
 bool desktop_auto_align = true;
-int desktop_max_rows_per_col = 9;
-int desktop_max_cols = 15;
+int desktop_max_rows_per_col = 13;
+int desktop_max_cols = 23;
 
 // Helper to check if string ends with suffix
 static bool str_ends_with(const char *str, const char *suffix) {
@@ -697,20 +697,26 @@ void wm_paint(void) {
     int sw = get_screen_width();
     int sh = get_screen_height();
     
-    // Ensure no stale clipping state interferes with the new frame
-    graphics_clear_clipping();
 
-    // First, erase the old cursor (before redrawing anything)
-    if (cursor_visible) {
-        erase_cursor(last_cursor_x, last_cursor_y);
+    DirtyRect dirty = graphics_get_dirty_rect();
+    if (dirty.active) {
+        graphics_set_clipping(dirty.x, dirty.y, dirty.w, dirty.h);
+    } else {
+        graphics_clear_clipping();
     }
-    
+
     // 1. Desktop
     draw_desktop_background();
     
     // Draw Desktop Icons
     for (int i = 0; i < desktop_icon_count; i++) {
         DesktopIcon *icon = &desktop_icons[i];
+        if (dirty.active) {
+            if (icon->x + 80 <= dirty.x || icon->x >= dirty.x + dirty.w ||
+                icon->y + 80 <= dirty.y || icon->y >= dirty.y + dirty.h) {
+                continue;
+            }
+        }
         if (icon->type == 1) draw_folder_icon(icon->x, icon->y, icon->name);
         else if (icon->type == 2) {
             // App icon - strip .app for display
@@ -765,7 +771,15 @@ void wm_paint(void) {
     
     // Draw windows in z-order (lowest first)
     for (int i = 0; i < window_count; i++) {
-        draw_window(sorted_windows[i]);
+        Window *win = sorted_windows[i];
+        if (!win->visible) continue;
+        if (dirty.active) {
+            if (win->x + win->w <= dirty.x || win->x >= dirty.x + dirty.w ||
+                win->y + win->h <= dirty.y || win->y >= dirty.y + dirty.h) {
+                continue;
+            }
+        }
+        draw_window(win);
     }
     
     // 4. Taskbar
@@ -917,6 +931,7 @@ void wm_bring_to_front(Window *win) {
     win->visible = true;
     win->focused = true;
     win->z_index = max_z + 1;
+    force_redraw = true;
 }
 
 void wm_add_window(Window *win) {
@@ -989,7 +1004,6 @@ void wm_handle_click(int x, int y) {
                     }
                     refresh_desktop_icons();
 
-                    // If auto-align is OFF and we pasted to the background, place at click location
                     if (!desktop_auto_align && desktop_icon_count > old_count && desktop_menu_target_icon == -1) {
                         int new_idx = desktop_icon_count - 1;
                         desktop_icons[new_idx].x = desktop_menu_x - 20;
@@ -1292,7 +1306,7 @@ void wm_handle_right_click(int x, int y) {
                 DesktopIcon *icon = &desktop_icons[i];
                 is_dragging_file = true;
                 drag_icon_type = icon->type;
-                pending_desktop_icon_click = -1; // Cancel pending click since we are dragging
+                pending_desktop_icon_click = -1; 
                 drag_icon_orig_x = icon->x;
                 drag_icon_orig_y = icon->y;
                 // Construct path
@@ -1312,7 +1326,6 @@ void wm_handle_right_click(int x, int y) {
                     for (int w = 0; w < window_count; w++) {
                         Window *win = all_windows[w];
                         if (win->visible && rect_contains(win->x, win->y, win->w, win->h, drag_start_x, drag_start_y)) {
-                            // This is a bit of a hack, but we check if it's an explorer window
                             if (str_starts_with(win->title, "File Explorer")) {
                                 drag_src_win = win;
                                 explorer_clear_click_state(win);
@@ -1369,48 +1382,52 @@ void wm_handle_right_click(int x, int y) {
             int i = pending_desktop_icon_click;
             if (i < desktop_icon_count) {
                 DesktopIcon *icon = &desktop_icons[i];
+                bool handled = false;
                 if (icon->type == 2) { // App Shortcut
                     // Check name to launch app
                     if (str_ends_with(icon->name, "Notepad.shortcut")) {
-                        notepad_reset(); wm_bring_to_front(&win_notepad);
+                        notepad_reset(); wm_bring_to_front(&win_notepad); handled = true;
                     } else if (str_ends_with(icon->name, "Calculator.shortcut")) {
-                        wm_bring_to_front(&win_calculator);
+                        wm_bring_to_front(&win_calculator); handled = true;
                     } else if (str_ends_with(icon->name, "Minesweeper.shortcut")) {
-                        wm_bring_to_front(&win_minesweeper);
+                        wm_bring_to_front(&win_minesweeper); handled = true;
                     } else if (str_ends_with(icon->name, "Control Panel.shortcut")) {
-                        wm_bring_to_front(&win_control_panel);
+                        wm_bring_to_front(&win_control_panel); handled = true;
                     } else if (str_ends_with(icon->name, "Terminal.shortcut")) {
-                        wm_bring_to_front(&win_cmd);
+                        wm_bring_to_front(&win_cmd); handled = true;
                     } else if (str_ends_with(icon->name, "About.shortcut")) {
-                        wm_bring_to_front(&win_about);
+                        wm_bring_to_front(&win_about); handled = true;
                     } else if (str_ends_with(icon->name, "Explorer.shortcut")) {
-                        explorer_open_directory("/");
+                        explorer_open_directory("/"); handled = true;
                     } else if (str_ends_with(icon->name, "Recycle Bin.shortcut")) {
-                        explorer_open_directory("/RecycleBin");
+                        explorer_open_directory("/RecycleBin"); handled = true;
                     } else if (str_ends_with(icon->name, "Paint.shortcut")) {
-                        wm_bring_to_front(&win_paint);
+                        wm_bring_to_front(&win_paint); handled = true;
                     }
                     
-                    // Generic Shortcut Handling
-                    char path[128] = "/Desktop/";
-                    int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
-                    
-                    if (str_ends_with(icon->name, ".shortcut") && !str_starts_with(icon->name, "Recycle Bin")) {
-                        FAT32_FileHandle *fh = fat32_open(path, "r");
-                        if (fh) {
-                            char buf[256];
-                            int len = fat32_read(fh, buf, 255);
-                            fat32_close(fh);
-                            if (len > 0) {
-                                buf[len] = 0;
-                                if (fat32_is_directory(buf)) {
-                                    explorer_open_directory(buf);
-                                } else {
-                                    editor_open_file(buf);
-                                    wm_bring_to_front(&win_editor);
+                    if (!handled) {
+                        // Generic Shortcut Handling
+                        char path[128] = "/Desktop/";
+                        int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                        
+                        if (str_ends_with(icon->name, ".shortcut") && !str_starts_with(icon->name, "Recycle Bin")) {
+                            FAT32_FileHandle *fh = fat32_open(path, "r");
+                            if (fh) {
+                                char buf[256];
+                                int len = fat32_read(fh, buf, 255);
+                                fat32_close(fh);
+                                if (len > 0) {
+                                    buf[len] = 0;
+                                    if (fat32_is_directory(buf)) {
+                                        explorer_open_directory(buf);
+                                    } else {
+                                        editor_open_file(buf);
+                                        wm_bring_to_front(&win_editor);
+                                    }
+                                    pending_desktop_icon_click = -1;
+                                    force_redraw = true;
+                                    return;
                                 }
-                                pending_desktop_icon_click = -1;
-                                return;
                             }
                         }
                     }
@@ -1626,7 +1643,6 @@ void wm_handle_right_click(int x, int y) {
                                     if (dx < 0) dx = -dx;
                                     if (dy < 0) dy = -dy;
                                     if (dx < 35 && dy < 35) {
-                                        // Collision with non-folder (or we would have handled it)
                                         // Revert position
                                         desktop_icons[dragged_idx].x = drag_icon_orig_x;
                                         desktop_icons[dragged_idx].y = drag_icon_orig_y;
@@ -1825,11 +1841,11 @@ uint32_t wm_get_ticks(void) {
 void wm_timer_tick(void) {
     timer_ticks++;
     
-    // Auto-refresh desktop every second (approx 60 ticks)
-    // But NOT if we are currently dragging something, to avoid state conflicts
+    // Auto-refresh desktop every 5 seconds  to save CPU in QEMU
+    // But NOT if the user is dragging a window or file.
     if (!is_dragging && !is_dragging_file) {
         desktop_refresh_timer++;
-        if (desktop_refresh_timer >= 60) {
+        if (desktop_refresh_timer >= 300) {
             refresh_desktop_icons();
             explorer_refresh_all();
             desktop_refresh_timer = 0;
