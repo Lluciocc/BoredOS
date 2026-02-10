@@ -1,11 +1,11 @@
-# Bored OS 1.50
+# BoredOS 1.50 Beta
 BoredOS is now in a Beta stage as i have brought over all apps from brewkernel and have made the DE a lot more usable and stable.
 
-<img src="asciiart.png" width="200" /> </br>
+<img src="bored.svg" width="200" /> </br>
 BoredOS is a simple x86_64 hobbyist operating system. 
 It features a DE (and WM), a FAT32 filesystem, customizable UI and much much more!
 
-![Screenshot 2026-02-10 at 18 59 10](https://github.com/user-attachments/assets/d8602e1a-dc76-4997-a91f-999b23ba3fc3)
+![Screenshot](screenshot.jpg)
 *this screenshot might be outdated*
 
 ## Features
