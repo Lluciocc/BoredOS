@@ -106,26 +106,106 @@ void cli_cmd_mkdir(char *args) {
     }
 }
 
+// Helper for recursive deletion
+static bool rm_recursive(const char *path) {
+    if (fat32_exists(path) && !fat32_is_directory(path)) {
+        return fat32_delete(path);
+    }
+    
+    if (!fat32_exists(path)) {
+        return false;
+    }
+    
+    // It's a directory: delete contents first
+    while (1) {
+        FAT32_FileInfo entries[10];
+        int count = fat32_list_directory(path, entries, 10);
+        if (count <= 0) break;
+        
+        for (int i = 0; i < count; i++) {
+            // Construct child path
+            char child_path[256];
+            cli_strcpy(child_path, path);
+            int len = cli_strlen(child_path);
+            if (len > 0 && child_path[len-1] != '/') {
+                child_path[len++] = '/';
+                child_path[len] = 0;
+            }
+            
+            // Append name
+            const char *name = entries[i].name;
+            int j = 0; 
+            while (name[j] && len < 255) {
+                child_path[len++] = name[j++];
+            }
+            child_path[len] = 0;
+            
+            // Recurse
+            if (!rm_recursive(child_path)) {
+                cli_write("Error: Failed to delete ");
+                cli_write(child_path);
+                cli_write("\n");
+            }
+        }
+    }
+    
+    return fat32_rmdir(path);
+}
+
 void cli_cmd_rm(char *args) {
     if (!args || args[0] == 0) {
-        cli_write("Usage: rm <filename>\n");
+        cli_write("Usage: rm [-r] <path>\n");
+        return;
+    }
+    
+    bool recursive = false;
+    
+    // Check for -r flag
+    int i = 0;
+    while (args[i] == ' ' || args[i] == '\t') i++;
+    
+    if (args[i] == '-' && args[i+1] == 'r' && (args[i+2] == ' ' || args[i+2] == '\t' || args[i+2] == 0)) {
+        recursive = true;
+        i += 2;
+        while (args[i] == ' ' || args[i] == '\t') i++;
+    }
+    
+    char *path_start = args + i;
+    if (path_start[0] == 0) {
+        cli_write("Usage: rm [-r] <path>\n");
         return;
     }
     
     char filename[256];
-    int i = 0;
-    while (args[i] && args[i] != ' ' && args[i] != '\t') {
-        filename[i] = args[i];
-        i++;
+    int j = 0;
+    while (path_start[j] && path_start[j] != ' ' && path_start[j] != '\t') {
+        filename[j] = path_start[j];
+        j++;
     }
-    filename[i] = 0;
+    filename[j] = 0;
     
-    if (fat32_delete(filename)) {
-        cli_write("Deleted: ");
-        cli_write(filename);
-        cli_write("\n");
+    if (recursive) {
+        if (rm_recursive(filename)) {
+            cli_write("Deleted recursively: ");
+            cli_write(filename);
+            cli_write("\n");
+        } else {
+             cli_write("Error: Cannot delete ");
+             cli_write(filename);
+             cli_write("\n");
+        }
     } else {
-        cli_write("Error: Cannot delete file\n");
+        if (fat32_is_directory(filename)) {
+            cli_write("Error: Is a directory. Use -r to delete.\n");
+        } else {
+            if (fat32_delete(filename)) {
+                cli_write("Deleted: ");
+                cli_write(filename);
+                cli_write("\n");
+            } else {
+                cli_write("Error: Cannot delete file\n");
+            }
+        }
     }
 }
 

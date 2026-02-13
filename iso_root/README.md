@@ -1,5 +1,5 @@
-# BoredOS 1.50 Beta
-BoredOS is now in a Beta stage as i have brought over all apps from brewkernel and have made the DE a lot more usable and stable.
+# BoredOS 1.50
+BoredOS has now exited Beta stage and is "stable enough" to be put out as a "stable" product.
 
 <img src="bored.svg" width="200" /> </br>
 BoredOS is a simple x86_64 hobbyist operating system. 
