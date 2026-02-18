@@ -43,6 +43,7 @@ typedef struct {
 
     // Dropdown menu state
     bool dropdown_menu_visible;
+    bool drive_menu_visible;
     
     // File context menu state
     bool file_context_menu_visible;

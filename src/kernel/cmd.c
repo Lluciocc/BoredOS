@@ -6,6 +6,7 @@
 #include "notepad.h"
 #include "calculator.h"
 #include "fat32.h"
+#include "disk.h"
 #include "cli_apps/cli_apps.h"
 #include "licensewr.h"
 #include <stddef.h>
@@ -21,7 +22,6 @@
 #define CMD_ROWS 41
 #define LINE_HEIGHT 10
 #define CHAR_WIDTH 8
-#define PROMPT "> "
 
 #define COLOR_RED 0xFFFF0000
 
@@ -39,6 +39,12 @@ typedef enum {
     MODE_PAGER
 } CmdMode;
 
+// CMD Window State (per-window context)
+typedef struct {
+    char current_drive;
+    char current_dir[256];
+} CmdState;
+
 // --- State ---
 Window win_cmd;
 
@@ -47,6 +53,7 @@ static CharCell screen_buffer[CMD_ROWS][CMD_COLS];
 static int cursor_row = 0;
 static int cursor_col = 0;
 static uint32_t current_color = COLOR_LTGRAY;
+static CmdState *cmd_state = NULL;  // Will be set in cmd_init
 
 // Pager State
 static CmdMode current_mode = MODE_SHELL;
@@ -139,8 +146,18 @@ static void cmd_history_add(const char *cmd) {
     if (history_len < HISTORY_MAX) history_len++;
 }
 
+static void cmd_print_prompt(void) {
+    char buf[5];
+    buf[0] = cmd_state ? cmd_state->current_drive : 'A';
+    buf[1] = ':';
+    buf[2] = '>';
+    buf[3] = ' ';
+    buf[4] = 0;
+    cmd_write(buf);
+}
+
 static void cmd_clear_line_content(void) {
-    int prompt_len = cmd_strlen(PROMPT);
+    int prompt_len = 4; // "A:> "
     for (int i = prompt_len; i < CMD_COLS; i++) {
         screen_buffer[cursor_row][i].c = ' ';
         screen_buffer[cursor_row][i].color = current_color;
@@ -327,6 +344,204 @@ void pager_set_mode(void) {
 }
 
 // Internal LS command to avoid stack overflow in external module
+static void cmd_update_dir(const char *path);  // Forward declaration
+
+static void internal_cmd_pwd(char *args) {
+    (void)args;
+    if (cmd_state) {
+        char drive_str[3];
+        drive_str[0] = cmd_state->current_drive;
+        drive_str[1] = ':';
+        drive_str[2] = 0;
+        cmd_write(drive_str);
+        cmd_write(cmd_state->current_dir);
+    } else {
+        char cwd[256];
+        fat32_get_current_dir(cwd, sizeof(cwd));
+        cmd_write(cwd);
+    }
+    cmd_write("\n");
+}
+
+static void internal_cmd_cd(char *args) {
+    // Handle cd with proper cmd_state context
+    if (!args || !args[0]) {
+        // No argument - show current directory
+        if (cmd_state) {
+            char drive_str[3];
+            drive_str[0] = cmd_state->current_drive;
+            drive_str[1] = ':';
+            drive_str[2] = 0;
+            cmd_write(drive_str);
+            cmd_write(cmd_state->current_dir);
+            cmd_write("\n");
+        } else {
+            char cwd[256];
+            fat32_get_current_dir(cwd, sizeof(cwd));
+            cmd_write("Current directory: ");
+            cmd_write(cwd);
+            cmd_write("\n");
+        }
+        return;
+    }
+    
+    // Parse argument (remove trailing spaces/tabs)
+    char path[256];
+    int i = 0;
+    while (args[i] && args[i] != ' ' && args[i] != '\t') {
+        path[i] = args[i];
+        i++;
+    }
+    path[i] = 0;
+    
+    // For cmd_state, we need to build and validate the full path
+    if (cmd_state) {
+        // Build full path for validation
+        char full_path[512] = {0};
+        if (path[1] == ':') {
+            // Has drive letter
+            cmd_strcpy(full_path, path);
+        } else if (path[0] == '/') {
+            // Absolute path
+            full_path[0] = cmd_state->current_drive;
+            full_path[1] = ':';
+            int j = 2;
+            int k = 0;
+            while (path[k] && j < 509) {
+                full_path[j++] = path[k++];
+            }
+            full_path[j] = 0;
+        } else {
+            // Relative path - resolve from current directory
+            full_path[0] = cmd_state->current_drive;
+            full_path[1] = ':';
+            int j = 2;
+            
+            // Copy current directory
+            const char *dir = cmd_state->current_dir;
+            while (*dir && j < 509) {
+                full_path[j++] = *dir++;
+            }
+            
+            // Add separator if needed
+            if (j > 2 && full_path[j-1] != '/') {
+                full_path[j++] = '/';
+            }
+            
+            // Add path argument
+            int k = 0;
+            while (path[k] && j < 509) {
+                full_path[j++] = path[k++];
+            }
+            full_path[j] = 0;
+        }
+        
+        // Validate directory exists
+        if (fat32_is_directory(full_path)) {
+            // Normalize the path to resolve .. and .
+            char normalized_path[512];
+            fat32_normalize_path(full_path, normalized_path);
+            
+            cmd_update_dir(normalized_path);
+            cmd_write("Changed to: ");
+            char drive_str[3];
+            drive_str[0] = cmd_state->current_drive;
+            drive_str[1] = ':';
+            drive_str[2] = 0;
+            cmd_write(drive_str);
+            cmd_write(cmd_state->current_dir);
+            cmd_write("\n");
+        } else {
+            cmd_write("Error: Cannot change to directory: ");
+            cmd_write(path);
+            cmd_write("\n");
+        }
+    } else {
+        // Fallback to global state if no cmd_state
+        if (fat32_chdir(path)) {
+            char cwd[256];
+            fat32_get_current_dir(cwd, sizeof(cwd));
+            cmd_write("Changed to: ");
+            cmd_write(cwd);
+            cmd_write("\n");
+        } else {
+            cmd_write("Error: Cannot change to directory: ");
+            cmd_write(path);
+            cmd_write("\n");
+        }
+    }
+}
+
+static void internal_cmd_txtedit(char *args) {
+    // Parse the file path argument
+    char filepath[256];
+    int i = 0;
+    
+    // Skip leading whitespace
+    while (args && args[i] && (args[i] == ' ' || args[i] == '\t')) {
+        i++;
+    }
+    
+    // Extract filepath (args now includes drive prefix from cmd_exec_single)
+    int j = 0;
+    while (args && args[i] && args[i] != ' ' && args[i] != '\t' && j < 255) {
+        filepath[j++] = args[i++];
+    }
+    filepath[j] = 0;
+    
+    // If no filepath provided, show usage
+    if (j == 0) {
+        cmd_write("Usage: txtedit <filename>\n");
+        cmd_write("Example: txtedit myfile.txt\n");
+        cmd_write("         txtedit /document.txt\n");
+        return;
+    }
+
+    // Normalize the path (filepath already includes drive from cmd_exec_single)
+    char normalized_path[256];
+    fat32_normalize_path(filepath, normalized_path);
+    
+    // Extract drive from normalized path to set it as current temporarily
+    char drive = 'A';
+    if (normalized_path[1] == ':') {
+        drive = normalized_path[0];
+        if (drive >= 'a' && drive <= 'z') drive -= 32;
+    }
+    
+    // Set global drive temporarily to match file's drive
+    char saved_drive = fat32_get_current_drive();
+    fat32_change_drive(drive);
+    
+    // Open the file in the GUI editor
+    extern void editor_open_file(const char *filename);
+    extern Window win_editor;
+    editor_open_file(normalized_path);
+    
+    // Restore the drive
+    fat32_change_drive(saved_drive);
+
+    // Make editor window visible and focused, bring to front
+    extern Window win_explorer;
+    extern Window win_cmd;
+    extern Window win_notepad;
+    extern Window win_calculator;
+    
+    win_editor.visible = true;
+    win_editor.focused = true;
+    
+    // Calculate max z_index to bring window to front
+    int max_z = 0;
+    if (win_explorer.z_index > max_z) max_z = win_explorer.z_index;
+    if (win_cmd.z_index > max_z) max_z = win_cmd.z_index;
+    if (win_notepad.z_index > max_z) max_z = win_notepad.z_index;
+    if (win_calculator.z_index > max_z) max_z = win_calculator.z_index;
+    win_editor.z_index = max_z + 1;
+    
+    cmd_write("Opening: ");
+    cmd_write(normalized_path);
+    cmd_write("\n");
+}
+
 static void internal_cmd_ls(char *args) {
     char path[256];
     if (args && *args) {
@@ -386,8 +601,8 @@ static const CommandEntry commands[] = {
     {"math", cli_cmd_math},
     {"MAN", cli_cmd_man},
     {"man", cli_cmd_man},
-    {"TXTEDIT", cli_cmd_txtedit},
-    {"txtedit", cli_cmd_txtedit},
+    {"TXTEDIT", internal_cmd_txtedit},
+    {"txtedit", internal_cmd_txtedit},
     {"UPTIME", cli_cmd_uptime},
     {"uptime", cli_cmd_uptime},
     {"BEEP", cli_cmd_beep},
@@ -405,10 +620,10 @@ static const CommandEntry commands[] = {
     {"EXIT", cli_cmd_exit},
     {"exit", cli_cmd_exit},
     // Filesystem Commands
-    {"CD", cli_cmd_cd},
-    {"cd", cli_cmd_cd},
-    {"PWD", cli_cmd_pwd},
-    {"pwd", cli_cmd_pwd},
+    {"CD", internal_cmd_cd},
+    {"cd", internal_cmd_cd},
+    {"PWD", internal_cmd_pwd},
+    {"pwd", internal_cmd_pwd},
     {"LS", internal_cmd_ls},
     {"ls", internal_cmd_ls},
     {"MKDIR", cli_cmd_mkdir},
@@ -468,6 +683,88 @@ static const CommandEntry commands[] = {
     {NULL, NULL}
 };
 
+// Helper to build full path with cmd window's drive context
+static void cmd_build_full_path(const char *relative_path, char *full_path) {
+    if (!cmd_state) {
+        if (relative_path[0]) {
+            cmd_strcpy(full_path, relative_path);
+        } else {
+            full_path[0] = 'A';
+            full_path[1] = ':';
+            full_path[2] = '/';
+            full_path[3] = 0;
+        }
+        return;
+    }
+    
+    // If path already has drive letter, use it as-is
+    if (relative_path && relative_path[1] == ':') {
+        cmd_strcpy(full_path, relative_path);
+        return;
+    }
+    
+    // Build path with cmd_state's drive and directory
+    int i = 0;
+    full_path[i++] = cmd_state->current_drive;
+    full_path[i++] = ':';
+    
+    // Add current directory
+    const char *dir = cmd_state->current_dir;
+    while (*dir && i < 509) {
+        full_path[i++] = *dir++;
+    }
+    
+    // Add path argument
+    if (relative_path && relative_path[0]) {
+        if (i > 2 && full_path[i-1] != '/') {
+            full_path[i++] = '/';
+        }
+        const char *p = relative_path;
+        while (*p && i < 509) {
+            full_path[i++] = *p++;
+        }
+    }
+    
+    full_path[i] = 0;
+}
+
+// Helper to sync cmd window directory after cd
+static void cmd_update_dir(const char *path) {
+    if (!cmd_state || !path) return;
+    
+    // Extract drive if provided
+    const char *p = path;
+    char drive = cmd_state->current_drive;
+    if (p[0] && p[1] == ':') {
+        drive = p[0];
+        if (drive >= 'a' && drive <= 'z') drive -= 32;
+        p += 2;
+    }
+    
+    // Update drive
+    cmd_state->current_drive = drive;
+    
+    // Update directory
+    if (*p) {
+        // Remove trailing slashes and copy
+        int len = 0;
+        while (p[len]) len++;
+        while (len > 0 && p[len-1] == '/') len--;
+        
+        if (len == 0) {
+            cmd_state->current_dir[0] = '/';
+            cmd_state->current_dir[1] = 0;
+        } else {
+            for (int i = 0; i < len && i < 255; i++) {
+                cmd_state->current_dir[i] = p[i];
+            }
+            cmd_state->current_dir[len] = 0;
+        }
+    } else {
+        cmd_state->current_dir[0] = '/';
+        cmd_state->current_dir[1] = 0;
+    }
+}
 
 static const char* find_pipe(const char* cmd) {
     while (*cmd) {
@@ -483,8 +780,42 @@ static void cmd_exec_single(char *cmd) {
     while (*cmd == ' ') cmd++;
     if (!*cmd) return;
 
+    // Check for drive switch (e.g. "A:", "B:")
+    if (cmd[0] && cmd[1] == ':' && cmd[2] == 0) {
+        char letter = cmd[0];
+        if (letter >= 'a' && letter <= 'z') letter -= 32;
+        
+        // Check if drive exists (don't change global, just check)
+        if (disk_get_by_letter(letter)) {
+            // Update cmd window's drive, not global
+            if (cmd_state) {
+                cmd_state->current_drive = letter;
+                cmd_state->current_dir[0] = '/';
+                cmd_state->current_dir[1] = 0;
+            }
+        } else {
+            cmd_write("Invalid drive.\n");
+        }
+        return;
+    }
+
     if (cmd[0] == '.' && cmd[1] == '/') {
         char *filename = cmd + 2;
+        
+        // Build full path with drive context
+        char full_exec_path[512];
+        if (cmd_state && cmd_state->current_drive != 'A') {
+            full_exec_path[0] = cmd_state->current_drive;
+            full_exec_path[1] = ':';
+            int i = 2;
+            const char *p = filename;
+            while (*p && i < 509) {
+                full_exec_path[i++] = *p++;
+            }
+            full_exec_path[i] = 0;
+            filename = full_exec_path;
+        }
+        
         FAT32_FileHandle *fh = fat32_open(filename, "r");
         if (fh) {
 
@@ -521,6 +852,168 @@ static void cmd_exec_single(char *cmd) {
         args++; // Point to start of args
     }
 
+    // For file system commands, prepend drive context to path args if on different drive
+    // Build full path with drive letter for commands that take paths
+    char full_path_arg[512] = {0};
+    bool is_cd_command = (cmd_strcmp(cmd, "cd") == 0 || cmd_strcmp(cmd, "CD") == 0);
+    bool is_ls_command = (cmd_strcmp(cmd, "ls") == 0 || cmd_strcmp(cmd, "LS") == 0);
+    bool is_echo_command = (cmd_strcmp(cmd, "echo") == 0 || cmd_strcmp(cmd, "ECHO") == 0);
+    
+    if (cmd_state) {
+        // Check if this is a command that takes a path argument
+        bool needs_path = (is_ls_command ||
+                          is_cd_command ||
+                          cmd_strcmp(cmd, "mkdir") == 0 || cmd_strcmp(cmd, "MKDIR") == 0 ||
+                          cmd_strcmp(cmd, "rm") == 0 || cmd_strcmp(cmd, "RM") == 0 ||
+                          cmd_strcmp(cmd, "cat") == 0 || cmd_strcmp(cmd, "CAT") == 0 ||
+                          is_echo_command ||
+                          cmd_strcmp(cmd, "cc") == 0 || cmd_strcmp(cmd, "CC") == 0 ||
+                          cmd_strcmp(cmd, "compc") == 0 || cmd_strcmp(cmd, "COMPC") == 0 ||
+                          cmd_strcmp(cmd, "touch") == 0 || cmd_strcmp(cmd, "TOUCH") == 0 ||
+                          cmd_strcmp(cmd, "cp") == 0 || cmd_strcmp(cmd, "CP") == 0 ||
+                          cmd_strcmp(cmd, "mv") == 0 || cmd_strcmp(cmd, "MV") == 0 ||
+                          cmd_strcmp(cmd, "txtedit") == 0 || cmd_strcmp(cmd, "TXTEDIT") == 0 ||
+                          cmd_strcmp(cmd, "tx") == 0 || cmd_strcmp(cmd, "TX") == 0);
+        
+        if (needs_path) {
+            if (args && args[0]) {
+                // For echo with redirection, we need to prepend drive to redirect target too
+                if (is_echo_command) {
+                    // Find > or >> and prepend drive to the filename after it
+                    char temp_args[512] = {0};
+                    int i = 0;
+                    int j = 0;
+                    bool in_redirect = false;
+                    
+                    while (args[i] && j < 509) {
+                        if (args[i] == '>' && args[i+1] == '>') {
+                            // >> redirection
+                            temp_args[j++] = '>';
+                            temp_args[j++] = '>';
+                            i += 2;
+                            while (args[i] == ' ') { temp_args[j++] = ' '; i++; }
+                            
+                            // Prepend drive to filename
+                            if (args[i] && args[i+1] != ':') {
+                                temp_args[j++] = cmd_state->current_drive;
+                                temp_args[j++] = ':';
+                            }
+                            in_redirect = true;
+                        } else if (args[i] == '>' && args[i+1] != '>') {
+                            // > redirection
+                            temp_args[j++] = '>';
+                            i++;
+                            while (args[i] == ' ') { temp_args[j++] = ' '; i++; }
+                            
+                            // Prepend drive to filename
+                            if (args[i] && args[i+1] != ':') {
+                                temp_args[j++] = cmd_state->current_drive;
+                                temp_args[j++] = ':';
+                            }
+                            in_redirect = true;
+                        } else {
+                            temp_args[j++] = args[i++];
+                        }
+                    }
+                    temp_args[j] = 0;
+                    cmd_strcpy(full_path_arg, temp_args);
+                    args = full_path_arg;
+                } else if (cmd_strcmp(cmd, "cat") == 0 || cmd_strcmp(cmd, "CAT") == 0 ||
+                           cmd_strcmp(cmd, "cc") == 0 || cmd_strcmp(cmd, "CC") == 0 ||
+                           cmd_strcmp(cmd, "compc") == 0 || cmd_strcmp(cmd, "COMPC") == 0 ||
+                           cmd_strcmp(cmd, "touch") == 0 || cmd_strcmp(cmd, "TOUCH") == 0 ||
+                           cmd_strcmp(cmd, "cp") == 0 || cmd_strcmp(cmd, "CP") == 0 ||
+                           cmd_strcmp(cmd, "mv") == 0 || cmd_strcmp(cmd, "MV") == 0 ||
+                           cmd_strcmp(cmd, "txtedit") == 0 || cmd_strcmp(cmd, "TXTEDIT") == 0 ||
+                           cmd_strcmp(cmd, "tx") == 0 || cmd_strcmp(cmd, "TX") == 0) {
+                    // For cat, cc, compc, touch, cp, mv, txtedit: prepend drive to file arguments if not already present
+                    if (args[1] == ':') {
+                        // Already has drive letter
+                        cmd_strcpy(full_path_arg, args);
+                    } else {
+                        // Add drive letter
+                        full_path_arg[0] = cmd_state->current_drive;
+                        full_path_arg[1] = ':';
+                        int i = 2;
+                        int j = 0;
+                        while (args[j] && i < 509) {
+                            full_path_arg[i++] = args[j++];
+                        }
+                        full_path_arg[i] = 0;
+                    }
+                    args = full_path_arg;
+                } else if (is_cd_command) {
+                    // For cd: build full path with drive + current directory + relative path
+                    // Check if args starts with drive letter (e.g., "B:" or "A:")
+                    if (args[1] == ':') {
+                        // Has drive letter, use as-is
+                        cmd_strcpy(full_path_arg, args);
+                    } else if (args[0] == '/') {
+                        // Absolute path, just prepend drive
+                        full_path_arg[0] = cmd_state->current_drive;
+                        full_path_arg[1] = ':';
+                        int i = 2;
+                        int j = 0;
+                        while (args[j] && i < 509) {
+                            full_path_arg[i++] = args[j++];
+                        }
+                        full_path_arg[i] = 0;
+                    } else {
+                        // Relative path - need to build from current directory
+                        int i = 0;
+                        full_path_arg[i++] = cmd_state->current_drive;
+                        full_path_arg[i++] = ':';
+                        
+                        // Add current directory
+                        const char *dir = cmd_state->current_dir;
+                        while (*dir && i < 509) {
+                            full_path_arg[i++] = *dir++;
+                        }
+                        
+                        // Add separator if current dir doesn't end with /
+                        if (i > 2 && full_path_arg[i-1] != '/') {
+                            full_path_arg[i++] = '/';
+                        }
+                        
+                        // Add the relative path argument
+                        int j = 0;
+                        while (args[j] && i < 509) {
+                            full_path_arg[i++] = args[j++];
+                        }
+                        full_path_arg[i] = 0;
+                    }
+                    args = full_path_arg;
+                } else if (args[1] == ':') {
+                    // Already has drive letter
+                    cmd_strcpy(full_path_arg, args);
+                    args = full_path_arg;
+                } else {
+                    // Add drive letter
+                    full_path_arg[0] = cmd_state->current_drive;
+                    full_path_arg[1] = ':';
+                    int i = 2;
+                    int j = 0;
+                    while (args[j] && i < 509) {
+                        full_path_arg[i++] = args[j++];
+                    }
+                    full_path_arg[i] = 0;
+                    args = full_path_arg;
+                }
+            } else if (is_ls_command || is_cd_command) {
+                // For ls and cd with no args, pass current directory with drive
+                full_path_arg[0] = cmd_state->current_drive;
+                full_path_arg[1] = ':';
+                int i = 2;
+                const char *dir = cmd_state->current_dir;
+                while (*dir && i < 509) {
+                    full_path_arg[i++] = *dir++;
+                }
+                full_path_arg[i] = 0;
+                args = full_path_arg;
+            }
+        }
+    }
+
     // Use command dispatch table
     for (int i = 0; commands[i].name != NULL; i++) {
         if (cmd_strcmp(cmd, commands[i].name) == 0) {
@@ -531,12 +1024,19 @@ static void cmd_exec_single(char *cmd) {
 
     // Check for executable in /Apps/
     char app_path[256];
-    char *p = app_path;
+    int app_idx = 0;
+    
+    // Add drive letter if on different drive
+    if (cmd_state && cmd_state->current_drive != 'A') {
+        app_path[app_idx++] = cmd_state->current_drive;
+        app_path[app_idx++] = ':';
+    }
+    
     const char *prefix = "/Apps/";
-    while (*prefix) *p++ = *prefix++;
+    while (*prefix) app_path[app_idx++] = *prefix++;
     char *c = cmd;
-    while (*c) *p++ = *c++;
-    *p = 0;
+    while (*c && app_idx < 255) app_path[app_idx++] = *c++;
+    app_path[app_idx] = 0;
 
     FAT32_FileHandle *app_fh = fat32_open(app_path, "r");
     if (app_fh) {
@@ -847,7 +1347,7 @@ static void cmd_key(Window *target, char c) {
     if (c == '\n') { // Enter
          char cmd_buf[CMD_COLS + 1];
          int len = 0;
-         int prompt_len = cmd_strlen(PROMPT);
+         int prompt_len = 4;
          
          for (int i = prompt_len; i < CMD_COLS; i++) {
              char ch = screen_buffer[cursor_row][i].c;
@@ -864,13 +1364,13 @@ static void cmd_key(Window *target, char c) {
          
          cmd_exec(cmd_buf);
          
-         cmd_write(PROMPT);
+         cmd_print_prompt();
     } else if (c == 17) { // UP
         if (history_len > 0) {
             if (history_pos == -1) {
                 // Save current line
                 int len = 0;
-                int prompt_len = cmd_strlen(PROMPT);
+                int prompt_len = 4;
                 for (int i = prompt_len; i < CMD_COLS; i++) {
                     char ch = screen_buffer[cursor_row][i].c;
                     if (ch == 0) break;
@@ -900,7 +1400,7 @@ static void cmd_key(Window *target, char c) {
             }
         }
     } else if (c == 19) { // LEFT
-        if (cursor_col > (int)cmd_strlen(PROMPT)) {
+        if (cursor_col > 4) {
             cursor_col--;
         }
     } else if (c == 20) { // RIGHT
@@ -908,7 +1408,7 @@ static void cmd_key(Window *target, char c) {
             cursor_col++;
         }
     } else if (c == '\b') { // Backspace
-         if (cursor_col > (int)cmd_strlen(PROMPT)) {
+         if (cursor_col > 4) {
              cursor_col--;
              screen_buffer[cursor_row][cursor_col].c = ' ';
          }
@@ -928,7 +1428,7 @@ void cmd_reset(void) {
         cmd_write_int(msg_count);
         cmd_write(" new message(s) run \"msgrc\" to see your new message(s).\n");
     }
-    cmd_write(PROMPT);
+    cmd_print_prompt();
 }
 
 static void create_test_files(void) {
@@ -1163,6 +1663,16 @@ void cmd_init(void) {
     win_cmd.handle_key = cmd_key;
     win_cmd.handle_click = NULL;
     win_cmd.handle_right_click = NULL;
+    
+    // Initialize cmd state (per-window context)
+    CmdState *state = (CmdState*)kmalloc(sizeof(CmdState));
+    if (state) {
+        state->current_drive = 'A';
+        state->current_dir[0] = '/';
+        state->current_dir[1] = 0;
+        win_cmd.data = state;
+        cmd_state = state;  // Set static pointer
+    }
     
     cmd_reset();
     

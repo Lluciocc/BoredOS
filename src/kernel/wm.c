@@ -16,6 +16,7 @@
 #include "fat32.h"
 #include "memory_manager.h"
 #include "paint.h"
+#include "disk.h"
 
 // --- State ---
 static int mx = 400, my = 300; // Mouse Pos
@@ -1760,6 +1761,10 @@ void wm_refresh(void) {
 }
 
 void wm_init(void) {
+    disk_manager_init();
+    disk_manager_scan();
+    // Drives are now dynamically managed - only real drives are registered
+
     notepad_init();
     cmd_init();
     calculator_init();

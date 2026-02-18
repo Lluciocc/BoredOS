@@ -85,6 +85,7 @@ typedef struct {
     bool valid;                     // Is this handle valid?
     uint32_t dir_sector;            // Sector containing the directory entry
     uint32_t dir_offset;            // Offset within that sector
+    char drive;                     // Drive letter (A, B, ...)
 } FAT32_FileHandle;
 
 // Directory Entry Info (for listing)
@@ -123,6 +124,8 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
 // Working Directory
 bool fat32_chdir(const char *path);
 void fat32_get_current_dir(char *buffer, int size);
+bool fat32_change_drive(char drive);
+char fat32_get_current_drive(void);
 
 // Utilities
 void fat32_normalize_path(const char *path, char *normalized);

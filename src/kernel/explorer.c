@@ -1,6 +1,7 @@
 #include "explorer.h"
 #include "graphics.h"
 #include "fat32.h"
+#include "disk.h"
 #include "wm.h"
 #include "memory_manager.h"
 #include "editor.h"
@@ -377,8 +378,15 @@ bool explorer_delete_recursive(const char *path) {
         for (int k = i + 1; k < len; k++) filename[j++] = path[k];
         filename[j] = 0;
         
+        // Extract drive from path
+        char drive_prefix[3] = "A:";
+        if (path[0] && path[1] == ':') {
+            drive_prefix[0] = path[0];
+        }
+        
         char dest_path[256];
-        explorer_strcpy(dest_path, "/RecycleBin/");
+        explorer_strcpy(dest_path, drive_prefix);
+        explorer_strcat(dest_path, "/RecycleBin/");
         explorer_strcat(dest_path, filename);
         
         // Save origin
@@ -946,11 +954,36 @@ static void explorer_paint(Window *win) {
     // Fill background
     draw_rect(offset_x, offset_y, win->w - 8, win->h - 28, COLOR_LTGRAY);
     
-    // Draw path bar
+    // Draw Drive Button
+    char drive_label[8];
+    // Extract drive from the window's current_path instead of using global current_drive
+    char current_drv = 'A';
+    if (state->current_path[0] && state->current_path[1] == ':') {
+        current_drv = state->current_path[0];
+    } else if (state->current_path[0] && (state->current_path[0] >= 'A' && state->current_path[0] <= 'Z')) {
+        current_drv = state->current_path[0];
+    }
+    
+    drive_label[0] = '[';
+    drive_label[1] = ' ';
+    drive_label[2] = current_drv;
+    drive_label[3] = ':';
+    drive_label[4] = ' ';
+    drive_label[5] = 'v';
+    drive_label[6] = ' ';
+    drive_label[7] = ']';
+    
+    // Button at x+4, y+4, w=60
+    draw_button(win->x + 4, offset_y + 4, 60, 30, "", false);
+    draw_string(win->x + 12, offset_y + 12, drive_label, COLOR_BLACK);
+
+    // Draw path bar (shifted right)
     int path_height = 30;
-    draw_bevel_rect(offset_x + 4, offset_y + 4, win->w - 16, path_height, true);
-    draw_string(offset_x + 10, offset_y + 10, "Path", COLOR_BLACK);
-    draw_string(offset_x + 50, offset_y + 10, state->current_path, COLOR_BLACK);
+    int path_x = offset_x + 64;
+    int path_w = win->w - 16 - 64;
+    draw_bevel_rect(path_x, offset_y + 4, path_w, path_height, true);
+    draw_string(path_x + 6, offset_y + 10, "Path", COLOR_BLACK);
+    draw_string(path_x + 46, offset_y + 10, state->current_path, COLOR_BLACK);
     
     // Draw dropdown menu button (right-aligned, before back button)
     int dropdown_btn_x = win->x + win->w - 90;
@@ -1002,6 +1035,39 @@ static void explorer_paint(Window *win) {
         graphics_set_clipping(dirty.x, dirty.y, dirty.w, dirty.h);
     } else {
         graphics_clear_clipping();
+    }
+    
+    // Draw Drive Menu if visible
+    if (state->drive_menu_visible) {
+        int menu_x = win->x + 4;
+        int menu_y = offset_y + 34;
+        int menu_w = 80;
+        int count = disk_get_count();
+        int menu_h = count * 25;
+        
+        draw_rect(menu_x, menu_y, menu_w, menu_h, COLOR_LTGRAY);
+        draw_bevel_rect(menu_x, menu_y, menu_w, menu_h, true);
+        
+        for (int i = 0; i < count; i++) {
+            Disk *d = disk_get_by_index(i);
+            if (d) {
+                char buf[16];
+                buf[0] = d->letter;
+                buf[1] = ':';
+                buf[2] = ' ';
+                // Copy name truncated
+                int n = 0; while(d->name[n] && n < 10) { buf[3+n] = d->name[n]; n++; }
+                buf[3+n] = 0;
+                
+                // Highlight current
+                if (d->letter == current_drv) {
+                    draw_rect(menu_x + 2, menu_y + i*25 + 2, menu_w - 4, 21, COLOR_BLUE);
+                    draw_string(menu_x + 5, menu_y + i*25 + 6, buf, COLOR_WHITE);
+                } else {
+                    draw_string(menu_x + 5, menu_y + i*25 + 6, buf, COLOR_BLACK);
+                }
+            }
+        }
     }
     
     // Draw dropdown menu if visible
@@ -1323,6 +1389,35 @@ static void explorer_handle_click(Window *win, int x, int y) {
         }
     }
     
+    // Handle Drive Menu Selection
+    if (state->drive_menu_visible) {
+        int menu_x = 4; // Window relative
+        int menu_y = 58; // 24+34
+        int menu_w = 80;
+        int count = disk_get_count();
+        int menu_h = count * 25;
+        
+        if (x >= menu_x && x < menu_x + menu_w && y >= menu_y && y < menu_y + menu_h) {
+            int idx = (y - menu_y) / 25;
+            Disk *d = disk_get_by_index(idx);
+            if (d) {
+                // Do not change global drive, just navigate explorer to it
+                char path[4];
+                path[0] = d->letter;
+                path[1] = ':';
+                path[2] = '/';
+                path[3] = 0;
+                explorer_load_directory(win, path);
+            }
+            state->drive_menu_visible = false;
+            return;
+        }
+        
+        // Click outside closes menu
+        state->drive_menu_visible = false;
+        return;
+    }
+    
     // Handle dropdown menu clicks
     if (state->dropdown_menu_visible) {
         int dropdown_btn_x = win->w - 90;  // Window-relative
@@ -1362,12 +1457,21 @@ static void explorer_handle_click(Window *win, int x, int y) {
     }
     
     // x, y are already relative to window (0,0 is top-left of window content area)
+    
+    // Check Drive Button
+    int button_y = 28;
+    if (x >= 4 && x < 64 && y >= button_y && y < button_y + 30) {
+        state->drive_menu_visible = !state->drive_menu_visible;
+        state->dropdown_menu_visible = false; // Close other menu
+        return;
+    }
+    
     // Check dropdown menu button
-    int button_y = 28;  // Position from top of window title bar
     if (x >= win->w - 90 && x < win->w - 55 &&
         y >= button_y && y < button_y + 30) {
         // Dropdown menu button clicked
         dropdown_menu_toggle(win);
+        state->drive_menu_visible = false; // Close other menu
         return;
     }
     
@@ -1514,10 +1618,7 @@ static void explorer_handle_key(Window *win, char c) {
         return;
     }
     
-    if (c == 'q' || c == 'Q') {
-        win->visible = false;
-        return;
-    }
+
     
     // Close dropdown menu if open with ESC
     if (state->dropdown_menu_visible && c == 27) {
@@ -1899,12 +2000,15 @@ Window* explorer_create_window(const char *path) {
     state->explorer_scroll_row = 0;
     state->dialog_state = DIALOG_NONE;
     state->dropdown_menu_visible = false;
+    state->drive_menu_visible = false;
     state->file_context_menu_visible = false;
     
     explorer_wins[explorer_win_count++] = win;
     wm_add_window(win);
     wm_bring_to_front(win);
-    explorer_load_directory(win, path);
+    
+    if (explorer_strcmp(path, "/") == 0) explorer_load_directory(win, "A:/");
+    else explorer_load_directory(win, path);
     return win;
 }
 
@@ -1924,13 +2028,14 @@ void explorer_init(void) {
     win_explorer.handle_right_click = explorer_handle_right_click;
     win_explorer.data = state;
     
+    state->drive_menu_visible = false;
     explorer_wins[explorer_win_count++] = &win_explorer;
-    explorer_load_directory(&win_explorer, "/");
+    explorer_load_directory(&win_explorer, "A:/");
 }
 void explorer_reset(void) {
     ExplorerState *state = (ExplorerState*)win_explorer.data;
     // Reset explorer to root directory on close/reopen
-    explorer_load_directory(&win_explorer, "/");
+    explorer_load_directory(&win_explorer, "A:/");
     win_explorer.focused = false;
     state->explorer_scroll_row = 0;
 }

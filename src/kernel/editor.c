@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-// === Text Editor State ===
 Window win_editor;
 
 #define EDITOR_MAX_LINES 128
@@ -192,13 +191,13 @@ static void editor_insert_char(char ch) {
             EditorLine *prev = &lines[cursor_line - 1];
             int merge_point = prev->length;
             
-            for (int i = 0; i < line->length; i++) {
-                if (merge_point + i < EDITOR_MAX_LINE_LEN - 1) {
-                    prev->content[merge_point + i] = line->content[i];
-                }
+            int i = 0;
+            while (i < line->length && (merge_point + i) < EDITOR_MAX_LINE_LEN - 1) {
+                prev->content[merge_point + i] = line->content[i];
+                i++;
             }
-            prev->content[merge_point + line->length] = 0;
-            prev->length = merge_point + line->length;
+            prev->content[merge_point + i] = 0;
+            prev->length = merge_point + i;
             
             // Shift lines up
             for (int i = cursor_line; i < line_count - 1; i++) {
@@ -419,13 +418,6 @@ static void editor_paint(Window *win) {
 // === Key Handler ===
 
 static void editor_handle_key(Window *win, char c) {
-    if (c == 'q' || c == 'Q') {
-        if (file_modified) {
-        }
-        win->visible = false;
-        return;
-    }
-    
     // Arrow keys - UP
     if (c == 17) {
         if (cursor_line > 0) {
