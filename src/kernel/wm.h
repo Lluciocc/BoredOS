@@ -23,7 +23,8 @@
 #define COLOR_APPLE_INDIGO 0xFF4B0082
 #define COLOR_APPLE_VIOLET 0xFF9400D3
 
-// --- Dark Mode Colors (macOS Style) ---
+// --- Dark Mode Colors ---
+#define COLOR_NOTEPAD_BG    0xFFF5F5DC       
 #define COLOR_DARK_BG       0xFF1E1E1E  // Main dark background
 #define COLOR_DARK_PANEL    0xFF2D2D2D  // Slightly lighter panel background
 #define COLOR_DARK_TITLEBAR 0xFF282828  // Darker for title bar

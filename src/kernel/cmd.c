@@ -802,19 +802,34 @@ static void cmd_exec_single(char *cmd) {
     if (cmd[0] == '.' && cmd[1] == '/') {
         char *filename = cmd + 2;
         
-        // Build full path with drive context
+        // Build full path with drive context and current directory
         char full_exec_path[512];
-        if (cmd_state && cmd_state->current_drive != 'A') {
-            full_exec_path[0] = cmd_state->current_drive;
-            full_exec_path[1] = ':';
-            int i = 2;
-            const char *p = filename;
-            while (*p && i < 509) {
-                full_exec_path[i++] = *p++;
+        int i = 0;
+        
+        // Add drive letter
+        if (cmd_state) {
+            full_exec_path[i++] = cmd_state->current_drive;
+            full_exec_path[i++] = ':';
+            
+            // Add current directory
+            const char *dir = cmd_state->current_dir;
+            while (*dir && i < 509) {
+                full_exec_path[i++] = *dir++;
             }
-            full_exec_path[i] = 0;
-            filename = full_exec_path;
+            
+            // Add separator if current dir doesn't end with /
+            if (i > 2 && full_exec_path[i-1] != '/') {
+                full_exec_path[i++] = '/';
+            }
         }
+        
+        // Add the relative path argument
+        const char *p = filename;
+        while (*p && i < 509) {
+            full_exec_path[i++] = *p++;
+        }
+        full_exec_path[i] = 0;
+        filename = full_exec_path;
         
         FAT32_FileHandle *fh = fat32_open(filename, "r");
         if (fh) {
@@ -930,11 +945,34 @@ static void cmd_exec_single(char *cmd) {
                     if (args[1] == ':') {
                         // Already has drive letter
                         cmd_strcpy(full_path_arg, args);
-                    } else {
-                        // Add drive letter
+                    } else if (args[0] == '/') {
+                        // Absolute path, just prepend drive
                         full_path_arg[0] = cmd_state->current_drive;
                         full_path_arg[1] = ':';
                         int i = 2;
+                        int j = 0;
+                        while (args[j] && i < 509) {
+                            full_path_arg[i++] = args[j++];
+                        }
+                        full_path_arg[i] = 0;
+                    } else {
+                        // Relative path - need to build from current directory
+                        int i = 0;
+                        full_path_arg[i++] = cmd_state->current_drive;
+                        full_path_arg[i++] = ':';
+                        
+                        // Add current directory
+                        const char *dir = cmd_state->current_dir;
+                        while (*dir && i < 509) {
+                            full_path_arg[i++] = *dir++;
+                        }
+                        
+                        // Add separator if current dir doesn't end with /
+                        if (i > 2 && full_path_arg[i-1] != '/') {
+                            full_path_arg[i++] = '/';
+                        }
+                        
+                        // Add the relative path argument
                         int j = 0;
                         while (args[j] && i < 509) {
                             full_path_arg[i++] = args[j++];
@@ -1439,20 +1477,9 @@ static void create_test_files(void) {
     if (!fat32_exists("Desktop")) fat32_mkdir("Desktop");
     if (!fat32_exists("RecycleBin")) fat32_mkdir("RecycleBin");
     
-    // Create Desktop Shortcuts
-    FAT32_FileHandle *fh;
-    fh = fat32_open("Desktop/Explorer.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/Notepad.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/Calculator.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/Minesweeper.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/Control Panel.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/Terminal.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/About.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/Recycle Bin.shortcut", "w"); if(fh) fat32_close(fh);
-    fh = fat32_open("Desktop/Paint.shortcut", "w"); if(fh) fat32_close(fh);
-    
+  
     // Always try to write README to ensure content exists
-    fh = fat32_open("README.md", "w");
+    FAT32_FileHandle *fh = fat32_open("README.md", "w");
     if (fh) {
         const char *content = 
             "# Bored OS 1.50\n\n"

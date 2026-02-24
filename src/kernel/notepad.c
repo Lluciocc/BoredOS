@@ -25,7 +25,7 @@ static void notepad_ensure_cursor_visible(Window *win) {
 
 static void notepad_paint(Window *win) {
     // Dark mode background for text
-    draw_rect(win->x + 4, win->y + 30, win->w - 8, win->h - 34, COLOR_DARK_BG);
+    draw_rect(win->x + 4, win->y + 30, win->w - 8, win->h - 34, COLOR_NOTEPAD_BG);
 
     int visual_line = 0; 
     int current_x = win->x + 8;
@@ -69,7 +69,7 @@ static void notepad_paint(Window *win) {
             }
             
             char ch[2] = {win->buffer[i], 0};
-            draw_string(current_x, current_y, ch, COLOR_DARK_TEXT);
+            draw_string(current_x, current_y, ch, COLOR_BLACK);
             current_x += 8;
         }
     }
@@ -98,7 +98,7 @@ static void notepad_paint(Window *win) {
         
         if (visual_line >= notepad_scroll_line && 
             visual_line < notepad_scroll_line + (win->h - 40) / 10) {
-            draw_rect(cx, cy, 2, 8, COLOR_DARK_TEXT);
+            draw_rect(cx, cy, 2, 8, COLOR_BLACK);
         }
     }
 }

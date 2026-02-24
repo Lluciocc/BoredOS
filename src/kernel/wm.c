@@ -124,7 +124,7 @@ static int str_eq(const char *s1, const char *s2) {
 
 static void refresh_desktop_icons(void) {
     // Update limit in FS
-    fat32_set_desktop_limit(desktop_max_cols * (desktop_max_rows_per_col > 1 ? desktop_max_rows_per_col - 1 : 0));
+    fat32_set_desktop_limit(desktop_max_cols * desktop_max_rows_per_col);
 
     FAT32_FileInfo *files = (FAT32_FileInfo*)kmalloc(MAX_DESKTOP_ICONS * sizeof(FAT32_FileInfo));
     if (!files) return;
@@ -184,8 +184,8 @@ static void refresh_desktop_icons(void) {
     
     // 3. Layout Icons
     if (desktop_auto_align) {
-        int start_x = 20; // Starting X position for icons
-        int start_y = 20 + DESKTOP_TOP_DEADSPACE_HEIGHT; // Starting Y position for icons, offset by dead space
+        int start_x = 20;
+        int start_y = 50;
         int grid_x = 0;
         int grid_y = 0;
         
@@ -200,8 +200,8 @@ static void refresh_desktop_icons(void) {
         
         // Place Recycle Bin at bottom-right of grid
         if (recycle_idx != -1) {
-            desktop_icons[recycle_idx].x = start_x + (desktop_max_cols - 1) * 80; // Align to the last column
-            desktop_icons[recycle_idx].y = start_y + (desktop_max_rows_per_col - 2) * 80; // Align to the second to last row (since one is dead space)
+            desktop_icons[recycle_idx].x = start_x + (desktop_max_cols - 1) * 80;
+            desktop_icons[recycle_idx].y = start_y + (desktop_max_rows_per_col - 1) * 80;
         }
         
         for (int i = 0; i < desktop_icon_count; i++) {
@@ -210,7 +210,7 @@ static void refresh_desktop_icons(void) {
             desktop_icons[i].x = start_x + (grid_x * 80);
             desktop_icons[i].y = start_y + (grid_y * 80);
             
-            grid_y++; // Increment grid_y for the next icon
+            grid_y++;
             if (grid_y >= desktop_max_rows_per_col) {
                 grid_y = 0;
                 grid_x++;
@@ -224,7 +224,7 @@ static void refresh_desktop_icons(void) {
             if (desktop_icons[i].x != -1) {
                 int col = (desktop_icons[i].x - 20) / 80;
                 int row = (desktop_icons[i].y - 20) / 80;
-                if (col >= 0 && col < 16 && row >= 0 && row < 16) occupied[col][row] = true; // Mark occupied cells
+                if (col >= 0 && col < 16 && row >= 0 && row < 16) occupied[col][row] = true;
             }
         }
         
@@ -233,13 +233,13 @@ static void refresh_desktop_icons(void) {
                 int found_col = -1, found_row = -1;
                 for (int c = 0; c < 16; c++) {
                     for (int r = 0; r < desktop_max_rows_per_col; r++) {
-                        if (!occupied[c][r] && r > 0) { // Ensure not in the dead space row
+                        if (!occupied[c][r]) {
                             found_col = c; found_row = r;
                             goto found;
                         }
                     }
                 }
-            found:
+                found:
                 if (found_col != -1) {
                     desktop_icons[i].x = 20 + found_col * 80;
                     desktop_icons[i].y = 20 + found_row * 80;
@@ -564,16 +564,12 @@ void draw_paint_icon(int x, int y, const char *label) {
 }
 
 // New macOS-style drawing functions
+static void draw_filled_circle(int cx, int cy, int r, uint32_t color);
 
 // Draw traffic light (close button - red)
 void draw_traffic_light(int x, int y) {
-    // Red close button
-    draw_rounded_rect_filled(x, y, 12, 12, 3, COLOR_TRAFFIC_RED);
-    // X mark
-    draw_rect(x + 4, y + 4, 1, 4, COLOR_WHITE);  // Vertical
-    draw_rect(x + 5, y + 5, 1, 1, COLOR_WHITE);  
-    draw_rect(x + 5, y + 6, 1, 1, COLOR_WHITE);
-    draw_rect(x + 6, y + 5, 1, 2, COLOR_WHITE);  
+    draw_filled_circle(x + 6, y + 6, 6, COLOR_TRAFFIC_RED);
+    draw_filled_circle(x + 6, y + 6, 2, COLOR_WHITE);
 }
 
 // Draw a squircle-style app icon
@@ -600,6 +596,181 @@ void draw_settings_icon(int x, int y, const char *label) {
     draw_rect(cx - 2, cy - 2, 4, 4, COLOR_WHITE);  // Center
 }
 
+static int isqrt_local(int n) {
+    if (n <= 0) return 0;
+    int x = n;
+    int y = (x + 1) / 2;
+    while (y < x) {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    return x;
+}
+
+static void draw_filled_circle(int cx, int cy, int r, uint32_t color) {
+    for (int dy = -r; dy <= r; dy++) {
+        int dx = isqrt_local(r * r - dy * dy);
+        draw_rect(cx - dx, cy + dy, dx * 2 + 1, 1, color);
+    }
+}
+
+static void draw_dock_files(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF1D5FAA);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF4A90E2);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF2E72C9);
+    draw_rounded_rect_filled(x + 7, y + 13, 15, 7, 3, 0xFF62A8F5);
+    draw_rounded_rect_filled(x + 8, y + 12, 13, 5, 3, 0xFF7DB8F8);
+    draw_rounded_rect_filled(x + 5, y + 17, 38, 23, 5, 0xFFCDE4FA);
+    draw_rounded_rect_filled(x + 7, y + 19, 34, 19, 4, 0xFFEAF5FF);
+    draw_rect(x + 12, y + 23, 24, 2, 0xFF88B8D8);
+    draw_rect(x + 12, y + 27, 17, 2, 0xFF88B8D8);
+    draw_rect(x + 12, y + 31, 21, 2, 0xFF88B8D8);
+}
+
+static void draw_dock_settings(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF3A3A3A);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF6E6E6E);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF4A4A4A);
+    int cx = x + 24, cy = y + 25;
+    draw_rounded_rect_filled(cx - 4, cy - 18, 8, 7, 2, 0xFFCCCCCC);
+    draw_rounded_rect_filled(cx - 4, cy + 11, 8, 7, 2, 0xFFCCCCCC);
+    draw_rounded_rect_filled(cx - 18, cy - 4, 7, 8, 2, 0xFFCCCCCC);
+    draw_rounded_rect_filled(cx + 11, cy - 4, 7, 8, 2, 0xFFCCCCCC);
+    draw_rounded_rect_filled(cx - 14, cy - 14, 6, 6, 2, 0xFFCCCCCC);
+    draw_rounded_rect_filled(cx + 8, cy - 14, 6, 6, 2, 0xFFCCCCCC);
+    draw_rounded_rect_filled(cx - 14, cy + 8, 6, 6, 2, 0xFFCCCCCC);
+    draw_rounded_rect_filled(cx + 8, cy + 8, 6, 6, 2, 0xFFCCCCCC);
+    draw_filled_circle(cx, cy, 13, 0xFFCCCCCC);
+    draw_filled_circle(cx, cy, 6, 0xFF4A4A4A);
+    draw_filled_circle(cx, cy, 4, 0xFF3A3A3A);
+}
+
+static void draw_dock_notepad(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFFCC9A00);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFFFFD700);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFFE8BC00);
+    draw_rounded_rect_filled(x + 7, y + 9, 34, 32, 3, 0xFFFFFDE7);
+    draw_rounded_rect_filled(x + 7, y + 9, 34, 8, 3, 0xFFFFCA28);
+    draw_rect(x + 7, y + 13, 34, 4, 0xFFFFCA28);
+    draw_rect(x + 11, y + 21, 18, 2, 0xFFBBAA70);
+    draw_rect(x + 11, y + 25, 26, 1, 0xFFCCBB88);
+    draw_rect(x + 11, y + 28, 22, 1, 0xFFCCBB88);
+    draw_rect(x + 11, y + 31, 24, 1, 0xFFCCBB88);
+    draw_rect(x + 11, y + 34, 18, 1, 0xFFCCBB88);
+    draw_rect(x + 32, y + 11, 3, 13, 0xFFF5DEB3);
+    draw_rect(x + 32, y + 9, 3, 4, 0xFFFF9800);
+    draw_rect(x + 33, y + 24, 1, 2, 0xFF555555);
+}
+
+static void draw_dock_calculator(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF111111);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF222222);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF151515);
+    draw_rounded_rect_filled(x + 6, y + 6, 36, 11, 3, 0xFF1A3A2A);
+    draw_rect(x + 25, y + 9, 14, 5, 0xFF33FF88);
+    // 3x3 button grid
+    uint32_t btn_clr[3][3] = {
+        {0xFF555555, 0xFF555555, 0xFF555555},
+        {0xFF444444, 0xFF444444, 0xFF444444},
+        {0xFF444444, 0xFF444444, 0xFFFF9500},
+    };
+    for (int row = 0; row < 3; row++) {
+        for (int col = 0; col < 3; col++) {
+            draw_rounded_rect_filled(x + 10 + col * 9, y + 22 + row * 6, 7, 5, 2, btn_clr[row][col]);
+        }
+    }
+}
+
+static void draw_dock_terminal(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF0A0A0A);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF161616);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF0D0D0D);
+    int px = x + 12;
+    int py = y + 24;
+    for (int i = 0; i < 6; i++) {
+        draw_rect(px + i, py - 4 + i, 2, 1, 0xFF33DD33);
+    }
+    for (int i = 0; i < 6; i++) {
+        draw_rect(px + i, py + 4 - i, 2, 1, 0xFF33DD33);
+    }
+    draw_rect(px + 10, py + 7, 8, 1, 0xFF33DD33);
+}
+
+static void draw_dock_minesweeper(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF1B5E20);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF4CAF50);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF388E3C);
+    for (int row = 0; row < 5; row++) {
+        for (int col = 0; col < 5; col++) {
+            int bx = x + 6 + col * 8, by = y + 7 + row * 8;
+            if ((row == 2 && col == 2)) {
+                draw_rounded_rect_filled(bx, by, 6, 6, 1, 0xFFC8E6C9);
+            } else if ((row + col) % 2 == 0) {
+                draw_rounded_rect_filled(bx, by, 6, 6, 1, 0xFF81C784);
+                draw_rect(bx, by, 6, 1, 0xFFA5D6A7);
+                draw_rect(bx, by, 1, 6, 0xFFA5D6A7);
+                draw_rect(bx + 5, by + 1, 1, 5, 0xFF2E7D32);
+                draw_rect(bx + 1, by + 5, 5, 1, 0xFF2E7D32);
+            } else {
+                draw_rounded_rect_filled(bx, by, 6, 6, 1, 0xFF66BB6A);
+                draw_rect(bx, by, 6, 1, 0xFF81C784);
+                draw_rect(bx, by, 1, 6, 0xFF81C784);
+            }
+        }
+    }
+    int mx = x + 6 + 2 * 8 + 3, my = y + 7 + 2 * 8 + 3;
+    draw_filled_circle(mx, my, 4, 0xFF111111);
+    draw_rect(mx - 5, my - 1, 11, 2, 0xFF111111);
+    draw_rect(mx - 1, my - 5, 2, 11, 0xFF111111);
+    draw_rect(mx - 3, my - 3, 2, 2, 0xFF111111);
+    draw_rect(mx + 1, my - 3, 2, 2, 0xFF111111);
+    draw_rect(mx - 3, my + 1, 2, 2, 0xFF111111);
+    draw_rect(mx + 1, my + 1, 2, 2, 0xFF111111);
+    draw_rect(mx - 1, my - 2, 2, 2, 0xFFFFFFFF);
+    draw_rect(x + 7, y + 40, 1, 6, 0xFF333333);
+    draw_rect(x + 8, y + 40, 4, 3, 0xFFFF3333);
+}
+
+static void draw_dock_paint(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFFBBBBBB);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFFFFFFFF);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFFEEEEEE);
+    draw_rounded_rect_filled(x + 6, y + 9, 36, 30, 10, 0xFFEEDDB0);
+    draw_rounded_rect_filled(x + 8, y + 11, 32, 26, 8, 0xFFF5E8C0);
+    draw_filled_circle(x + 35, y + 32, 5, 0xFFEEDDB0);
+    draw_filled_circle(x + 35, y + 32, 3, 0xFFFFFFFF);
+    draw_filled_circle(x + 15, y + 18, 5, 0xFFFF3333);
+    draw_filled_circle(x + 23, y + 14, 5, 0xFF3399FF);
+    draw_filled_circle(x + 31, y + 18, 5, 0xFFFFCC00);
+    draw_filled_circle(x + 28, y + 27, 5, 0xFF33CC33);
+    draw_filled_circle(x + 16, y + 27, 5, 0xFFFF6600);
+    draw_rect(x + 30, y + 30, 3, 14, 0xFF8B6914);
+    draw_rounded_rect_filled(x + 29, y + 27, 5, 5, 2, 0xFFBBBBBB);
+    draw_rounded_rect_filled(x + 30, y + 22, 3, 7, 1, 0xFF1A1A1A);
+}
+
+static void draw_dock_editor(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF0A1628);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF1565C0);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF0D47A1);
+    draw_rect(x + 5, y + 8, 9, 32, 0xFF1A237E);
+    draw_filled_circle(x + 10, y + 14, 2, 0xFF7986CB);
+    draw_filled_circle(x + 10, y + 22, 2, 0xFF7986CB);
+    draw_filled_circle(x + 10, y + 30, 2, 0xFF7986CB);
+    draw_rect(x + 15, y + 8, 28, 32, 0xFF1B2B3C);
+    draw_rect(x + 15, y + 8, 14, 5, 0xFF1B2B3C);
+    draw_rect(x + 15, y + 8, 14, 1, 0xFF569CD6);
+    draw_rect(x + 18, y + 13, 9, 2, 0xFF569CD6);
+    draw_rect(x + 29, y + 13, 8, 2, 0xFF4EC9B0);
+    draw_rect(x + 18, y + 18, 5, 2, 0xFFCE9178);
+    draw_rect(x + 25, y + 18, 7, 2, 0xFFCE9178);
+    draw_rect(x + 21, y + 23, 7, 2, 0xFF9CDCFE);
+    draw_rect(x + 30, y + 23, 5, 2, 0xFFD4D4D4);
+    draw_rect(x + 18, y + 28, 16, 2, 0xFF6A9955);
+    draw_rect(x + 18, y + 33, 10, 2, 0xFFD4D4D4);
+    draw_rect(x + 30, y + 33, 6, 2, 0xFF569CD6);
+}
+
 void draw_window(Window *win) {
     if (!win->visible) return;
     
@@ -607,18 +778,20 @@ void draw_window(Window *win) {
     // Border/Shadow effect
     draw_rounded_rect_filled(win->x - 1, win->y - 1, win->w + 2, win->h + 2, 8, 0xFF000000);
     
-    // Main window body
+    // Main window body (fully rounded)
     draw_rounded_rect_filled(win->x, win->y, win->w, win->h, 8, COLOR_DARK_PANEL);
     
-    // Title Bar
-    draw_rounded_rect_filled(win->x, win->y, win->w, 22, 8, COLOR_DARK_TITLEBAR);
-    draw_string(win->x + 28, win->y + 7, win->title, COLOR_DARK_TEXT);
+    // Title Bar (rounded at top only - overdraw bottom to hide rounding)
+    draw_rounded_rect_filled(win->x, win->y, win->w, 20, 8, COLOR_DARK_TITLEBAR);
+    draw_rect(win->x, win->y + 12, win->w, 8, COLOR_DARK_TITLEBAR);  // Cover bottom rounded corners
+    draw_string(win->x + 28, win->y + 5, win->title, COLOR_DARK_TEXT);
     
     // Traffic Light (close button - red)
-    draw_traffic_light(win->x + 8, win->y + 5);
+    draw_traffic_light(win->x + 8, win->y + 2);
     
-    // Client Area with dark background (no rounding)
-    draw_rect(win->x, win->y + 22, win->w, win->h - 22, COLOR_DARK_BG);
+    // Client Area with dark background, rounded only at bottom
+    draw_rounded_rect_filled(win->x, win->y + 20, win->w, win->h - 20, 8, COLOR_DARK_BG);
+    draw_rect(win->x, win->y + 20, win->w, 8, COLOR_DARK_BG);
     
     if (win->paint) {
         win->paint(win);
@@ -720,8 +893,8 @@ void wm_paint(void) {
         graphics_clear_clipping();
     }
 
-    // 1. Desktop Background (dark mode)
-    draw_rect(0, 0, sw, sh, COLOR_DARK_BG);
+    // 1. Desktop Background (respects wallpaper color/pattern)
+    draw_desktop_background();
     
     // Draw Desktop Icons
     for (int i = 0; i < desktop_icon_count; i++) {
@@ -747,10 +920,10 @@ void wm_paint(void) {
             else if (str_starts_with(icon->name, "Calculator")) draw_calculator_icon(icon->x, icon->y, label);
             else if (str_starts_with(icon->name, "Terminal")) draw_terminal_icon(icon->x, icon->y, label);
             else if (str_starts_with(icon->name, "Minesweeper")) draw_minesweeper_icon(icon->x, icon->y, label);
-            else if (str_starts_with(icon->name, "Settings")) draw_settings_icon(icon->x, icon->y, label);
+            else if (str_starts_with(icon->name, "Settings")) draw_control_panel_icon(icon->x, icon->y, label);
             else if (str_starts_with(icon->name, "About")) draw_about_icon(icon->x, icon->y, label);
             else if (str_starts_with(icon->name, "Recycle Bin")) draw_recycle_bin_icon(icon->x, icon->y, label);
-            else if (str_starts_with(icon->name, "Files")) draw_files_icon(icon->x, icon->y, label);
+            else if (str_starts_with(icon->name, "Files")) draw_folder_icon(icon->x, icon->y, label);
             else if (str_starts_with(icon->name, "Paint")) draw_paint_icon(icon->x, icon->y, label);
             else draw_icon(icon->x, icon->y, label);
         } else {
@@ -796,8 +969,8 @@ void wm_paint(void) {
         draw_window(win);
     }
     
-    // 4. Top Menu Bar (macOS style)
-    draw_rect(0, 0, sw, 40, COLOR_TOPBAR_BG);
+    // 4. Top Menu Bar 
+    draw_rect(0, 0, sw, 30, COLOR_TOPBAR_BG);
     
     // Logo dropdown (top-left)
     draw_boredos_logo(8, 8, 1);
@@ -807,7 +980,7 @@ void wm_paint(void) {
     
     // Top menu dropdown (if logo clicked)
     if (start_menu_open) {
-        int menu_h = 100;
+        int menu_h = 85;
         draw_rounded_rect_filled(8, 40, 160, menu_h, 8, COLOR_DARK_PANEL);
         draw_string(20, 48, "About BoredOS", COLOR_DARK_TEXT);
         draw_string(20, 68, "Settings", COLOR_DARK_TEXT);
@@ -820,7 +993,7 @@ void wm_paint(void) {
     int dock_y = sh - dock_h - 6;  // Float above bottom
     int dock_item_size = 48;
     int dock_spacing = 10;
-    int total_dock_width = 8 * (dock_item_size + dock_spacing);
+    int total_dock_width = 7 * (dock_item_size + dock_spacing);
     int dock_bg_x = (sw - total_dock_width) / 2 - 12;  // Rounded background extends beyond icons
     int dock_bg_w = total_dock_width + 24;
     draw_rounded_rect_filled(dock_bg_x, dock_y, dock_bg_w, dock_h, 18, COLOR_DOCK_BG);
@@ -829,36 +1002,20 @@ void wm_paint(void) {
     int dock_x = (sw - total_dock_width) / 2;
     int dock_item_y = dock_y + 6;
     
-    // Files app
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFF4A90E2);
+    draw_dock_files(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
-    
-    // Settings app  
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFF888888);
+    draw_dock_settings(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
-    
-    // Notepad
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFFFFD700);
+    draw_dock_notepad(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
-    
-    // Calculator
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFFFF6B6B);
+    draw_dock_calculator(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
-    
-    // Terminal
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFF000000);
+    draw_dock_terminal(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
-    
-    // Minesweeper
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFF808080);
+    draw_dock_minesweeper(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
-    
-    // Paint
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFF4CAF50);
-    dock_x += dock_item_size + dock_spacing;
-    
-    // Editor
-    draw_rounded_rect_filled(dock_x, dock_item_y, dock_item_size, dock_item_size, 10, 0xFF2196F3);
+    draw_dock_paint(dock_x, dock_item_y);
+    // Editor removed from dock
     
     // Desktop Context Menu (with rounded corners)
     if (desktop_menu_visible) {
@@ -1091,7 +1248,7 @@ void wm_handle_click(int x, int y) {
                 }
             } else if (desktop_dialog_state == 1 || desktop_dialog_state == 2) { // Create File/Folder
                 if (desktop_icon_count >= desktop_max_cols * desktop_max_rows_per_col) {
-                    wm_show_message("Error", "Desktop is full!"); // This message is now based on the adjusted limit
+                    wm_show_message("Error", "Desktop is full!");
                 } else if (desktop_dialog_input[0] != 0) {
                     char path[128] = "/Desktop/";
                     int p=9; int n=0; while(desktop_dialog_input[n]) path[p++] = desktop_dialog_input[n++]; path[p]=0;
@@ -1170,7 +1327,7 @@ void wm_handle_click(int x, int y) {
         wm_bring_to_front(topmost);
         
         // Check traffic light close button (now at top-left)
-        if (rect_contains(topmost->x + 8, topmost->y + 9, 12, 12, x, y)) {
+        if (rect_contains(topmost->x + 8, topmost->y + 2, 12, 12, x, y)) {
             topmost->visible = false;
             // Reset window state on close
             if (topmost == &win_explorer) {
@@ -1308,7 +1465,7 @@ void wm_handle_right_click(int x, int y) {
         int dock_y = sh - dock_h - 6;  // Float above bottom
         int dock_item_size = 48;
         int dock_spacing = 10;
-        int total_dock_width = 8 * (dock_item_size + dock_spacing);
+        int total_dock_width = 7 * (dock_item_size + dock_spacing);
         int dock_bg_x = (sw - total_dock_width) / 2 - 12;
         int dock_bg_w = total_dock_width + 24;
         
@@ -1326,7 +1483,6 @@ void wm_handle_right_click(int x, int y) {
                 else if (item == 4) start_menu_pending_app = "Terminal";
                 else if (item == 5) start_menu_pending_app = "Minesweeper";
                 else if (item == 6) start_menu_pending_app = "Paint";
-                else if (item == 7) start_menu_pending_app = "Editor";
             }
         } else {
             wm_handle_click(mx, my);
@@ -1416,8 +1572,7 @@ void wm_handle_right_click(int x, int y) {
         if (start_menu_pending_app) {
             // Launch App
             if (str_starts_with(start_menu_pending_app, "Files")) {
-                explorer_reset();
-                wm_bring_to_front(&win_explorer);
+                explorer_open_directory("/");
             } else if (str_starts_with(start_menu_pending_app, "Notepad")) {
                 notepad_reset();
                 wm_bring_to_front(&win_notepad);
@@ -1465,9 +1620,8 @@ void wm_handle_right_click(int x, int y) {
                         wm_bring_to_front(&win_cmd); handled = true;
                     } else if (str_ends_with(icon->name, "About.shortcut")) {
                         wm_bring_to_front(&win_about); handled = true;
-                    } else if (str_ends_with(icon->name, "Explorer.shortcut")) { // Files
-                        explorer_reset();
-                        wm_bring_to_front(&win_explorer);
+                    } else if (str_ends_with(icon->name, "Files.shortcut")) {
+                        explorer_open_directory("/"); handled = true;
                     } else if (str_ends_with(icon->name, "Recycle Bin.shortcut")) {
                         explorer_open_directory("/RecycleBin"); handled = true;
                     } else if (str_ends_with(icon->name, "Paint.shortcut")) {
@@ -1593,7 +1747,7 @@ void wm_handle_right_click(int x, int y) {
                     if (!dropped_on_target && !from_desktop) {
                         // Dragged from Explorer to Desktop
                         // Check limit first
-                        if (desktop_icon_count >= desktop_max_cols * (desktop_max_rows_per_col > 1 ? desktop_max_rows_per_col - 1 : 0)) {
+                        if (desktop_icon_count >= desktop_max_cols * desktop_max_rows_per_col) {
                             wm_show_message("Error", "Desktop is full!");
                         } else {
                             explorer_import_file_to(&win_explorer, drag_file_path, "/Desktop");
@@ -1937,9 +2091,8 @@ void wm_timer_tick(void) {
     if (current_sec != last_second) {
         last_second = current_sec;
         int sw = get_screen_width();
-        int sh = get_screen_height();
-        // Mark clock area + a bit of buffer
-        wm_mark_dirty(sw - 90, sh - 30, 90, 20);
+        // Mark clock area in the top menu bar (around draw_clock at sw - 80, y=12)
+        wm_mark_dirty(sw - 110, 6, 110, 24);
     }
     
     // If force_redraw is set, do a full redraw

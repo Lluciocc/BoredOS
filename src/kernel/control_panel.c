@@ -152,11 +152,8 @@ static void control_panel_paint_main(Window *win) {
     int offset_x = win->x + 8;
     int offset_y = win->y + 30;
     
-    // Background
-    draw_rect(win->x, win->y + 30, win->w, win->h - 30, COLOR_DARK_BG);
-    
     // Draw settings items with rounded boxes
-    int item_y = 30 + 15;
+    int item_y = 15;
     int item_h = 60;
     int item_spacing = 10;
     
@@ -168,7 +165,7 @@ static void control_panel_paint_main(Window *win) {
     draw_rect(offset_x + 24, offset_y + item_y + 22, 3, 6, 0xFF654321);  // Tree trunk
     draw_rect(offset_x + 21, offset_y + item_y + 18, 9, 8, 0xFF228B22);  // Tree leaves
     draw_string(offset_x + 60, offset_y + item_y + 15, "Wallpaper", COLOR_DARK_TEXT);
-    draw_string(offset_x + 60, offset_y + item_y + 35, "Choose background design", COLOR_DKGRAY);
+    draw_string(offset_x + 60, offset_y + item_y + 35, "Choose wallpaper", COLOR_DKGRAY);
     
     // Network Settings
     item_y += item_h + item_spacing;
@@ -187,150 +184,135 @@ static void control_panel_paint_main(Window *win) {
         draw_rect(offset_x + 12, offset_y + item_y + 10, 36, 8, 0xFFE0C060);
         draw_rect(offset_x + 12, offset_y + item_y + 18, 36, 22, 0xFFD4A574);
         draw_string(offset_x + 60, offset_y + item_y + 15, "Desktop", COLOR_DARK_TEXT);
-        draw_string(offset_x + 60, offset_y + item_y + 35, "Desktop appearance&icons", COLOR_DKGRAY);
+        draw_string(offset_x + 60, offset_y + item_y + 35, "Desktop alignment", COLOR_DKGRAY);
     }
     
     // Mouse Settings
     item_y += item_h + item_spacing;
-    if (offset_y + item_y + item_h < win->y + win->h) {
-        draw_rounded_rect_filled(offset_x, offset_y + item_y, win->w - 16, item_h, 8, COLOR_DARK_PANEL);
-        // Mouse icon
-        draw_rect(offset_x + 18, offset_y + item_y + 8, 20, 28, 0xFFD3D3D3);
-        draw_rect(offset_x + 20, offset_y + item_y + 10, 16, 10, 0xFFB0B0B0);
-        draw_string(offset_x + 60, offset_y + item_y + 15, "Mouse", COLOR_DARK_TEXT);
-        draw_string(offset_x + 60, offset_y + item_y + 35, "Pointer and trackpad", COLOR_DKGRAY);
-    }
+    draw_rounded_rect_filled(offset_x, offset_y + item_y, win->w - 16, item_h, 8, COLOR_DARK_PANEL);
+    // Mouse icon
+    draw_rect(offset_x + 18, offset_y + item_y + 8, 20, 28, 0xFFD3D3D3);
+    draw_rect(offset_x + 20, offset_y + item_y + 10, 16, 10, 0xFFB0B0B0);
+    draw_string(offset_x + 60, offset_y + item_y + 15, "Mouse", COLOR_DARK_TEXT);
+    draw_string(offset_x + 60, offset_y + item_y + 35, "Pointer settings", COLOR_DKGRAY);
 }
 
 static void control_panel_paint_wallpaper(Window *win) {
     int offset_x = win->x + 8;
     int offset_y = win->y + 30;
     
-    // Back button
-    draw_string(offset_x, offset_y, "< Back", 0xFF000080);
+    // Back button (rounded) - padded lower to avoid title bar
+    draw_rounded_rect_filled(offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
+    draw_string(offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
     
-    draw_string(offset_x, offset_y + 25, "Presets:", 0xFF000000);
+    draw_string(offset_x, offset_y + 40, "Presets:", COLOR_DARK_TEXT);
     
-    // Color buttons
-    int button_y = offset_y + 45;
+    // Color buttons (rounded) - 30% wider
+    int button_y = offset_y + 65;
     int button_x = offset_x;
     
     // Coffee button
-    draw_button(button_x, button_y, 60, 20, "Coffee", false);
-    draw_rect(button_x + 65, button_y + 5, 20, 10, COLOR_COFFEE);
+    draw_rounded_rect_filled(button_x, button_y, 91, 25, 6, COLOR_DARK_PANEL);
+    draw_rect(button_x + 8, button_y + 6, 18, 13, COLOR_COFFEE);
+    draw_string(button_x + 35, button_y + 8, "Coffee", COLOR_DARK_TEXT);
     
     // Teal button
-    draw_button(button_x + 100, button_y, 60, 20, "Teal", false);
-    draw_rect(button_x + 165, button_y + 5, 20, 10, COLOR_TEAL);
+    draw_rounded_rect_filled(button_x + 100, button_y, 91, 25, 6, COLOR_DARK_PANEL);
+    draw_rect(button_x + 108, button_y + 6, 18, 13, COLOR_TEAL);
+    draw_string(button_x + 135, button_y + 8, "Teal", COLOR_DARK_TEXT);
     
     // Green button
-    draw_button(button_x + 200, button_y, 60, 20, "Green", false);
-    draw_rect(button_x + 265, button_y + 5, 20, 10, COLOR_GREEN);
+    draw_rounded_rect_filled(button_x + 200, button_y, 91, 25, 6, COLOR_DARK_PANEL);
+    draw_rect(button_x + 208, button_y + 6, 18, 13, COLOR_GREEN);
+    draw_string(button_x + 235, button_y + 8, "Green", COLOR_DARK_TEXT);
     
     // Blue button
-    button_y += 30;
-    draw_button(button_x, button_y, 60, 20, "Blue", false);
-    draw_rect(button_x + 65, button_y + 5, 20, 10, COLOR_BLUE_BG);
+    button_y += 35;
+    draw_rounded_rect_filled(button_x, button_y, 91, 25, 6, COLOR_DARK_PANEL);
+    draw_rect(button_x + 8, button_y + 6, 18, 13, COLOR_BLUE_BG);
+    draw_string(button_x + 35, button_y + 8, "Blue", COLOR_DARK_TEXT);
     
     // Purple button
-    draw_button(button_x + 100, button_y, 60, 20, "Purple", false);
-    draw_rect(button_x + 165, button_y + 5, 20, 10, COLOR_PURPLE);
+    draw_rounded_rect_filled(button_x + 100, button_y, 91, 25, 6, COLOR_DARK_PANEL);
+    draw_rect(button_x + 108, button_y + 6, 18, 13, COLOR_PURPLE);
+    draw_string(button_x + 132, button_y + 8, "Purple", COLOR_DARK_TEXT);
     
     // Grey button
-    draw_button(button_x + 200, button_y, 60, 20, "Grey", false);
-    draw_rect(button_x + 265, button_y + 5, 20, 10, COLOR_GREY);
+    draw_rounded_rect_filled(button_x + 200, button_y, 91, 25, 6, COLOR_DARK_PANEL);
+    draw_rect(button_x + 208, button_y + 6, 18, 13, COLOR_GREY);
+    draw_string(button_x + 235, button_y + 8, "Grey", COLOR_DARK_TEXT);
     
     // Pattern section
     button_y += 40;
-    draw_string(offset_x, button_y, "Patterns:", 0xFF000000);
+    draw_string(offset_x, button_y, "Patterns:", COLOR_DARK_TEXT);
     
     button_y += 20;
     
-    // Lumberjack pattern button
-    draw_button(button_x, button_y, 100, 20, "Lumberjack", false);
+    // Lumberjack pattern button - 20% wider
+    draw_rounded_rect_filled(button_x, button_y, 132, 25, 6, COLOR_DARK_PANEL);
     // Draw small pattern preview (3x3 repeating)
-    for (int py = 0; py < 12; py++) {
-        for (int px = 0; px < 18; px++) {
+    for (int py = 0; py < 10; py++) {
+        for (int px = 0; px < 12; px++) {
             int cell_x = px % 3;
             int cell_y = py % 3;
-            uint32_t color;
-            
-            if (cell_x == 1 && cell_y == 1) {
-                color = 0xFF000000; // Black center
-            } else if (cell_x == 1 || cell_y == 1) {
-                color = 0xFF404040; // Dark grey cross
-            } else {
-                color = 0xFFDC143C; // Red corners
-            }
-            
-            draw_rect(button_x + 110 + px, button_y + 4 + py, 1, 1, color);
+            uint32_t color = (cell_x == 1 && cell_y == 1) ? 0xFF000000 : 
+                           (cell_x == 1 || cell_y == 1) ? 0xFF404040 : 0xFFDC143C;
+            draw_rect(button_x + 8 + px, button_y + 7 + py, 1, 1, color);
         }
     }
+    draw_string(button_x + 28, button_y + 8, "Lumberjack", COLOR_DARK_TEXT);
     
-    // Blue Diamond pattern button
-    draw_button(button_x + 145, button_y, 115, 20, "Blue Diamond", false);
+    // Blue Diamond pattern button - 20% wider
+    draw_rounded_rect_filled(button_x + 145, button_y, 132, 25, 6, COLOR_DARK_PANEL);
     // Draw small diamond preview
-    for (int py = 0; py < 10; py++) {
-        for (int px = 0; px < 20; px++) {
-            int cx = px - 10;
-            int cy = py - 5;
+    for (int py = 0; py < 8; py++) {
+        for (int px = 0; px < 10; px++) {
+            int cx = px - 5;
+            int cy = py - 4;
             int abs_cx = cx < 0 ? -cx : cx;
             int abs_cy = cy < 0 ? -cy : cy;
-            uint32_t color = (abs_cx + abs_cy <= 5) ? 0xFF0000CD : 0xFFADD8E6;
-            draw_rect(button_x + 270 + px, button_y + 5 + py, 1, 1, color);
+            uint32_t color = (abs_cx + abs_cy <= 3) ? 0xFF0000CD : 0xFFADD8E6;
+            draw_rect(button_x + 153 + px, button_y + 8 + py, 1, 1, color);
         }
     }
+    draw_string(button_x + 165, button_y + 8, "Blue Diamond", COLOR_DARK_TEXT);
     
     // Custom color section
     button_y += 40;
-    draw_string(offset_x, button_y, "Or something custom", 0xFF000000);
+    draw_string(offset_x, button_y, "Custom color:", COLOR_DARK_TEXT);
     
     button_y += 20;
     
-    // R input box
-    draw_string(button_x, button_y, "R:", 0xFF000000);
-    draw_rect(button_x + 25, button_y, 50, 15, 0xFFFFFFFF);
-    draw_rect(button_x + 25, button_y, 50, 1, COLOR_BLACK);
-    draw_rect(button_x + 25, button_y, 1, 15, COLOR_BLACK);
-    draw_rect(button_x + 74, button_y, 1, 15, COLOR_BLACK);
-    draw_rect(button_x + 25, button_y + 14, 50, 1, COLOR_BLACK);
-    draw_string(button_x + 30, button_y + 3, rgb_r, (focused_field == 0) ? 0xFFFF0000 : COLOR_BLACK);
+    // R input box (dark mode)
+    draw_string(button_x, button_y + 4, "R:", COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(button_x + 25, button_y, 50, 18, 4, COLOR_DARK_PANEL);
+    draw_string(button_x + 30, button_y + 4, rgb_r, (focused_field == 0) ? 0xFFFF6B6B : COLOR_DARK_TEXT);
     if (focused_field == 0) {
-        // Draw cursor
         int cursor_x = button_x + 30 + input_cursor * 8;
-        draw_rect(cursor_x, button_y + 3, 1, 9, 0xFFFF0000);
+        draw_rect(cursor_x, button_y + 4, 1, 9, 0xFFFF6B6B);
     }
     
-    // G input box
-    draw_string(button_x + 90, button_y, "G:", 0xFF000000);
-    draw_rect(button_x + 115, button_y, 50, 15, 0xFFFFFFFF);
-    draw_rect(button_x + 115, button_y, 50, 1, COLOR_BLACK);
-    draw_rect(button_x + 115, button_y, 1, 15, COLOR_BLACK);
-    draw_rect(button_x + 164, button_y, 1, 15, COLOR_BLACK);
-    draw_rect(button_x + 115, button_y + 14, 50, 1, COLOR_BLACK);
-    draw_string(button_x + 120, button_y + 3, rgb_g, (focused_field == 1) ? 0xFF00AA00 : COLOR_BLACK);
+    // G input box (dark mode)
+    draw_string(button_x + 90, button_y + 4, "G:", COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(button_x + 115, button_y, 50, 18, 4, COLOR_DARK_PANEL);
+    draw_string(button_x + 120, button_y + 4, rgb_g, (focused_field == 1) ? 0xFF90EE90 : COLOR_DARK_TEXT);
     if (focused_field == 1) {
-        // Draw cursor
         int cursor_x = button_x + 120 + input_cursor * 8;
-        draw_rect(cursor_x, button_y + 3, 1, 9, 0xFF00AA00);
+        draw_rect(cursor_x, button_y + 4, 1, 9, 0xFF90EE90);
     }
     
-    // B input box
-    draw_string(button_x + 180, button_y, "B:", 0xFF000000);
-    draw_rect(button_x + 205, button_y, 50, 15, 0xFFFFFFFF);
-    draw_rect(button_x + 205, button_y, 50, 1, COLOR_BLACK);
-    draw_rect(button_x + 205, button_y, 1, 15, COLOR_BLACK);
-    draw_rect(button_x + 254, button_y, 1, 15, COLOR_BLACK);
-    draw_rect(button_x + 205, button_y + 14, 50, 1, COLOR_BLACK);
-    draw_string(button_x + 210, button_y + 3, rgb_b, (focused_field == 2) ? 0xFF0000FF : COLOR_BLACK);
+    // B input box (dark mode)
+    draw_string(button_x + 180, button_y + 4, "B:", COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(button_x + 205, button_y, 50, 18, 4, COLOR_DARK_PANEL);
+    draw_string(button_x + 210, button_y + 4, rgb_b, (focused_field == 2) ? 0xFF87CEEB : COLOR_DARK_TEXT);
     if (focused_field == 2) {
-        // Draw cursor
         int cursor_x = button_x + 210 + input_cursor * 8;
-        draw_rect(cursor_x, button_y + 3, 1, 9, 0xFF0000FF);
+        draw_rect(cursor_x, button_y + 4, 1, 9, 0xFF87CEEB);
     }
     
-    // Apply button
-    draw_button(button_x, button_y + 25, 70, 20, "Apply", false);
+    // Apply button (rounded)
+    draw_rounded_rect_filled(button_x, button_y + 25, 70, 25, 6, COLOR_DARK_PANEL);
+    draw_string(button_x + 18, button_y + 33, "Apply", COLOR_DARK_TEXT);
 }
 
 static void draw_input_box(int x, int y, int width, const char *text, bool focused, int cursor_pos) {
@@ -356,132 +338,172 @@ static void control_panel_paint_network(Window *win) {
     int offset_x = win->x + 8;
     int offset_y = win->y + 30;
     
-    // Back button
-    draw_string(offset_x, offset_y, "< Back", 0xFF000080);
+    // Back button (rounded) - padded lower to avoid title bar
+    draw_rounded_rect_filled(offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
+    draw_string(offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
     
     // Network Init Button
-    draw_string(offset_x, offset_y + 25, "Network:", 0xFF000000);
-    draw_button(offset_x, offset_y + 45, 100, 22, "Init Network", false);
+    draw_string(offset_x, offset_y + 40, "Network:", COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(offset_x, offset_y + 55, 140, 25, 6, COLOR_DARK_PANEL);
+    draw_string(offset_x + 30, offset_y + 63, "Init Network", COLOR_DARK_TEXT);
     
     // Status message
     if (net_status[0] != '\0') {
-        draw_string(offset_x + 110, offset_y + 50, net_status, 0xFF008000);
+        draw_string(offset_x + 150, offset_y + 63, net_status, 0xFF90EE90);
     }
     
     // Set IP Section
-    int section_y = offset_y + 80;
-    draw_string(offset_x, section_y, "Set Static IP:", 0xFF000000);
+    int section_y = offset_y + 85;
+    draw_string(offset_x, section_y, "Set Static IP:", COLOR_DARK_TEXT);
     
     section_y += 20;
-    // IP input boxes (4 octets)
-    draw_input_box(offset_x, section_y, 40, ip_1, focused_field == 0, input_cursor);
-    draw_string(offset_x + 42, section_y + 4, ".", COLOR_BLACK);
-    draw_input_box(offset_x + 50, section_y, 40, ip_2, focused_field == 1, input_cursor);
-    draw_string(offset_x + 92, section_y + 4, ".", COLOR_BLACK);
-    draw_input_box(offset_x + 100, section_y, 40, ip_3, focused_field == 2, input_cursor);
-    draw_string(offset_x + 142, section_y + 4, ".", COLOR_BLACK);
-    draw_input_box(offset_x + 150, section_y, 40, ip_4, focused_field == 3, input_cursor);
+    // IP input boxes (4 octets, dark mode rounded) - with cursor indicators
+    uint32_t ip1_color = (focused_field == 0) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 5, section_y + 4, ip_1, ip1_color);
+    if (focused_field == 0) draw_rect(offset_x + 5 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
+    draw_string(offset_x + 40, section_y + 4, ".", COLOR_DARK_TEXT);
     
-    // Apply IP button
-    draw_button(offset_x + 200, section_y, 70, 18, "Apply", false);
+    uint32_t ip2_color = (focused_field == 1) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 50, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 55, section_y + 4, ip_2, ip2_color);
+    if (focused_field == 1) draw_rect(offset_x + 55 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
+    draw_string(offset_x + 90, section_y + 4, ".", COLOR_DARK_TEXT);
+    
+    uint32_t ip3_color = (focused_field == 2) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 100, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 105, section_y + 4, ip_3, ip3_color);
+    if (focused_field == 2) draw_rect(offset_x + 105 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
+    draw_string(offset_x + 140, section_y + 4, ".", COLOR_DARK_TEXT);
+    
+    uint32_t ip4_color = (focused_field == 3) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 150, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 155, section_y + 4, ip_4, ip4_color);
+    if (focused_field == 3) draw_rect(offset_x + 155 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
+    
+    // Apply IP button (rounded)
+    draw_rounded_rect_filled(offset_x + 200, section_y, 70, 20, 6, COLOR_DARK_PANEL);
+    draw_string(offset_x + 218, section_y + 4, "Apply", COLOR_DARK_TEXT);
     
     // Send UDP Section
-    section_y += 35;
-    draw_string(offset_x, section_y, "Send UDP Message:", 0xFF000000);
+    section_y += 30;
+    draw_string(offset_x, section_y, "Send UDP Message:", COLOR_DARK_TEXT);
     
     section_y += 20;
-    draw_string(offset_x, section_y + 4, "IP:", COLOR_BLACK);
-    draw_input_box(offset_x + 25, section_y, 40, dest_ip_1, focused_field == 4, input_cursor);
-    draw_string(offset_x + 67, section_y + 4, ".", COLOR_BLACK);
-    draw_input_box(offset_x + 75, section_y, 40, dest_ip_2, focused_field == 5, input_cursor);
-    draw_string(offset_x + 117, section_y + 4, ".", COLOR_BLACK);
-    draw_input_box(offset_x + 125, section_y, 40, dest_ip_3, focused_field == 6, input_cursor);
-    draw_string(offset_x + 167, section_y + 4, ".", COLOR_BLACK);
-    draw_input_box(offset_x + 175, section_y, 40, dest_ip_4, focused_field == 7, input_cursor);
+    draw_string(offset_x, section_y + 4, "IP:", COLOR_DARK_TEXT);
+    uint32_t dip1_color = (focused_field == 4) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 25, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 30, section_y + 4, dest_ip_1, dip1_color);
+    if (focused_field == 4) draw_rect(offset_x + 30 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
+    draw_string(offset_x + 65, section_y + 4, ".", COLOR_DARK_TEXT);
+    
+    uint32_t dip2_color = (focused_field == 5) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 70, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 75, section_y + 4, dest_ip_2, dip2_color);
+    if (focused_field == 5) draw_rect(offset_x + 75 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
+    draw_string(offset_x + 110, section_y + 4, ".", COLOR_DARK_TEXT);
+    
+    uint32_t dip3_color = (focused_field == 6) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 115, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 120, section_y + 4, dest_ip_3, dip3_color);
+    if (focused_field == 6) draw_rect(offset_x + 120 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
+    draw_string(offset_x + 155, section_y + 4, ".", COLOR_DARK_TEXT);
+    
+    uint32_t dip4_color = (focused_field == 7) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 160, section_y, 35, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 165, section_y + 4, dest_ip_4, dip4_color);
+    if (focused_field == 7) draw_rect(offset_x + 165 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
     
     section_y += 25;
-    draw_string(offset_x, section_y + 4, "Port:", COLOR_BLACK);
-    draw_input_box(offset_x + 40, section_y, 60, udp_port, focused_field == 8, input_cursor);
+    draw_string(offset_x, section_y + 4, "Port:", COLOR_DARK_TEXT);
+    uint32_t port_color = (focused_field == 8) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 40, section_y, 60, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 45, section_y + 4, udp_port, port_color);
+    if (focused_field == 8) draw_rect(offset_x + 45 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
     
     section_y += 25;
-    draw_string(offset_x, section_y + 4, "Msg:", COLOR_BLACK);
-    draw_input_box(offset_x + 40, section_y, 260, udp_message, focused_field == 9, input_cursor);
+    draw_string(offset_x, section_y + 4, "Msg:", COLOR_DARK_TEXT);
+    uint32_t msg_color = (focused_field == 9) ? 0xFF4A90E2 : COLOR_DARK_TEXT;
+    draw_rounded_rect_filled(offset_x + 40, section_y, 180, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 45, section_y + 4, udp_message, msg_color);
+    if (focused_field == 9) draw_rect(offset_x + 45 + input_cursor * 8, section_y + 4, 1, 9, 0xFF4A90E2);
     
-    // Send button
+    // Send button (rounded)
     section_y += 25;
-    draw_button(offset_x, section_y, 80, 22, "Send", false);
+    draw_rounded_rect_filled(offset_x, section_y, 80, 25, 6, COLOR_DARK_PANEL);
+    draw_string(offset_x + 22, section_y + 7, "Send", COLOR_DARK_TEXT);
 }
+
 
 static void control_panel_paint_desktop(Window *win) {
     int offset_x = win->x + 8;
     int offset_y = win->y + 30;
     
-    // Back button
-    draw_string(offset_x, offset_y, "< Back", 0xFF000080);
-    draw_string(offset_x, offset_y + 25, "Desktop Settings:", 0xFF000000);
+    // Back button (rounded) - padded lower to avoid title bar
+    draw_rounded_rect_filled(offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
+    draw_string(offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
+    draw_string(offset_x, offset_y + 40, "Desktop Settings:", COLOR_DARK_TEXT);
     
-    int section_y = offset_y + 50;
+    int section_y = offset_y + 65;
     
-    // Snap to Grid
-    draw_rect(offset_x, section_y, 15, 15, 0xFFFFFFFF);
-    draw_rect(offset_x, section_y, 15, 1, COLOR_BLACK);
-    draw_rect(offset_x, section_y, 1, 15, COLOR_BLACK);
-    draw_rect(offset_x + 14, section_y, 1, 15, COLOR_BLACK);
-    draw_rect(offset_x, section_y + 14, 15, 1, COLOR_BLACK);
-    if (desktop_snap_to_grid) draw_string(offset_x + 3, section_y + 3, "X", COLOR_BLACK);
-    draw_string(offset_x + 25, section_y + 3, "Snap to Grid", COLOR_BLACK);
+    // Snap to Grid checkbox (rounded)
+    draw_rounded_rect_filled(offset_x, section_y, 16, 16, 3, COLOR_DARK_PANEL);
+    if (desktop_snap_to_grid) draw_string(offset_x + 3, section_y + 1, "✓", 0xFF90EE90);
+    draw_string(offset_x + 25, section_y + 3, "Snap to Grid", COLOR_DARK_TEXT);
     
-    // Auto Align
+    // Auto Align checkbox (rounded)
     section_y += 25;
-    draw_rect(offset_x, section_y, 15, 15, 0xFFFFFFFF);
-    draw_rect(offset_x, section_y, 15, 1, COLOR_BLACK);
-    draw_rect(offset_x, section_y, 1, 15, COLOR_BLACK);
-    draw_rect(offset_x + 14, section_y, 1, 15, COLOR_BLACK);
-    draw_rect(offset_x, section_y + 14, 15, 1, COLOR_BLACK);
-    if (desktop_auto_align) draw_string(offset_x + 3, section_y + 3, "X", COLOR_BLACK);
-    draw_string(offset_x + 25, section_y + 3, "Auto Align Icons", COLOR_BLACK);
+    draw_rounded_rect_filled(offset_x, section_y, 16, 16, 3, COLOR_DARK_PANEL);
+    if (desktop_auto_align) draw_string(offset_x + 3, section_y + 1, "✓", 0xFF90EE90);
+    draw_string(offset_x + 25, section_y + 3, "Auto Align Icons", COLOR_DARK_TEXT);
     
     // Max Rows
-    section_y += 25;
-    draw_string(offset_x, section_y + 3, "Apps per column:", COLOR_BLACK);
-    draw_button(offset_x + 130, section_y, 20, 20, "-", false);
+    section_y += 30;
+    draw_string(offset_x, section_y + 3, "Apps per column:", COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(offset_x + 130, section_y, 20, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 135, section_y + 4, "-", COLOR_DARK_TEXT);
     char num[4]; num[0] = '0' + (desktop_max_rows_per_col / 10); num[1] = '0' + (desktop_max_rows_per_col % 10); num[2] = 0;
     if (num[0] == '0') { num[0] = num[1]; num[1] = 0; }
-    draw_string(offset_x + 160, section_y + 5, num, COLOR_BLACK);
-    draw_button(offset_x + 180, section_y, 20, 20, "+", false);
+    draw_string(offset_x + 160, section_y + 5, num, COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(offset_x + 180, section_y, 20, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 186, section_y + 4, "+", COLOR_DARK_TEXT);
     
     // Max Cols
-    section_y += 25;
-    draw_string(offset_x, section_y + 3, "Columns:", COLOR_BLACK);
-    draw_button(offset_x + 130, section_y, 20, 20, "-", false);
+    section_y += 30;
+    draw_string(offset_x, section_y + 3, "Columns:", COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(offset_x + 130, section_y, 20, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 135, section_y + 4, "-", COLOR_DARK_TEXT);
     char num_c[4]; num_c[0] = '0' + (desktop_max_cols / 10); num_c[1] = '0' + (desktop_max_cols % 10); num_c[2] = 0;
     if (num_c[0] == '0') { num_c[0] = num_c[1]; num_c[1] = 0; }
-    draw_string(offset_x + 160, section_y + 5, num_c, COLOR_BLACK);
-    draw_button(offset_x + 180, section_y, 20, 20, "+", false);
+    draw_string(offset_x + 160, section_y + 5, num_c, COLOR_DARK_TEXT);
+    draw_rounded_rect_filled(offset_x + 180, section_y, 20, 20, 4, COLOR_DARK_PANEL);
+    draw_string(offset_x + 186, section_y + 4, "+", COLOR_DARK_TEXT);
 }
+
 
 static void control_panel_paint_mouse(Window *win) {
     int offset_x = win->x + 8;
     int offset_y = win->y + 30;
     
-    // Back button
-    draw_string(offset_x, offset_y, "< Back", 0xFF000080);
-    draw_string(offset_x, offset_y + 25, "Mouse Settings:", 0xFF000000);
+    // Back button (rounded) - padded lower to avoid title bar
+    draw_rounded_rect_filled(offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
+    draw_string(offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
+    draw_string(offset_x, offset_y + 40, "Mouse Settings:", COLOR_DARK_TEXT);
     
-    int section_y = offset_y + 60;
-    draw_string(offset_x, section_y, "Speed:", COLOR_BLACK);
+    int section_y = offset_y + 65;
+    draw_string(offset_x, section_y, "Speed:", COLOR_DARK_TEXT);
     
-    // Slider track
-    draw_rect(offset_x + 60, section_y + 8, 200, 2, COLOR_DKGRAY);
+    // Slider track (rounded background)
+    draw_rounded_rect_filled(offset_x + 60, section_y + 8, 200, 8, 4, COLOR_DARK_PANEL);
     
-    // Slider knob (range 1-50, default 10)
+    // Slider knob (range 1-50, default 10) - rounded with blue color
     int knob_x = offset_x + 60 + (mouse_speed - 1) * 190 / 49;
-    draw_button(knob_x, section_y, 10, 18, "", false);
+    draw_rounded_rect_filled(knob_x, section_y + 2, 10, 14, 3, 0xFF4A90E2);
     
-    draw_string(offset_x + 270, section_y + 4, "x", COLOR_BLACK);
+    draw_string(offset_x + 270, section_y + 4, "x", COLOR_DARK_TEXT);
     char speed_str[4];
     cli_itoa(mouse_speed, speed_str);
-    draw_string(offset_x + 280, section_y + 4, speed_str, COLOR_BLACK);
+    draw_string(offset_x + 280, section_y + 4, speed_str, COLOR_DARK_TEXT);
 }
 
 static void control_panel_paint(Window *win) {
@@ -534,57 +556,64 @@ static void control_panel_handle_click(Window *win, int x, int y) {
 
         // Check mouse button
         item_y += item_h + item_spacing;
-        if (x >= offset_x && x < win->w - 8 &&
+        if (offset_y + item_y + item_h < win->y + win->h &&
+            x >= offset_x && x < win->w - 8 &&
             y >= item_y && y < item_y + item_h) {
             current_view = VIEW_MOUSE;
         }
     } else if (current_view == VIEW_WALLPAPER) {
         int offset_x = 8;
         int offset_y = 30;
-        int button_y = offset_y + 45;
+        int button_y = offset_y + 65;
         int button_x = offset_x;
         
         // Back button
-        if (x >= offset_x && x < offset_x + 40 &&
-            y >= offset_y && y < offset_y + 15) {
+        if (x >= offset_x && x < offset_x + 80 &&
+            y >= offset_y + 5 && y < offset_y + 30) {
             current_view = VIEW_MAIN;
             return;
         }
         
-        // Check Coffee button
-        if (x >= button_x && x < button_x + 60 && y >= button_y && y < button_y + 20) {
+        // Check Coffee button (91px wide)
+        if (x >= button_x && x < button_x + 91 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_color(COLOR_COFFEE);
+            wm_refresh();
             return;
         }
         
         // Check Teal button
-        if (x >= button_x + 100 && x < button_x + 160 && y >= button_y && y < button_y + 20) {
+        if (x >= button_x + 100 && x < button_x + 191 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_color(COLOR_TEAL);
+            wm_refresh();
             return;
         }
         
         // Check Green button
-        if (x >= button_x + 200 && x < button_x + 260 && y >= button_y && y < button_y + 20) {
+        if (x >= button_x + 200 && x < button_x + 291 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_color(COLOR_GREEN);
+            wm_refresh();
             return;
         }
         
         // Check Blue button
-        button_y += 30;
-        if (x >= button_x && x < button_x + 60 && y >= button_y && y < button_y + 20) {
+        button_y += 35;
+        if (x >= button_x && x < button_x + 91 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_color(COLOR_BLUE_BG);
+            wm_refresh();
             return;
         }
         
         // Check Purple button
-        if (x >= button_x + 100 && x < button_x + 160 && y >= button_y && y < button_y + 20) {
+        if (x >= button_x + 100 && x < button_x + 191 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_color(COLOR_PURPLE);
+            wm_refresh();
             return;
         }
         
         // Check Grey button
-        if (x >= button_x + 200 && x < button_x + 260 && y >= button_y && y < button_y + 20) {
+        if (x >= button_x + 200 && x < button_x + 291 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_color(COLOR_GREY);
+            wm_refresh();
             return;
         }
         
@@ -592,15 +621,17 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         button_y += 40;
         button_y += 20;
         
-        // Check Lumberjack pattern button
-        if (x >= button_x && x < button_x + 100 && y >= button_y && y < button_y + 20) {
+        // Check Lumberjack pattern button (132px wide)
+        if (x >= button_x && x < button_x + 132 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_pattern(pattern_lumberjack);
+            wm_refresh();
             return;
         }
         
-        // Check Blue Diamond pattern button
-        if (x >= button_x + 145 && x < button_x + 260 && y >= button_y && y < button_y + 20) {
+        // Check Blue Diamond pattern button (132px wide)
+        if (x >= button_x + 145 && x < button_x + 277 && y >= button_y && y < button_y + 25) {
             graphics_set_bg_pattern(pattern_blue_diamond);
+            wm_refresh();
             return;
         }
         
@@ -609,7 +640,7 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         button_y += 20;
         
         // Check R input box click
-        if (x >= button_x + 25 && x < button_x + 75 && y >= button_y && y < button_y + 15) {
+        if (x >= button_x + 25 && x < button_x + 75 && y >= button_y && y < button_y + 18) {
             if (focused_field != 0) {
                 rgb_r[0] = '\0';  // Clear when first focused
             }
@@ -619,7 +650,7 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         }
         
         // Check G input box click
-        if (x >= button_x + 115 && x < button_x + 165 && y >= button_y && y < button_y + 15) {
+        if (x >= button_x + 115 && x < button_x + 165 && y >= button_y && y < button_y + 18) {
             if (focused_field != 1) {
                 rgb_g[0] = '\0';  // Clear when first focused
             }
@@ -629,7 +660,7 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         }
         
         // Check B input box click
-        if (x >= button_x + 205 && x < button_x + 255 && y >= button_y && y < button_y + 15) {
+        if (x >= button_x + 205 && x < button_x + 255 && y >= button_y && y < button_y + 18) {
             if (focused_field != 2) {
                 rgb_b[0] = '\0';  // Clear when first focused
             }
@@ -639,8 +670,9 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         }
         
         // Check Apply button
-        if (x >= button_x && x < button_x + 70 && y >= button_y + 25 && y < button_y + 45) {
+        if (x >= button_x && x < button_x + 70 && y >= button_y + 25 && y < button_y + 50) {
             graphics_set_bg_color(parse_rgb_separate(rgb_r, rgb_g, rgb_b));
+            wm_refresh();
             return;
         }
     } else if (current_view == VIEW_NETWORK) {
@@ -648,14 +680,14 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         int offset_y = 30;
         
         // Back button
-        if (x >= offset_x && x < offset_x + 40 && y >= offset_y && y < offset_y + 15) {
+        if (x >= offset_x && x < offset_x + 80 && y >= offset_y + 5 && y < offset_y + 30) {
             current_view = VIEW_MAIN;
             focused_field = -1;
             return;
         }
         
-        // Init Network button
-        if (x >= offset_x && x < offset_x + 100 && y >= offset_y + 45 && y < offset_y + 67) {
+        // Init Network button (140px wide now)
+        if (x >= offset_x && x < offset_x + 140 && y >= offset_y + 55 && y < offset_y + 80) {
             int result = network_init();
             if (result == 0) {
                 net_status[0] = 'I'; net_status[1] = 'n'; net_status[2] = 'i'; 
@@ -669,35 +701,35 @@ static void control_panel_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        int section_y = offset_y + 80 + 20;
+        int section_y = offset_y + 85 + 20;
         
         // IP octet 1
-        if (x >= offset_x && x < offset_x + 40 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x && x < offset_x + 35 && y >= section_y && y < section_y + 20) {
             focused_field = 0;
             input_cursor = 0;
             return;
         }
         // IP octet 2
-        if (x >= offset_x + 50 && x < offset_x + 90 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 50 && x < offset_x + 85 && y >= section_y && y < section_y + 20) {
             focused_field = 1;
             input_cursor = 0;
             return;
         }
         // IP octet 3
-        if (x >= offset_x + 100 && x < offset_x + 140 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 100 && x < offset_x + 135 && y >= section_y && y < section_y + 20) {
             focused_field = 2;
             input_cursor = 0;
             return;
         }
         // IP octet 4
-        if (x >= offset_x + 150 && x < offset_x + 190 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 150 && x < offset_x + 185 && y >= section_y && y < section_y + 20) {
             focused_field = 3;
             input_cursor = 0;
             return;
         }
         
         // Apply IP button
-        if (x >= offset_x + 200 && x < offset_x + 270 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 200 && x < offset_x + 270 && y >= section_y && y < section_y + 20) {
             ipv4_address_t ip;
             ip.bytes[0] = 0; ip.bytes[1] = 0; ip.bytes[2] = 0; ip.bytes[3] = 0;
             
@@ -730,25 +762,25 @@ static void control_panel_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        section_y += 35 + 20;
+        section_y += 30;
         
         // Dest IP octets
-        if (x >= offset_x + 25 && x < offset_x + 65 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 25 && x < offset_x + 60 && y >= section_y && y < section_y + 20) {
             focused_field = 4;
             input_cursor = 0;
             return;
         }
-        if (x >= offset_x + 75 && x < offset_x + 115 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 70 && x < offset_x + 105 && y >= section_y && y < section_y + 20) {
             focused_field = 5;
             input_cursor = 0;
             return;
         }
-        if (x >= offset_x + 125 && x < offset_x + 165 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 115 && x < offset_x + 150 && y >= section_y && y < section_y + 20) {
             focused_field = 6;
             input_cursor = 0;
             return;
         }
-        if (x >= offset_x + 175 && x < offset_x + 215 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 160 && x < offset_x + 195 && y >= section_y && y < section_y + 20) {
             focused_field = 7;
             input_cursor = 0;
             return;
@@ -757,7 +789,7 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         section_y += 25;
         
         // Port field
-        if (x >= offset_x + 40 && x < offset_x + 100 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 40 && x < offset_x + 100 && y >= section_y && y < section_y + 20) {
             focused_field = 8;
             input_cursor = 0;
             return;
@@ -766,7 +798,7 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         section_y += 25;
         
         // Message field
-        if (x >= offset_x + 40 && x < offset_x + 300 && y >= section_y && y < section_y + 18) {
+        if (x >= offset_x + 40 && x < offset_x + 220 && y >= section_y && y < section_y + 20) {
             focused_field = 9;
             input_cursor = 0;
             return;
@@ -775,7 +807,7 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         section_y += 25;
         
         // Send button
-        if (x >= offset_x && x < offset_x + 80 && y >= section_y && y < section_y + 22) {
+        if (x >= offset_x && x < offset_x + 80 && y >= section_y && y < section_y + 25) {
             ipv4_address_t dest_ip;
             dest_ip.bytes[0] = 0; dest_ip.bytes[1] = 0; dest_ip.bytes[2] = 0; dest_ip.bytes[3] = 0;
             
@@ -830,14 +862,14 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         int offset_y = 30;
         
         // Back button
-        if (x >= offset_x && x < offset_x + 40 && y >= offset_y && y < offset_y + 15) {
+        if (x >= offset_x && x < offset_x + 80 && y >= offset_y + 5 && y < offset_y + 30) {
             current_view = VIEW_MAIN;
             return;
         }
         
-        int section_y = offset_y + 50;
-        // Snap toggle
-        if (x >= offset_x && x < offset_x + 150 && y >= section_y && y < section_y + 20) {
+        int section_y = offset_y + 65;
+        // Snap toggle - click on checkbox only
+        if (x >= offset_x && x < offset_x + 16 && y >= section_y && y < section_y + 16) {
             desktop_snap_to_grid = !desktop_snap_to_grid;
             // If Snap is turned OFF, Auto Align must be OFF
             if (!desktop_snap_to_grid) {
@@ -847,9 +879,9 @@ static void control_panel_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        // Auto Align toggle
+        // Auto Align toggle - click on checkbox only
         section_y += 25;
-        if (x >= offset_x && x < offset_x + 150 && y >= section_y && y < section_y + 20) {
+        if (x >= offset_x && x < offset_x + 16 && y >= section_y && y < section_y + 16) {
             desktop_auto_align = !desktop_auto_align;
             // If Auto Align is turned ON, Snap must be ON
             if (desktop_auto_align) {
@@ -897,12 +929,12 @@ static void control_panel_handle_click(Window *win, int x, int y) {
         int offset_y = 30;
         
         // Back button
-        if (x >= offset_x && x < offset_x + 40 && y >= offset_y && y < offset_y + 15) {
+        if (x >= offset_x && x < offset_x + 80 && y >= offset_y + 5 && y < offset_y + 30) {
             current_view = VIEW_MAIN;
             return;
         }
         
-        int section_y = offset_y + 60;
+        int section_y = offset_y + 65;
         // Slider interaction
         if (x >= offset_x + 60 && x <= offset_x + 260 && y >= section_y && y <= section_y + 20) {
             int new_speed = 1 + (x - (offset_x + 60)) * 49 / 200;
@@ -1009,7 +1041,7 @@ void control_panel_init(void) {
     win_control_panel.x = 200;
     win_control_panel.y = 150;
     win_control_panel.w = 350;
-    win_control_panel.h = 300;
+    win_control_panel.h = 320;
     win_control_panel.visible = false;
     win_control_panel.focused = false;
     win_control_panel.z_index = 0;

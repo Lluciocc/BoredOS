@@ -147,18 +147,11 @@ void fat32_normalize_path(const char *path, char *normalized) {
     // Initialize with current directory or root
     // If drive changed, we assume root of that drive
     if (p[0] == '/') {
-        temp[0] = '/';
-        temp[1] = 0;
+        fs_strcpy(temp, "/");
         temp_len = 1;
     } else {
-        if (drive != current_drive) {
-             temp[0] = '/';
-             temp[1] = 0;
-             temp_len = 1;
-        } else {
-             fs_strcpy(temp, current_dir);
-             temp_len = fs_strlen(temp);
-        }
+        fs_strcpy(temp, current_dir);
+        temp_len = fs_strlen(temp);
     }
 
     int i = 0;
