@@ -201,16 +201,15 @@ static void explorer_draw_icon_label(int x, int y, const char *label, uint32_t c
     // Center in EXPLORER_ITEM_WIDTH
     int l1_len = 0; while(line1[l1_len]) l1_len++;
     int l1_w = l1_len * 8;
-    draw_string(x + (EXPLORER_ITEM_WIDTH - l1_w)/2, y + 50, line1, color);
+    draw_string(x + (EXPLORER_ITEM_WIDTH - l1_w)/2, y + 56, line1, color);
     
     if (line2[0]) {
         int l2_len = 0; while(line2[l2_len]) l2_len++;
         int l2_w = l2_len * 8;
-        draw_string(x + (EXPLORER_ITEM_WIDTH - l2_w)/2, y + 60, line2, color);
+        draw_string(x + (EXPLORER_ITEM_WIDTH - l2_w)/2, y + 66, line2, color);
     }
 }
 
-// === Dialog and File Operations ===
 
 static bool check_desktop_limit_explorer(Window *win) {
     ExplorerState *state = (ExplorerState*)win->data;
@@ -888,31 +887,9 @@ static void explorer_open_item(Window *win, int index) {
 // Draw a simple file icon
 static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, const char *filename) {
     if (is_dir) {
-        if (explorer_strcmp(filename, "RecycleBin") == 0) {
-            // Align with folder body position
-            draw_recycle_bin_icon(x - 19, y + 10, "");
-            return;
-        }
-        // Folder icon (colored folder) - Desktop style
-        // Folder tab
-        draw_rect(x + 10, y + 10, 15, 6, COLOR_LTGRAY);
-        draw_rect(x + 10, y + 10, 15, 1, COLOR_BLACK);
-        draw_rect(x + 10, y + 10, 1, 6, COLOR_BLACK);
-        draw_rect(x + 24, y + 10, 1, 6, COLOR_BLACK);
-        
-        // Folder body
-        draw_rect(x + 10, y + 16, 25, 15, color);
-        draw_rect(x + 10, y + 16, 25, 1, COLOR_BLACK);
-        draw_rect(x + 10, y + 16, 1, 15, COLOR_BLACK);
-        draw_rect(x + 34, y + 16, 1, 15, COLOR_BLACK);
-        draw_rect(x + 10, y + 30, 25, 1, COLOR_BLACK);
+        if (explorer_strcmp(filename, "RecycleBin") == 0) draw_recycle_bin_icon(x + 5, y + 5, "");
+        else draw_folder_icon(x + 5, y + 5, "");
     } else if (explorer_str_ends_with(filename, ".shortcut")) {
-        // App Shortcut - Draw specific icon
-        // Strip extension for check
-        // Draw icon at x+5, y+5
-        // The draw_*_icon functions in wm.c draw at x, y
-        // Pass a label, but avoid text drawn by the icon function inside the explorer item
-        // because explorer draws its own text. Pass "" as label.
         if (explorer_strcmp(filename, "Notepad.shortcut") == 0) draw_notepad_icon(x + 5, y + 5, "");
         else if (explorer_strcmp(filename, "Calculator.shortcut") == 0) draw_calculator_icon(x + 5, y + 5, "");
         else if (explorer_strcmp(filename, "Terminal.shortcut") == 0) draw_terminal_icon(x + 5, y + 5, "");
@@ -924,34 +901,11 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
         else if (explorer_strcmp(filename, "RecycleBin") == 0) draw_recycle_bin_icon(x + 5, y + 5, "");
         else draw_icon(x + 5, y + 5, "");
     } else if (explorer_str_ends_with(filename, ".pnt")) {
-        draw_paint_icon(x - 15, y + 10, "");
+        draw_paint_icon(x + 5, y + 5, "");
     } else if (explorer_str_ends_with(filename, ".jpg") || explorer_str_ends_with(filename, ".JPG")) {
-        // Photo/image icon
-        draw_rect(x + 10, y + 10, 25, 20, 0xFF87CEEB);  // Sky blue bg
-        draw_rect(x + 10, y + 22, 25, 8, 0xFF90EE90);   // Green bottom (landscape)
-        draw_rect(x + 18, y + 16, 8, 6, 0xFFFFFF00);    // Sun
-        draw_rect(x + 10, y + 10, 25, 1, 0xFF333333);   // Border
-        draw_rect(x + 10, y + 10, 1, 20, 0xFF333333);
-        draw_rect(x + 34, y + 10, 1, 20, 0xFF333333);
-        draw_rect(x + 10, y + 29, 25, 1, 0xFF333333);
+        draw_image_icon(x + 5, y + 5, filename);
     } else {
-        // Document icon - larger
-        draw_rect(x + 12, y + 10, 20, 25, COLOR_WHITE);
-        draw_rect(x + 12, y + 10, 20, 2, COLOR_BLACK);
-        draw_rect(x + 12, y + 10, 2, 25, COLOR_BLACK);
-        draw_rect(x + 30, y + 10, 2, 25, COLOR_BLACK);
-        draw_rect(x + 12, y + 33, 20, 2, COLOR_BLACK);
-        
-        if (explorer_str_ends_with(filename, ".md")) {
-            draw_string(x + 14, y + 12, "MD", COLOR_BLACK);
-        } else if (explorer_str_ends_with(filename, ".c") || explorer_str_ends_with(filename, ".C")) {
-            draw_string(x + 14, y + 12, "C", COLOR_APPLE_BLUE);
-        } else {
-            // Lines on document
-            draw_rect(x + 15, y + 18, 14, 1, COLOR_DKGRAY);
-            draw_rect(x + 15, y + 23, 14, 1, COLOR_DKGRAY);
-            draw_rect(x + 15, y + 28, 14, 1, COLOR_DKGRAY);
-        }
+        draw_document_icon(x + 5, y + 5, "");
     }
 }
 

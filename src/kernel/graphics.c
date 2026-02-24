@@ -31,6 +31,11 @@ static uint32_t g_back_buffer[MAX_FB_WIDTH * MAX_FB_HEIGHT] __attribute__((align
 static int g_clip_x = 0, g_clip_y = 0, g_clip_w = 0, g_clip_h = 0;
 static bool g_clip_enabled = false;
 
+// Custom Render Target
+static uint32_t *g_render_target = NULL;
+static int g_rt_width = 0;
+static int g_rt_height = 0;
+
 void graphics_init(struct limine_framebuffer *fb) {
     g_fb = fb;
     g_dirty.active = false;
@@ -123,7 +128,21 @@ void graphics_clear_dirty(void) {
     asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
+void graphics_set_render_target(uint32_t *buffer, int w, int h) {
+    g_render_target = buffer;
+    g_rt_width = w;
+    g_rt_height = h;
+}
+
 void put_pixel(int x, int y, uint32_t color) {
+    if (g_render_target) {
+        if (x >= 0 && x < g_rt_width && y >= 0 && y < g_rt_height) {
+            // No clipping in custom render targets yet, just bounding box
+            g_render_target[y * g_rt_width + x] = color;
+        }
+        return;
+    }
+
     if (!g_fb) return;
     if (x < 0 || x >= (int)g_fb->width || y < 0 || y >= (int)g_fb->height) return;
     
@@ -140,9 +159,26 @@ void put_pixel(int x, int y, uint32_t color) {
 }
 
 void draw_rect(int x, int y, int w, int h, uint32_t color) {
-    if (!g_fb) return;
-
     int x1 = x, y1 = y, x2 = x + w, y2 = y + h;
+
+    if (g_render_target) {
+        if (x1 < 0) x1 = 0;
+        if (y1 < 0) y1 = 0;
+        if (x2 > g_rt_width) x2 = g_rt_width;
+        if (y2 > g_rt_height) y2 = g_rt_height;
+        if (x1 >= x2 || y1 >= y2) return;
+        
+        for (int i = y1; i < y2; i++) {
+            uint32_t *row = &g_render_target[i * g_rt_width + x1];
+            int len = x2 - x1;
+            for (int j = 0; j < len; j++) {
+                row[j] = color;
+            }
+        }
+        return;
+    }
+
+    if (!g_fb) return;
     
     if (g_clip_enabled) {
         if (x1 < g_clip_x) x1 = g_clip_x;

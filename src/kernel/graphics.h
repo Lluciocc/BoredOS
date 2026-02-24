@@ -22,6 +22,7 @@ void draw_desktop_background(void);
 void graphics_set_bg_color(uint32_t color);
 void graphics_set_bg_pattern(const uint32_t *pattern);  // 128x128 pattern
 void graphics_set_bg_image(uint32_t *pixels, int w, int h);  // Full-screen wallpaper image
+void graphics_set_render_target(uint32_t *buffer, int w, int h);
 
 
 void draw_boredos_logo(int x, int y, int scale);

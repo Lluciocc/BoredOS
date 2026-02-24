@@ -187,7 +187,7 @@ static void refresh_desktop_icons(void) {
     // 3. Layout Icons
     if (desktop_auto_align) {
         int start_x = 20;
-        int start_y = 50;
+        int start_y = 30;
         int grid_x = 0;
         int grid_y = 0;
         
@@ -338,13 +338,13 @@ static void draw_icon_label(int x, int y, const char *label) {
     int l1_len = 0; while(line1[l1_len]) l1_len++;
     int l1_w = l1_len * 8;
     // x passed is cell left. Center is x + 40. Text start is x + 40 - w/2
-    draw_string(x + (80 - l1_w)/2, y + 30, line1, COLOR_WHITE);
+    draw_string(x + (80 - l1_w)/2, y + 48, line1, COLOR_WHITE);
     
     // Draw Line 2 Centered
     if (line2[0]) {
         int l2_len = 0; while(line2[l2_len]) l2_len++;
         int l2_w = l2_len * 8;
-        draw_string(x + (80 - l2_w)/2, y + 40, line2, COLOR_WHITE);
+        draw_string(x + (80 - l2_w)/2, y + 58, line2, COLOR_WHITE);
     }
 }
 
@@ -376,192 +376,231 @@ void draw_button(int x, int y, int w, int h, const char *text, bool pressed) {
     draw_string(tx, ty, text, COLOR_BLACK);
 }
 
+// Forward declarations for dock icons
+static void draw_dock_files(int x, int y);
+static void draw_dock_settings(int x, int y);
+static void draw_dock_notepad(int x, int y);
+static void draw_dock_calculator(int x, int y);
+static void draw_dock_terminal(int x, int y);
+static void draw_dock_minesweeper(int x, int y);
+static void draw_dock_paint(int x, int y);
+static void draw_dock_editor(int x, int y);
+static void draw_filled_circle(int cx, int cy, int r, uint32_t color);
+
+static void draw_scaled_icon(int x, int y, void (*draw_fn)(int, int)) {
+    // 48x48 buffer for the dock icon
+    uint32_t icon_buf[48 * 48];
+    // Clear to magenta (transparent key color)
+    for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+    
+    // Redirect graphics to our buffer
+    graphics_set_render_target(icon_buf, 48, 48);
+    // Draw at 0,0 in the buffer
+    draw_fn(0, 0);
+    // Restore graphics to screen
+    graphics_set_render_target(NULL, 0, 0);
+    
+    // Calculate centered x,y in the 80x80 cell
+    // (80-32)/2 = 24.
+    int dx = x + 24, dy = y + 12;
+    
+    // Blit scaled down (nearest neighbor 48x48 -> 32x32 downsample, ratio = 1.5)
+    for (int ty = 0; ty < 32; ty++) {
+        for (int tx = 0; tx < 32; tx++) {
+            int src_x = tx * 48 / 32;
+            int src_y = ty * 48 / 32;
+            uint32_t c1 = icon_buf[src_y * 48 + src_x];
+            if (c1 != 0xFFFF00FF) {
+                put_pixel(dx + tx, dy + ty, c1);
+            }
+        }
+    }
+}
+
 void draw_icon(int x, int y, const char *label) {
-    // Simple "File" Icon
-    draw_rect(x + 29, y, 20, 25, COLOR_WHITE);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
+    uint32_t icon_buf[48 * 48];
+    for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+    graphics_set_render_target(icon_buf, 48, 48);
     
-    // Label
-    draw_icon_label(x, y, label);
-}
-
-void draw_folder_icon(int x, int y, const char *label) {
-    // Folder icon (yellow folder)
-    // Folder tab
-    draw_rect(x + 27, y, 15, 6, COLOR_LTGRAY);
-    draw_rect(x + 27, y, 15, 1, COLOR_BLACK);
-    draw_rect(x + 27, y, 1, 6, COLOR_BLACK);
-    draw_rect(x + 41, y, 1, 6, COLOR_BLACK);
+    draw_rounded_rect_filled(0, 0, 48, 48, 10, 0xFFE0E0E0);
+    draw_rounded_rect_filled(5, 5, 38, 38, 4, 0xFFFFFFFF);
+    draw_rect(12, 15, 24, 2, 0xFFCCCCCC);
+    draw_rect(12, 25, 24, 2, 0xFFCCCCCC);
+    draw_rect(12, 35, 16, 2, 0xFFCCCCCC);
     
-    // Folder body
-    draw_rect(x + 27, y + 6, 25, 15, COLOR_APPLE_YELLOW);
-    draw_rect(x + 27, y + 6, 25, 1, COLOR_BLACK);
-    draw_rect(x + 27, y + 6, 1, 15, COLOR_BLACK);
-    draw_rect(x + 51, y + 6, 1, 15, COLOR_BLACK);
-    draw_rect(x + 27, y + 20, 25, 1, COLOR_BLACK);
+    graphics_set_render_target(NULL, 0, 0);
     
-    // Label
-    draw_icon_label(x, y, label);
-}
-
-void draw_document_icon(int x, int y, const char *label) {
-    // Document icon (white paper with lines)
-    draw_rect(x + 29, y, 20, 25, COLOR_WHITE);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
-    
-    // Lines on document
-    draw_rect(x + 33, y + 8, 12, 1, COLOR_BLACK);
-    draw_rect(x + 33, y + 12, 12, 1, COLOR_BLACK);
-    draw_rect(x + 33, y + 16, 12, 1, COLOR_BLACK);
-    
-    // Label
-    draw_icon_label(x, y, label);
-}
-
-void draw_notepad_icon(int x, int y, const char *label) {
-    // Notepad icon (Blue notebook)
-    draw_rect(x + 29, y, 20, 25, COLOR_BLUE);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
-    
-    // White page inside
-    draw_rect(x + 31, y + 2, 17, 22, COLOR_WHITE);
-    // Lines
-    draw_rect(x + 33, y + 6, 13, 1, COLOR_GRAY);
-    draw_rect(x + 33, y + 10, 13, 1, COLOR_GRAY);
-    draw_rect(x + 33, y + 14, 13, 1, COLOR_GRAY);
-    
-    draw_icon_label(x, y, label);
-}
-
-void draw_calculator_icon(int x, int y, const char *label) {
-    // Calculator icon
-    draw_rect(x + 29, y, 20, 25, COLOR_DKGRAY);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
-    
-    // Screen
-    draw_rect(x + 32, y + 3, 14, 6, COLOR_APPLE_GREEN);
-    
-    // Buttons
-    for(int r=0; r<3; r++) {
-        for(int c=0; c<3; c++) {
-            draw_rect(x + 32 + c*5, y + 12 + r*4, 3, 2, COLOR_WHITE);
+    int dx = x + 24, dy = y + 12;
+    for (int ty = 0; ty < 32; ty++) {
+        for (int tx = 0; tx < 32; tx++) {
+            int src_x = tx * 48 / 32;
+            int src_y = ty * 48 / 32;
+            uint32_t c1 = icon_buf[src_y * 48 + src_x];
+            if (c1 != 0xFFFF00FF) put_pixel(dx + tx, dy + ty, c1);
         }
     }
     
     draw_icon_label(x, y, label);
 }
 
+void draw_folder_icon(int x, int y, const char *label) {
+    draw_scaled_icon(x, y, draw_dock_files);
+    draw_icon_label(x, y, label);
+}
+
+void draw_document_icon(int x, int y, const char *label) {
+    uint32_t icon_buf[48 * 48];
+    for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+    graphics_set_render_target(icon_buf, 48, 48);
+    
+    // Document dock style (making the source drawing slightly smaller to reduce final size)
+    draw_rounded_rect_filled(4, 4, 40, 40, 8, 0xFFFFFFFF);
+    draw_rounded_rect_filled(8, 8, 32, 32, 4, 0xFFF5F5F5);
+    draw_rect(14, 17, 20, 2, 0xFFBBBBBB);
+    draw_rect(14, 25, 20, 2, 0xFFBBBBBB);
+    draw_rect(14, 33, 14, 2, 0xFFBBBBBB);
+    
+    graphics_set_render_target(NULL, 0, 0);
+    int dx = x + 24, dy = y + 12;
+    for (int ty = 0; ty < 32; ty++) {
+        for (int tx = 0; tx < 32; tx++) {
+            int src_x = tx * 48 / 32;
+            int src_y = ty * 48 / 32;
+            uint32_t c1 = icon_buf[src_y * 48 + src_x];
+            if (c1 != 0xFFFF00FF) put_pixel(dx + tx, dy + ty, c1);
+        }
+    }
+    
+    draw_icon_label(x, y, label);
+}
+
+void draw_image_icon(int x, int y, const char *label) {
+    uint32_t icon_buf[48 * 48];
+    for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+    graphics_set_render_target(icon_buf, 48, 48);
+    
+    uint32_t *thumb = NULL;
+    if (str_eq(label, "moon.jpg") == 0) thumb = wallpaper_get_thumb(0);
+    else if (str_eq(label, "mountain.jpg") == 0) thumb = wallpaper_get_thumb(1);
+    else if (str_eq(label, "moon") == 0) thumb = wallpaper_get_thumb(0);
+    else if (str_eq(label, "mountain") == 0) thumb = wallpaper_get_thumb(1);
+    
+    if (!thumb) {
+        if (str_ends_with(label, "moon.jpg")) thumb = wallpaper_get_thumb(0);
+        else if (str_ends_with(label, "mountain.jpg")) thumb = wallpaper_get_thumb(1);
+    }
+    
+    if (thumb) {
+        // White border
+        draw_rounded_rect_filled(0, 0, 48, 48, 4, 0xFFFFFFFF);
+        int dst_w = 44, dst_h = 44;
+        for (int ty = 0; ty < dst_h; ty++) {
+            for (int tx = 0; tx < dst_w; tx++) {
+                int sx = tx * 100 / dst_w;
+                int sy = ty * 60 / dst_h;
+                put_pixel(2 + tx, 2 + ty, thumb[sy * 100 + sx]);
+            }
+        }
+    } else {
+        // Fallback photo
+        draw_rounded_rect_filled(0, 0, 48, 48, 10, 0xFFE0E0E0);
+        draw_rounded_rect_filled(5, 5, 38, 38, 4, 0xFF87CEEB); // Sky
+        draw_rect(5, 25, 38, 18, 0xFF90EE90); // Grass
+        draw_filled_circle(15, 15, 6, 0xFFFFFF00); // Sun
+    }
+    
+    graphics_set_render_target(NULL, 0, 0);
+    int dx = x + 24, dy = y + 12;
+    for (int ty = 0; ty < 32; ty++) {
+        for (int tx = 0; tx < 32; tx++) {
+            int src_x = tx * 48 / 32;
+            int src_y = ty * 48 / 32;
+            uint32_t c1 = icon_buf[src_y * 48 + src_x];
+            if (c1 != 0xFFFF00FF) put_pixel(dx + tx, dy + ty, c1);
+        }
+    }
+    
+    // Removing the explicit `draw_icon_label` call here to prevent double-text since `wm.c` or Explorer manually draws it as well inside their draw block
+}
+
+void draw_notepad_icon(int x, int y, const char *label) {
+    draw_scaled_icon(x, y, draw_dock_notepad);
+    draw_icon_label(x, y, label);
+}
+
+void draw_calculator_icon(int x, int y, const char *label) {
+    draw_scaled_icon(x, y, draw_dock_calculator);
+    draw_icon_label(x, y, label);
+}
+
 void draw_terminal_icon(int x, int y, const char *label) {
-    // Terminal icon
-    draw_rect(x + 27, y + 2, 24, 20, COLOR_BLACK);
-    draw_rect(x + 27, y + 2, 24, 1, COLOR_GRAY);
-    draw_rect(x + 27, y + 2, 1, 20, COLOR_GRAY);
-    draw_rect(x + 51, y + 2, 1, 20, COLOR_GRAY);
-    draw_rect(x + 27, y + 22, 25, 1, COLOR_GRAY);
-    
-    // Prompt
-    draw_rect(x + 31, y + 6, 4, 1, COLOR_APPLE_GREEN); // >
-    draw_rect(x + 32, y + 7, 2, 1, COLOR_APPLE_GREEN);
-    draw_rect(x + 31, y + 8, 4, 1, COLOR_APPLE_GREEN);
-    draw_rect(x + 37, y + 6, 6, 1, COLOR_APPLE_GREEN); // _
-    
+    draw_scaled_icon(x, y, draw_dock_terminal);
     draw_icon_label(x, y, label);
 }
 
 void draw_minesweeper_icon(int x, int y, const char *label) {
-    // Mine icon
-    draw_rect(x + 29, y, 20, 25, COLOR_LTGRAY);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
-    
-    // Mine
-    draw_rect(x + 36, y + 8, 6, 8, COLOR_BLACK);
-    draw_rect(x + 34, y + 10, 10, 4, COLOR_BLACK);
-    // Spikes
-    draw_rect(x + 39, y + 6, 1, 12, COLOR_BLACK);
-    draw_rect(x + 33, y + 12, 12, 1, COLOR_BLACK);
-    
+    draw_scaled_icon(x, y, draw_dock_minesweeper);
     draw_icon_label(x, y, label);
 }
 
 void draw_control_panel_icon(int x, int y, const char *label) {
-    // Control Panel (Gear/Sliders)
-    draw_rect(x + 29, y, 20, 25, COLOR_GRAY);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
-    
-    // Sliders
-    draw_rect(x + 34, y + 5, 2, 15, COLOR_DKGRAY);
-    draw_rect(x + 33, y + 10, 4, 3, COLOR_WHITE); // Knob
-    
-    draw_rect(x + 42, y + 5, 2, 15, COLOR_DKGRAY);
-    draw_rect(x + 41, y + 16, 4, 3, COLOR_WHITE); // Knob
-    
+    draw_scaled_icon(x, y, draw_dock_settings);
     draw_icon_label(x, y, label);
 }
 
 void draw_about_icon(int x, int y, const char *label) {
-    // About icon (Info)
-    draw_rect(x + 29, y, 20, 25, COLOR_WHITE);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
+    uint32_t icon_buf[48 * 48];
+    for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+    graphics_set_render_target(icon_buf, 48, 48);
     
-    // 'i'
-    draw_rect(x + 38, y + 5, 3, 3, COLOR_BLUE); // Dot
-    draw_rect(x + 38, y + 10, 3, 10, COLOR_BLUE); // Body
+    // About dock style
+    draw_rounded_rect_filled(0, 0, 48, 48, 10, 0xFF4285F4);
+    draw_rounded_rect_filled(5, 5, 38, 38, 4, 0xFFE8F0FE);
+    draw_rect(22, 15, 4, 4, 0xFF4285F4); // Dot
+    draw_rect(22, 23, 4, 16, 0xFF4285F4); // Body
+    
+    graphics_set_render_target(NULL, 0, 0);
+    int dx = x + 24, dy = y + 12;
+    for (int ty = 0; ty < 32; ty++) {
+        for (int tx = 0; tx < 32; tx++) {
+            int src_x = tx * 48 / 32;
+            int src_y = ty * 48 / 32;
+            uint32_t c1 = icon_buf[src_y * 48 + src_x];
+            if (c1 != 0xFFFF00FF) put_pixel(dx + tx, dy + ty, c1);
+        }
+    }
     
     draw_icon_label(x, y, label);
 }
 
 void draw_recycle_bin_icon(int x, int y, const char *label) {
-    // Recycle Bin (Trash can)
-    draw_rect(x + 29, y, 20, 25, COLOR_LTGRAY);
-    draw_rect(x + 29, y, 20, 1, COLOR_BLACK);
-    draw_rect(x + 29, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 49, y, 1, 25, COLOR_BLACK);
-    draw_rect(x + 29, y + 25, 21, 1, COLOR_BLACK);
+    uint32_t icon_buf[48 * 48];
+    for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+    graphics_set_render_target(icon_buf, 48, 48);
     
-    // Ribs
-    draw_rect(x + 32, y + 5, 2, 15, COLOR_DKGRAY);
-    draw_rect(x + 38, y + 5, 2, 15, COLOR_DKGRAY);
-    draw_rect(x + 44, y + 5, 2, 15, COLOR_DKGRAY);
+    // Recycle bin dock style
+    draw_rounded_rect_filled(0, 0, 48, 48, 10, 0xFFECEFF1);
+    draw_rounded_rect_filled(5, 5, 38, 38, 4, 0xFFCFD8DC);
+    draw_rect(16, 18, 16, 20, 0xFF90A4AE); // Bin body
+    draw_rect(12, 15, 24, 3, 0xFF78909C); // Bin lid
+    draw_rect(20, 13, 8, 2, 0xFF78909C); // Handle
+    
+    graphics_set_render_target(NULL, 0, 0);
+    int dx = x + 24, dy = y + 12;
+    for (int ty = 0; ty < 32; ty++) {
+        for (int tx = 0; tx < 32; tx++) {
+            int src_x = tx * 48 / 32;
+            int src_y = ty * 48 / 32;
+            uint32_t c1 = icon_buf[src_y * 48 + src_x];
+            if (c1 != 0xFFFF00FF) put_pixel(dx + tx, dy + ty, c1);
+        }
+    }
     
     draw_icon_label(x, y, label);
 }
 
 void draw_paint_icon(int x, int y, const char *label) {
-    // Paint Palette Icon
-    draw_rect(x + 27, y + 2, 26, 20, COLOR_WHITE);
-    draw_rect(x + 27, y + 2, 26, 1, COLOR_BLACK);
-    draw_rect(x + 27, y + 2, 1, 20, COLOR_BLACK);
-    draw_rect(x + 52, y + 2, 1, 20, COLOR_BLACK);
-    draw_rect(x + 27, y + 22, 26, 1, COLOR_BLACK);
-
-    // Color dots
-    draw_rect(x + 30, y + 5, 4, 4, COLOR_RED);
-    draw_rect(x + 38, y + 5, 4, 4, COLOR_APPLE_GREEN);
-    draw_rect(x + 46, y + 5, 4, 4, COLOR_APPLE_BLUE);
-    draw_rect(x + 30, y + 13, 4, 4, COLOR_APPLE_YELLOW);
-    draw_rect(x + 38, y + 13, 4, 4, COLOR_PURPLE);
-
+    draw_scaled_icon(x, y, draw_dock_paint);
     draw_icon_label(x, y, label);
 }
 
@@ -928,16 +967,8 @@ void wm_paint(void) {
             else draw_icon(icon->x, icon->y, label);
         } else {
             if (str_ends_with(icon->name, ".pnt")) draw_paint_icon(icon->x, icon->y, icon->name);
-            else if (str_ends_with(icon->name, ".md")) {
-                draw_document_icon(icon->x, icon->y, icon->name);
-                draw_string(icon->x + 31, icon->y + 2, "MD", COLOR_DARK_TEXT);
-            } else if (str_ends_with(icon->name, ".c") || str_ends_with(icon->name, ".C")) {
-                draw_document_icon(icon->x, icon->y, icon->name);
-                draw_string(icon->x + 31, icon->y + 2, "C", COLOR_APPLE_BLUE);
-            }
             else if (str_ends_with(icon->name, ".jpg") || str_ends_with(icon->name, ".JPG")) {
-                draw_document_icon(icon->x, icon->y, icon->name);
-                draw_string(icon->x + 27, icon->y + 2, "JPG", 0xFF44BB44);
+                draw_image_icon(icon->x, icon->y, icon->name);
             }
             else draw_document_icon(icon->x, icon->y, icon->name);
         }

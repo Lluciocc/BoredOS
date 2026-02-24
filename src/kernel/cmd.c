@@ -1603,7 +1603,9 @@ static void create_test_files(void) {
         fat32_write(fh, (void *)content, 32);
         fat32_close(fh);
     }
-   
+
+    fat32_open("Desktop/Recycle Bin.shortcut", "w");
+
     
     fh = fat32_open("Apps/wordofgod.c", "w");
     if (fh) {
