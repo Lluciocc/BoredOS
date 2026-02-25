@@ -9,13 +9,14 @@ It features a DE (and WM), a FAT32 filesystem, customizable UI and much much mor
 *this screenshot might be outdated*
 
 ## Features
+- userspace
 - JPG image support
 - Disk manager
 - Drag and drop mouse centered UI
 - Customizable UI
 - Basic Networking Stack
 - Bored WM
-- Fat 32 FS
+- FAT32 filesystem
 - 64-bit long mode support
 - Multiboot2 compliant
 - Text editor
