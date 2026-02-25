@@ -16,6 +16,7 @@
 #include "about.h"
 #include "minesweeper.h"
 #include "fat32.h"
+#include "nanojpeg.h"
 #include "memory_manager.h"
 #include "paint.h"
 #include "disk.h"
@@ -474,12 +475,109 @@ void draw_document_icon(int x, int y, const char *label) {
     draw_icon_label(x, y, label);
 }
 
+// === Dynamic thumbnail cache for JPG explorer icons ===
+#define THUMB_CACHE_SIZE 8
+#define THUMB_PIXELS (48 * 48)
+static struct {
+    char path[256];
+    uint32_t pixels[THUMB_PIXELS];
+    bool valid;
+    bool failed; // Mark as failed so we don't retry
+} thumb_cache[THUMB_CACHE_SIZE];
+static int thumb_cache_next = 0; // Round-robin eviction
+
+static uint32_t* thumb_cache_lookup(const char *path) {
+    for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
+        if (thumb_cache[i].valid && str_eq(thumb_cache[i].path, path) == 0) {
+            return thumb_cache[i].pixels;
+        }
+    }
+    return NULL;
+}
+
+static bool thumb_cache_is_failed(const char *path) {
+    for (int i = 0; i < THUMB_CACHE_SIZE; i++) {
+        if (thumb_cache[i].failed && str_eq(thumb_cache[i].path, path) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint32_t* thumb_cache_decode(const char *path) {
+    // Open and read the JPG file
+    FAT32_FileHandle *fh = fat32_open(path, "r");
+    if (!fh) return NULL;
+    
+    uint32_t file_size = fh->size;
+    if (file_size == 0 || file_size > 2 * 1024 * 1024) {
+        fat32_close(fh);
+        return NULL;
+    }
+    
+    unsigned char *buf = (unsigned char*)kmalloc(file_size);
+    if (!buf) { fat32_close(fh); return NULL; }
+    
+    int total = 0;
+    while (total < (int)file_size) {
+        int chunk = fat32_read(fh, buf + total, (int)file_size - total);
+        if (chunk <= 0) break;
+        total += chunk;
+    }
+    fat32_close(fh);
+    
+    if (total <= 0) { kfree(buf); return NULL; }
+    
+    // Decode JPEG
+    njInit();
+    if (njDecode(buf, total) != NJ_OK) {
+        njDone();
+        kfree(buf);
+        return NULL;
+    }
+    
+    int img_w = njGetWidth();
+    int img_h = njGetHeight();
+    unsigned char *img = njGetImage();
+    
+    // Store in cache — downscale to 48x48
+    int slot = thumb_cache_next;
+    thumb_cache_next = (thumb_cache_next + 1) % THUMB_CACHE_SIZE;
+    
+    // Copy path
+    int p = 0;
+    while (path[p] && p < 255) { thumb_cache[slot].path[p] = path[p]; p++; }
+    thumb_cache[slot].path[p] = 0;
+    
+    // Downscale image to 48x48 with aspect-fill
+    for (int ty = 0; ty < 48; ty++) {
+        for (int tx = 0; tx < 48; tx++) {
+            int sx = tx * img_w / 48;
+            int sy = ty * img_h / 48;
+            if (sx >= img_w) sx = img_w - 1;
+            if (sy >= img_h) sy = img_h - 1;
+            int idx = (sy * img_w + sx) * 3;
+            uint32_t r = img[idx], g = img[idx+1], b = img[idx+2];
+            thumb_cache[slot].pixels[ty * 48 + tx] = 0xFF000000 | (r << 16) | (g << 8) | b;
+        }
+    }
+    
+    thumb_cache[slot].valid = true;
+    thumb_cache[slot].failed = false;
+    
+    njDone();
+    kfree(buf);
+    
+    return thumb_cache[slot].pixels;
+}
+
 void draw_image_icon(int x, int y, const char *label) {
     uint32_t icon_buf[48 * 48];
     for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
     graphics_set_render_target(icon_buf, 48, 48);
     
     uint32_t *thumb = NULL;
+    // Fast path: check hardcoded wallpaper names
     if (str_eq(label, "moon.jpg") == 0) thumb = wallpaper_get_thumb(0);
     else if (str_eq(label, "mountain.jpg") == 0) thumb = wallpaper_get_thumb(1);
     else if (str_eq(label, "moon") == 0) thumb = wallpaper_get_thumb(0);
@@ -490,15 +588,52 @@ void draw_image_icon(int x, int y, const char *label) {
         else if (str_ends_with(label, "mountain.jpg")) thumb = wallpaper_get_thumb(1);
     }
     
+    // Dynamic path: try thumbnail cache for any JPG file path
+    if (!thumb && !thumb_cache_is_failed(label)) {
+        thumb = thumb_cache_lookup(label);
+        if (!thumb) {
+            // Try to decode and cache
+            graphics_set_render_target(NULL, 0, 0); // Restore before file I/O
+            thumb = thumb_cache_decode(label);
+            if (!thumb) {
+                // Mark as failed so we don't retry every frame
+                int slot = thumb_cache_next;
+                int p = 0;
+                while (label[p] && p < 255) { thumb_cache[slot].path[p] = label[p]; p++; }
+                thumb_cache[slot].path[p] = 0;
+                thumb_cache[slot].valid = false;
+                thumb_cache[slot].failed = true;
+                thumb_cache_next = (thumb_cache_next + 1) % THUMB_CACHE_SIZE;
+            }
+            // Re-set render target for icon drawing
+            for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+            graphics_set_render_target(icon_buf, 48, 48);
+        }
+    }
+    
     if (thumb) {
         // White border
         draw_rounded_rect_filled(0, 0, 48, 48, 4, 0xFFFFFFFF);
+        // Draw thumbnail into icon - handle both 100x60 wallpaper thumbs and 48x48 dynamic thumbs
+        bool is_wallpaper_thumb = false;
+        if (str_ends_with(label, "moon.jpg") || str_ends_with(label, "mountain.jpg") ||
+            str_eq(label, "moon") == 0 || str_eq(label, "mountain") == 0) {
+            is_wallpaper_thumb = true;
+        }
         int dst_w = 44, dst_h = 44;
         for (int ty = 0; ty < dst_h; ty++) {
             for (int tx = 0; tx < dst_w; tx++) {
-                int sx = tx * 100 / dst_w;
-                int sy = ty * 60 / dst_h;
-                put_pixel(2 + tx, 2 + ty, thumb[sy * 100 + sx]);
+                uint32_t pixel;
+                if (is_wallpaper_thumb) {
+                    int sx = tx * 100 / dst_w;
+                    int sy = ty * 60 / dst_h;
+                    pixel = thumb[sy * 100 + sx];
+                } else {
+                    int sx = tx * 48 / dst_w;
+                    int sy = ty * 48 / dst_h;
+                    pixel = thumb[sy * 48 + sx];
+                }
+                put_pixel(2 + tx, 2 + ty, pixel);
             }
         }
     } else {
@@ -969,6 +1104,7 @@ void wm_paint(void) {
             if (str_ends_with(icon->name, ".pnt")) draw_paint_icon(icon->x, icon->y, icon->name);
             else if (str_ends_with(icon->name, ".jpg") || str_ends_with(icon->name, ".JPG")) {
                 draw_image_icon(icon->x, icon->y, icon->name);
+                draw_icon_label(icon->x, icon->y, icon->name);
             }
             else draw_document_icon(icon->x, icon->y, icon->name);
         }

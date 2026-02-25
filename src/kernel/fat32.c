@@ -44,12 +44,24 @@ typedef struct {
     uint32_t root_cluster;
     uint32_t fat_size; // sectors
     uint32_t total_sectors;
+    uint32_t partition_offset; // LBA offset of partition start
     bool mounted;
 } FAT32_Volume;
 
 static FAT32_Volume volumes[26]; // A-Z
 
 // === Helper Functions (Shared) ===
+
+// Serial debug output
+static void fs_serial_char(char c) {
+    while (!(inb(0x3F8 + 5) & 0x20));
+    outb(0x3F8, c);
+}
+static void fs_serial_str(const char *s) { while (*s) fs_serial_char(*s++); }
+static void fs_serial_num(uint32_t n) {
+    if (n >= 10) fs_serial_num(n / 10);
+    fs_serial_char('0' + (n % 10));
+}
 
 static size_t fs_strlen(const char *str) {
     size_t len = 0;
@@ -373,30 +385,48 @@ static bool realfs_mount(char drive) {
     Disk *disk = disk_get_by_letter(drive);
     if (!disk) return false;
     
+    // Use partition LBA offset from disk (set during MBR parsing)
+    uint32_t part_offset = disk->partition_lba_offset;
+    
     uint8_t *sect0 = (uint8_t*)kmalloc(512);
     if (!sect0) return false;
     
-    if (disk->read_sector(disk, 0, sect0) != 0) {
+    // Read BPB from partition start (sector 0 for raw, partition LBA for MBR)
+    if (disk->read_sector(disk, part_offset, sect0) != 0) {
         kfree(sect0);
         return false;
     }
     
     FAT32_BootSector *bpb = (FAT32_BootSector*)sect0;
     
-    // Simple verification (could be more robust)
     if (bpb->boot_signature_value != 0xAA55) {
         kfree(sect0);
         return false;
     }
     
     volumes[idx].disk = disk;
-    volumes[idx].fat_begin_lba = bpb->reserved_sectors;
-    volumes[idx].cluster_begin_lba = bpb->reserved_sectors + (bpb->num_fats * bpb->sectors_per_fat_32);
+    volumes[idx].partition_offset = part_offset;
+    volumes[idx].fat_begin_lba = part_offset + bpb->reserved_sectors;
+    volumes[idx].cluster_begin_lba = part_offset + bpb->reserved_sectors + (bpb->num_fats * bpb->sectors_per_fat_32);
     volumes[idx].sectors_per_cluster = bpb->sectors_per_cluster;
     volumes[idx].root_cluster = bpb->root_cluster;
     volumes[idx].fat_size = bpb->sectors_per_fat_32;
     volumes[idx].total_sectors = bpb->total_sectors_32;
     volumes[idx].mounted = true;
+    
+    fs_serial_str("[FAT32] mounted drive ");
+    fs_serial_char(drive);
+    fs_serial_str(": part_offset=");
+    fs_serial_num(part_offset);
+    fs_serial_str(" fat_lba=");
+    fs_serial_num(volumes[idx].fat_begin_lba);
+    fs_serial_str(" cluster_lba=");
+    fs_serial_num(volumes[idx].cluster_begin_lba);
+    fs_serial_str(" spc=");
+    fs_serial_num(volumes[idx].sectors_per_cluster);
+    fs_serial_str(" root_cl=");
+    fs_serial_num(volumes[idx].root_cluster);
+    fs_serial_str("\n");
     
     kfree(sect0);
     return true;
@@ -488,6 +518,14 @@ static FAT32_FileHandle* realfs_open(char drive, const char *path, const char *m
     const char *p = path;
     if (*p == '/') p++;
     
+    fs_serial_str("[FAT32] realfs_open drive=");
+    fs_serial_char(drive);
+    fs_serial_str(" path='");
+    fs_serial_str(path);
+    fs_serial_str("' mode=");
+    fs_serial_char(mode[0]);
+    fs_serial_str("\n");
+    
     if (*p == 0) {
         // Root dir
         if (mode[0] == 'w') return NULL; // Cannot write to root as file
@@ -535,6 +573,8 @@ static FAT32_FileHandle* realfs_open(char drive, const char *path, const char *m
             for (int e = 0; e < entries_per_cluster; e++) {
                 if (entry[e].filename[0] == 0) break; // End of dir
                 if (entry[e].filename[0] == 0xE5) continue; // Deleted
+                if (entry[e].attributes == 0x0F) continue; // LFN entry
+                if (entry[e].attributes & ATTR_VOLUME_ID) continue; // Volume label
                 
                 // Compare name (simplistic 8.3 matching)
                 char name[12];
@@ -558,6 +598,13 @@ static FAT32_FileHandle* realfs_open(char drive, const char *path, const char *m
                 
                 if (match) {
                     uint32_t cluster = (entry[e].start_cluster_high << 16) | entry[e].start_cluster_low;
+                    fs_serial_str("[FAT32] MATCH '");
+                    fs_serial_str(name);
+                    fs_serial_str("' cluster=");
+                    fs_serial_num(cluster);
+                    fs_serial_str(" size=");
+                    fs_serial_num(entry[e].file_size);
+                    fs_serial_str("\n");
                     
                     uint32_t lba = vol->cluster_begin_lba + (search_cluster - 2) * vol->sectors_per_cluster;
                     int sect_in_cluster = (e * 32) / 512;
@@ -922,6 +969,8 @@ static bool realfs_delete(char drive, const char *path) {
             for (int e = 0; e < entries_per_cluster; e++) {
                 if (entry[e].filename[0] == 0) break;
                 if (entry[e].filename[0] == 0xE5) continue;
+                if (entry[e].attributes == 0x0F) continue; // Skip LFN entries
+                if (entry[e].attributes & ATTR_VOLUME_ID) continue; // Skip volume label
                 
                 // Format name and compare
                 char name[12];
@@ -1062,6 +1111,8 @@ static int realfs_list_directory(char drive, const char *path, FAT32_FileInfo *e
         for (int e = 0; e < entries_per_cluster && count < max_entries; e++) {
             if (entry[e].filename[0] == 0) break;
             if (entry[e].filename[0] == 0xE5) continue;
+            if (entry[e].attributes == 0x0F) continue; // Skip LFN entries
+            if (entry[e].attributes & ATTR_VOLUME_ID) continue; // Skip volume label
             
             // Format name
             char name[13];

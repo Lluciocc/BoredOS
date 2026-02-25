@@ -18,6 +18,7 @@ typedef struct Disk {
     DiskType type;
     bool is_fat32;
     char name[32];
+    uint32_t partition_lba_offset;  // LBA offset of FAT32 partition (0 for raw)
     
     // Function pointers for driver operations
     int (*read_sector)(struct Disk *disk, uint32_t sector, uint8_t *buffer);

@@ -366,7 +366,14 @@ bool explorer_delete_permanently(const char *path) {
 }
 
 bool explorer_delete_recursive(const char *path) {
-    if (explorer_str_starts_with(path, "/RecycleBin")) {
+    // Check if path is on an external drive (not A:)
+    bool is_external = false;
+    if (path[0] && path[1] == ':' && path[0] != 'A' && path[0] != 'a') {
+        is_external = true;
+    }
+    
+    if (is_external || explorer_str_starts_with(path, "/RecycleBin")) {
+        // External drives have no RecycleBin — delete permanently
         return explorer_delete_permanently(path);
     } else {
         // Move to Recycle Bin
@@ -885,7 +892,7 @@ static void explorer_open_item(Window *win, int index) {
 }
 
 // Draw a simple file icon
-static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, const char *filename) {
+static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, const char *filename, const char *current_path) {
     if (is_dir) {
         if (explorer_strcmp(filename, "RecycleBin") == 0) draw_recycle_bin_icon(x + 5, y + 5, "");
         else draw_folder_icon(x + 5, y + 5, "");
@@ -903,7 +910,12 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
     } else if (explorer_str_ends_with(filename, ".pnt")) {
         draw_paint_icon(x + 5, y + 5, "");
     } else if (explorer_str_ends_with(filename, ".jpg") || explorer_str_ends_with(filename, ".JPG")) {
-        draw_image_icon(x + 5, y + 5, filename);
+        // Build full path for thumbnail loading
+        char full_path[256];
+        explorer_strcpy(full_path, current_path);
+        if (full_path[explorer_strlen(full_path) - 1] != '/') explorer_strcat(full_path, "/");
+        explorer_strcat(full_path, filename);
+        draw_image_icon(x + 5, y + 5, full_path);
     } else {
         draw_document_icon(x + 5, y + 5, "");
     }
@@ -989,7 +1001,7 @@ static void explorer_paint(Window *win) {
         draw_rounded_rect_filled(item_x, item_y, EXPLORER_ITEM_WIDTH, EXPLORER_ITEM_HEIGHT, 6, bg_color);
         
         // Draw icon (larger area)
-        explorer_draw_file_icon(item_x + 5, item_y + 5, state->items[i].is_directory, state->items[i].color, state->items[i].name);
+        explorer_draw_file_icon(item_x + 5, item_y + 5, state->items[i].is_directory, state->items[i].color, state->items[i].name, state->current_path);
         
         // Draw name using intelligent wrapping
         const char *display_name = state->items[i].name;
@@ -1098,91 +1110,96 @@ static void explorer_paint(Window *win) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background
-        draw_rect(dlg_x - 5, dlg_y - 5, 310, 120, COLOR_LTGRAY);
-        draw_bevel_rect(dlg_x, dlg_y, 300, 110, true);
+        // Dialog background (modern dark, rounded)
+        draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
         // Title
         const char *title = state->dialog_target_is_dir ? "Delete Folder?" : "Delete File?";
-        draw_string(dlg_x + 10, dlg_y + 10, title, COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 10, title, COLOR_WHITE);
         
         // Message
         if (explorer_str_starts_with(state->current_path, "/RecycleBin")) {
-            draw_string(dlg_x + 10, dlg_y + 35, "This action cannot be undone.", COLOR_BLACK);
-            draw_string(dlg_x + 10, dlg_y + 48, "Delete forever?", COLOR_BLACK);
+            draw_string(dlg_x + 10, dlg_y + 35, "This action cannot be undone.", 0xFFAAAAAA);
+            draw_string(dlg_x + 10, dlg_y + 48, "Delete forever?", 0xFFAAAAAA);
         } else {
-            draw_string(dlg_x + 10, dlg_y + 35, "This file will be moved to", COLOR_BLACK);
-            draw_string(dlg_x + 10, dlg_y + 45, "the recycle bin.", COLOR_BLACK);
+            draw_string(dlg_x + 10, dlg_y + 35, "This file will be moved to", 0xFFAAAAAA);
+            draw_string(dlg_x + 10, dlg_y + 45, "the recycle bin.", 0xFFAAAAAA);
         }
-        // Buttons
-        draw_button(dlg_x + 50, dlg_y + 65, 80, 25, "Delete", false);
-        draw_button(dlg_x + 170, dlg_y + 65, 80, 25, "Cancel", false);
+        // Buttons (rounded, delete button red-tinted)
+        draw_rounded_rect_filled(dlg_x + 50, dlg_y + 65, 80, 25, 6, 0xFF8B2020);
+        draw_string(dlg_x + 68, dlg_y + 72, "Delete", COLOR_WHITE);
+        draw_rounded_rect_filled(dlg_x + 170, dlg_y + 65, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 185, dlg_y + 72, "Cancel", COLOR_WHITE);
     } else if (state->dialog_state == DIALOG_REPLACE_CONFIRM) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background
-        draw_rect(dlg_x - 5, dlg_y - 5, 310, 120, COLOR_LTGRAY);
-        draw_bevel_rect(dlg_x, dlg_y, 300, 110, true);
+        // Dialog background (modern dark, rounded)
+        draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
         // Title
-        draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_WHITE);
         
         // Message
-        draw_string(dlg_x + 10, dlg_y + 35, "Replace existing file?", COLOR_BLACK);
-        draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 35, "Replace existing file?", 0xFFAAAAAA);
+        draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", 0xFFAAAAAA);
         
-        // Buttons
-        draw_button(dlg_x + 50, dlg_y + 70, 80, 25, "Replace", false);
-        draw_button(dlg_x + 170, dlg_y + 70, 80, 25, "Cancel", false);
+        // Buttons (rounded)
+        draw_rounded_rect_filled(dlg_x + 50, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 63, dlg_y + 77, "Replace", COLOR_WHITE);
+        draw_rounded_rect_filled(dlg_x + 170, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 185, dlg_y + 77, "Cancel", COLOR_WHITE);
     } else if (state->dialog_state == DIALOG_REPLACE_MOVE_CONFIRM) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background
-        draw_rect(dlg_x - 5, dlg_y - 5, 310, 120, COLOR_LTGRAY);
-        draw_bevel_rect(dlg_x, dlg_y, 300, 110, true);
+        // Dialog background (modern dark, rounded)
+        draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
         // Title
-        draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_WHITE);
         
         // Message
-        draw_string(dlg_x + 10, dlg_y + 35, "Replace existing file?", COLOR_BLACK);
-        draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 35, "Replace existing file?", 0xFFAAAAAA);
+        draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", 0xFFAAAAAA);
         
-        // Buttons
-        draw_button(dlg_x + 50, dlg_y + 70, 80, 25, "Replace", false);
-        draw_button(dlg_x + 170, dlg_y + 70, 80, 25, "Cancel", false);
+        // Buttons (rounded)
+        draw_rounded_rect_filled(dlg_x + 50, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 63, dlg_y + 77, "Replace", COLOR_WHITE);
+        draw_rounded_rect_filled(dlg_x + 170, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 185, dlg_y + 77, "Cancel", COLOR_WHITE);
     } else if (state->dialog_state == DIALOG_CREATE_REPLACE_CONFIRM) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background
-        draw_rect(dlg_x - 5, dlg_y - 5, 310, 120, COLOR_LTGRAY);
-        draw_bevel_rect(dlg_x, dlg_y, 300, 110, true);
+        // Dialog background (modern dark, rounded)
+        draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
         // Title
-        draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_WHITE);
         
         // Message
-        draw_string(dlg_x + 10, dlg_y + 35, "Overwrite existing file?", COLOR_BLACK);
-        draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 35, "Overwrite existing file?", 0xFFAAAAAA);
+        draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", 0xFFAAAAAA);
         
-        // Buttons
-        draw_button(dlg_x + 50, dlg_y + 70, 80, 25, "Overwrite", false);
-        draw_button(dlg_x + 170, dlg_y + 70, 80, 25, "Cancel", false);
+        // Buttons (rounded)
+        draw_rounded_rect_filled(dlg_x + 50, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 57, dlg_y + 77, "Overwrite", COLOR_WHITE);
+        draw_rounded_rect_filled(dlg_x + 170, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 185, dlg_y + 77, "Cancel", COLOR_WHITE);
     } else if (state->dialog_state == DIALOG_ERROR) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        draw_rect(dlg_x - 5, dlg_y - 5, 310, 120, COLOR_LTGRAY);
-        draw_bevel_rect(dlg_x, dlg_y, 300, 110, true);
+        // Dialog background (modern dark, rounded)
+        draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
-        draw_string(dlg_x + 10, dlg_y + 10, "Error", COLOR_RED);
-        draw_string(dlg_x + 10, dlg_y + 40, state->dialog_input, COLOR_BLACK);
+        draw_string(dlg_x + 10, dlg_y + 10, "Error", 0xFFFF6B6B);
+        draw_string(dlg_x + 10, dlg_y + 40, state->dialog_input, 0xFFAAAAAA);
         
-        // OK Button
-        draw_button(dlg_x + 110, dlg_y + 70, 80, 25, "OK", false);
+        // OK Button (rounded)
+        draw_rounded_rect_filled(dlg_x + 110, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
+        draw_string(dlg_x + 138, dlg_y + 77, "OK", COLOR_WHITE);
     } else if (state->dialog_state == DIALOG_RENAME) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;

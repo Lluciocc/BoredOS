@@ -217,6 +217,7 @@ void disk_manager_init(void) {
     ramdisk->read_sector = ramdisk_read;
     ramdisk->write_sector = ramdisk_write;
     ramdisk->driver_data = NULL;
+    ramdisk->partition_lba_offset = 0;
     
     disk_register(ramdisk);
 }
@@ -243,25 +244,95 @@ Disk* disk_get_by_index(int index) {
 }
 
 
-// Check for FAT32 Signature in MBR/VBR
-static bool check_fat32_signature(Disk *disk) {
+// === MBR Partition Table Structures ===
+
+typedef struct {
+    uint8_t  status;           // 0x80 = bootable, 0x00 = inactive
+    uint8_t  chs_first[3];    // CHS of first sector
+    uint8_t  type;             // Partition type
+    uint8_t  chs_last[3];     // CHS of last sector
+    uint32_t lba_start;        // LBA of first sector
+    uint32_t sector_count;     // Number of sectors
+} __attribute__((packed)) MBR_PartitionEntry;
+
+// FAT32 partition type codes
+#define PART_TYPE_FAT32     0x0B
+#define PART_TYPE_FAT32_LBA 0x0C
+
+// Check if sector contains a valid FAT32 BPB (Volume Boot Record)
+static bool is_fat32_bpb(const uint8_t *sector) {
+    // Must have 0xAA55 boot signature
+    if (sector[510] != 0x55 || sector[511] != 0xAA) return false;
+    
+    // Check for FAT32 filesystem string at offset 82
+    // "FAT32   " in the fs_type field of the BPB
+    if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' &&
+        sector[85] == '3' && sector[86] == '2') {
+        return true;
+    }
+    
+    // Also accept if bytes_per_sector is 512 and sectors_per_fat_16 is 0
+    // (FAT32 always has sectors_per_fat_16 == 0)
+    uint16_t bps = *(uint16_t*)&sector[11];
+    uint16_t spf16 = *(uint16_t*)&sector[22];
+    uint32_t spf32 = *(uint32_t*)&sector[36];
+    if (bps == 512 && spf16 == 0 && spf32 > 0) {
+        return true;
+    }
+    
+    return false;
+}
+
+// Parse MBR partition table and find a FAT32 partition.
+// Sets disk->partition_lba_offset and returns true if found.
+static bool detect_fat32_partition(Disk *disk) {
     uint8_t *buffer = (uint8_t*)kmalloc(512);
     if (!buffer) return false;
     
-    // Read Sector 0
+    // Read sector 0 (MBR or raw BPB)
     if (disk->read_sector(disk, 0, buffer) != 0) {
         kfree(buffer);
         return false;
     }
     
-    // Check boot signature 0x55 0xAA at offset 510
+    // Must have 0xAA55 boot signature
     if (buffer[510] != 0x55 || buffer[511] != 0xAA) {
         kfree(buffer);
         return false;
     }
     
+    // Check MBR partition table entries (4 entries at offset 446)
+    MBR_PartitionEntry *partitions = (MBR_PartitionEntry*)&buffer[446];
+    
+    for (int i = 0; i < 4; i++) {
+        if (partitions[i].type == PART_TYPE_FAT32 ||
+            partitions[i].type == PART_TYPE_FAT32_LBA) {
+            
+            uint32_t part_lba = partitions[i].lba_start;
+            
+            // Read the partition's first sector to verify it's a valid FAT32 BPB
+            uint8_t *pbuf = (uint8_t*)kmalloc(512);
+            if (!pbuf) { kfree(buffer); return false; }
+            
+            if (disk->read_sector(disk, part_lba, pbuf) == 0 && is_fat32_bpb(pbuf)) {
+                disk->partition_lba_offset = part_lba;
+                kfree(pbuf);
+                kfree(buffer);
+                return true;
+            }
+            kfree(pbuf);
+        }
+    }
+    
+    // Fallback: check if sector 0 itself is a raw FAT32 BPB (no partition table)
+    if (is_fat32_bpb(buffer)) {
+        disk->partition_lba_offset = 0;
+        kfree(buffer);
+        return true;
+    }
+    
     kfree(buffer);
-    return true;
+    return false;
 }
 
 static void try_add_ata_drive(uint16_t port, bool slave, const char *name) {
@@ -279,13 +350,13 @@ static void try_add_ata_drive(uint16_t port, bool slave, const char *name) {
         new_disk->read_sector = ata_read_sector;
         new_disk->write_sector = ata_write_sector;
         new_disk->driver_data = data;
+        new_disk->partition_lba_offset = 0;
         
-        // Check filesystem
-        if (check_fat32_signature(new_disk)) {
+        // Detect FAT32 (with MBR partition support)
+        if (detect_fat32_partition(new_disk)) {
             new_disk->is_fat32 = true;
             disk_register(new_disk);
         } else {
-
             kfree(data);
             kfree(new_disk);
         }
