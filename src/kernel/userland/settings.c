@@ -137,10 +137,10 @@ static uint32_t parse_rgb_separate(const char *r, const char *g, const char *b) 
 
 static void control_panel_paint_main(ui_window_t win) {
     int offset_x = 8;
-    int offset_y = 21;
+    int offset_y = 6;
     int win_w = 350;
     
-    int item_y = 15;
+    int item_y = 0;
     int item_h = 60;
     int item_spacing = 10;
     
@@ -180,7 +180,7 @@ static void control_panel_paint_main(ui_window_t win) {
 
 static void control_panel_paint_wallpaper(ui_window_t win) {
     int offset_x = 8;
-    int offset_y = 21;
+    int offset_y = 6;
     
     ui_draw_rounded_rect_filled(win, offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
     ui_draw_string(win, offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
@@ -311,7 +311,7 @@ static void control_panel_paint_wallpaper(ui_window_t win) {
 
 static void control_panel_paint_network(ui_window_t win) {
     int offset_x = 8;
-    int offset_y = 21;
+    int offset_y = 6;
     
     ui_draw_rounded_rect_filled(win, offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
     ui_draw_string(win, offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
@@ -327,7 +327,7 @@ static void control_panel_paint_network(ui_window_t win) {
 
 static void control_panel_paint_desktop(ui_window_t win) {
     int offset_x = 8;
-    int offset_y = 21;
+    int offset_y = 6;
     
     ui_draw_rounded_rect_filled(win, offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
     ui_draw_string(win, offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
@@ -371,7 +371,7 @@ static void control_panel_paint_desktop(ui_window_t win) {
 
 static void control_panel_paint_mouse(ui_window_t win) {
     int offset_x = 8;
-    int offset_y = 21;
+    int offset_y = 6;
     
     ui_draw_rounded_rect_filled(win, offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
     ui_draw_string(win, offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
@@ -393,7 +393,7 @@ static void control_panel_paint_mouse(ui_window_t win) {
 
 static void control_panel_paint(ui_window_t win) {
     // Fill background
-    ui_draw_rect(win, 0, 20, 350, 480, COLOR_DARK_BG);
+    ui_draw_rect(win, 0, 0, 350, 500, COLOR_DARK_BG);
 
     if (current_view == VIEW_MAIN) {
         control_panel_paint_main(win);
@@ -439,11 +439,11 @@ static void control_panel_handle_click(int x, int y) {
     
     if (current_view == VIEW_MAIN) {
         int offset_x = 8;
-        int offset_y = 21;
+        int offset_y = 6;
         int item_h = 60;
         int item_spacing = 10;
         
-        int item_y = offset_y + 15;
+        int item_y = offset_y + 0;
         if (x >= offset_x && x < win_w - 8 && y >= item_y && y < item_y + item_h) {
             current_view = VIEW_WALLPAPER;
             focused_field = -1;
@@ -463,7 +463,7 @@ static void control_panel_handle_click(int x, int y) {
         }
     } else if (current_view == VIEW_WALLPAPER) {
         int offset_x = 8;
-        int offset_y = 21;
+        int offset_y = 6;
         int button_y = offset_y + 65;
         int button_x = offset_x;
         
@@ -541,7 +541,7 @@ static void control_panel_handle_click(int x, int y) {
         }
     } else if (current_view == VIEW_NETWORK) {
         int offset_x = 8;
-        int offset_y = 21;
+        int offset_y = 6;
         
         if (x >= offset_x && x < offset_x + 80 && y >= offset_y + 5 && y < offset_y + 30) {
             current_view = VIEW_MAIN;
@@ -560,7 +560,7 @@ static void control_panel_handle_click(int x, int y) {
         }
     } else if (current_view == VIEW_DESKTOP) {
         int offset_x = 8;
-        int offset_y = 21;
+        int offset_y = 6;
         
         if (x >= offset_x && x < offset_x + 80 && y >= offset_y + 5 && y < offset_y + 30) {
             current_view = VIEW_MAIN;
@@ -608,7 +608,7 @@ static void control_panel_handle_click(int x, int y) {
         }
     } else if (current_view == VIEW_MOUSE) {
         int offset_x = 8;
-        int offset_y = 21;
+        int offset_y = 6;
         
         if (x >= offset_x && x < offset_x + 80 && y >= offset_y + 5 && y < offset_y + 30) {
             current_view = VIEW_MAIN;
