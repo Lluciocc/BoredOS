@@ -15,6 +15,12 @@ SECTIONS
         *(.rodata*)
     }
 
+    .requests : {
+        KEEP(*(.requests_start))
+        KEEP(*(.requests))
+        KEEP(*(.requests_end))
+    }
+
     .data : {
         *(.data*)
     }
@@ -24,14 +30,6 @@ SECTIONS
         *(.bss*)
     }
 
-    /* Limine requests section */
-    .requests : {
-        KEEP(*(.requests_start))
-        KEEP(*(.requests))
-        KEEP(*(.requests_end))
-    }
-
-    /* Discard unnecessary sections */
     /DISCARD/ : {
         *(.eh_frame)
         *(.note .note.*)

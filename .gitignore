@@ -21,3 +21,5 @@ limine 2/limine.exe
 boredos.dump
 qemu-debug.log
 build/
+iso_root/
+limine

@@ -108,6 +108,7 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 	
 	# Copy Wallpaper (if it exists)
 	@if [ -f src/kernel/wallpaper.ppm ]; then cp src/kernel/wallpaper.ppm $(ISO_DIR)/; fi
+	@if [ -f splash.jpg ]; then cp splash.jpg $(ISO_DIR)/; fi
 	
 	# Copy Limine Bootloader Files (flat structure in binary branch)
 	cp limine/limine-bios.sys $(ISO_DIR)/
