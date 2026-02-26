@@ -59,11 +59,10 @@ uint64_t syscall5(uint64_t sys_num, uint64_t arg1, uint64_t arg2, uint64_t arg3,
     return ret;
 }
 
-// C-Friendly Wrappers
 
 void sys_exit(int status) {
     syscall1(SYS_EXIT, (uint64_t)status);
-    while (1); // Halt
+    while (1); 
 }
 
 int sys_write(int fd, const char *buf, int len) {

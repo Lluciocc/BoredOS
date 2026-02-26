@@ -1003,9 +1003,9 @@ void draw_window(Window *win) {
     draw_rect(win->x, win->y + 20, win->w, 8, COLOR_DARK_BG);
     
     if (win->comp_pixels) {
-        graphics_blit_buffer(win->comp_pixels, win->x, win->y, win->w, win->h);
+        graphics_blit_buffer(win->comp_pixels, win->x, win->y + 20, win->w, win->h - 20);
     } else if (win->pixels) {
-        graphics_blit_buffer(win->pixels, win->x, win->y, win->w, win->h);
+        graphics_blit_buffer(win->pixels, win->x, win->y + 20, win->w, win->h - 20);
     }
     
     if (win->paint) {
@@ -1051,12 +1051,9 @@ static void erase_cursor(int x, int y) {
     int w = x2 - x1;
     int h = y2 - y1;
     
-    // Check what's underneath the cursor and redraw it
     if (y1 < sh - 28) {
-        // Desktop or window area - draw teal background
         draw_rect(x1, y1, w, h, COLOR_TEAL);
     } else {
-        // Taskbar
         draw_rect(x1, y1, w, h, COLOR_GRAY);
     }
 }
@@ -1068,7 +1065,6 @@ static uint8_t rtc_read(uint8_t reg) {
 }
 
 static void draw_clock(int x, int y) {
-    // Wait for update in progress
     while (rtc_read(0x0A) & 0x80);
 
     uint8_t s = rtc_read(0x00);
@@ -1168,7 +1164,6 @@ void wm_paint(void) {
         }
     }
     
-    // Draw windows in z-order (lowest first)
     for (int i = 0; i < window_count; i++) {
         Window *win = sorted_windows[i];
         if (!win->visible) continue;
@@ -1182,16 +1177,10 @@ void wm_paint(void) {
         draw_window(win);
     }
     
-    // 4. Top Menu Bar 
     draw_rect(0, 0, sw, 30, COLOR_TOPBAR_BG);
-    
-    // Logo dropdown (top-left)
     draw_boredos_logo(8, 8, 1);
-    
-    // Clock (top-right)
     draw_clock(sw - 80, 12);
     
-    // Top menu dropdown (if logo clicked)
     if (start_menu_open) {
         int menu_h = 85;
         draw_rounded_rect_filled(8, 40, 160, menu_h, 8, COLOR_DARK_PANEL);
@@ -1201,17 +1190,15 @@ void wm_paint(void) {
         draw_string(20, 108, "Restart", COLOR_DARK_TEXT);
     }
     
-    // 5. Dock (bottom - macOS style, floating with rounded corners)
     int dock_h = 60;
-    int dock_y = sh - dock_h - 6;  // Float above bottom
+    int dock_y = sh - dock_h - 6;   
     int dock_item_size = 48;
     int dock_spacing = 10;
     int total_dock_width = 7 * (dock_item_size + dock_spacing);
-    int dock_bg_x = (sw - total_dock_width) / 2 - 12;  // Rounded background extends beyond icons
+    int dock_bg_x = (sw - total_dock_width) / 2 - 12;   
     int dock_bg_w = total_dock_width + 24;
     draw_rounded_rect_filled(dock_bg_x, dock_y, dock_bg_w, dock_h, 18, COLOR_DOCK_BG);
     
-    // Draw dock apps (centered)
     int dock_x = (sw - total_dock_width) / 2;
     int dock_item_y = dock_y + 6;
     
@@ -1321,6 +1308,8 @@ bool rect_contains(int x, int y, int w, int h, int px, int py) {
 }
 
 void wm_bring_to_front(Window *win) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     // Clear focus from all windows
     for (int i = 0; i < window_count; i++) {
         all_windows[i]->focused = false;
@@ -1336,22 +1325,30 @@ void wm_bring_to_front(Window *win) {
     win->focused = true;
     win->z_index = max_z + 1;
     force_redraw = true;
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 void wm_add_window(Window *win) {
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     if (window_count < 32) {
         all_windows[window_count++] = win;
         wm_bring_to_front(win); // Ensure newly added windows are on top
     }
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 Window* wm_find_window_by_title(const char *title) {
     if (!title) return NULL;
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     for (int i = 0; i < window_count; i++) {
         if (all_windows[i] && all_windows[i]->title && str_eq(all_windows[i]->title, title)) {
+            asm volatile("push %0; popfq" : : "r"(rflags));
             return all_windows[i];
         }
     }
+    asm volatile("push %0; popfq" : : "r"(rflags));
     return NULL;
 }
 
@@ -1362,6 +1359,9 @@ void wm_remove_window(Window *win) {
     if (win->title) serial_write(win->title);
     else serial_write("unknown");
     serial_write("'\n");
+    
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     
     int index = -1;
     for (int i = 0; i < window_count; i++) {
@@ -1378,22 +1378,22 @@ void wm_remove_window(Window *win) {
         }
         window_count--;
         
-        // Free resources
-        if (win->pixels) kfree(win->pixels);
-        if (win->comp_pixels) kfree(win->comp_pixels);
-        // If the title was allocated in syscall.c, we should free it, 
-        // but currently we don't know for sure if it was kmalloc'd or a literal.
-        // In syscall.c it is kmalloc'd. Let's assume we should free it if it's not a known literal.
-        // Safer to just free it since userland windows always have kmalloc'd titles.
-        if (win->title && win->handle_close) { // Heuristic: user windows have handle_close set in syscall.c
-            kfree(win->title);
-        }
-        
-        kfree(win);
+        // Mark for redraw while protected
         force_redraw = true;
     } else {
+        asm volatile("push %0; popfq" : : "r"(rflags));
         serial_write("WM: Window not found in all_windows list!\n");
+        return;
     }
+    
+    if (win->pixels) kfree(win->pixels);
+    if (win->comp_pixels) kfree(win->comp_pixels);
+    if (win->title && win->handle_close) { 
+        kfree(win->title);
+    }
+    kfree(win);
+    
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 void wm_handle_click(int x, int y) {
@@ -1614,7 +1614,7 @@ void wm_handle_click(int x, int y) {
         } else {
             // Content click
             if (topmost->handle_click) {
-                topmost->handle_click(topmost, x - topmost->x, y - topmost->y);
+                topmost->handle_click(topmost, x - topmost->x, y - topmost->y - 20);
             }
         }
         pending_desktop_icon_click = -1;
@@ -1665,10 +1665,10 @@ void wm_handle_right_click(int x, int y) {
     // If a window was clicked
     if (topmost != NULL) {
         // Don't process close button or title bar for right click
-        if (y >= topmost->y + 24) {
+        if (y >= topmost->y + 20) {
             // Content right click
             if (topmost->handle_right_click) {
-                topmost->handle_right_click(topmost, x - topmost->x, y - topmost->y);
+                topmost->handle_right_click(topmost, x - topmost->x, y - topmost->y - 20);
             }
         }
     } else {
@@ -1718,12 +1718,10 @@ void wm_handle_right_click(int x, int y) {
     bool right = buttons & 0x02;
 
     if (left && !prev_left) {
-        // Mouse Down
         drag_start_x = mx;
         drag_start_y = my;
-        // Check Dock for app clicks (bottom of screen, floating)
         int dock_h = 60;
-        int dock_y = sh - dock_h - 6;  // Float above bottom
+        int dock_y = sh - dock_h - 6;  
         int dock_item_size = 48;
         int dock_spacing = 10;
         int total_dock_width = 7 * (dock_item_size + dock_spacing);
@@ -1778,8 +1776,6 @@ void wm_handle_right_click(int x, int y) {
                 start_menu_pending_app = NULL;
             }
             
-            // Mouse moving with left button, check for file drag start
-            // 1. Check Desktop Icons
             if (pending_desktop_icon_click != -1) {
                 int i = pending_desktop_icon_click;
                 DesktopIcon *icon = &desktop_icons[i];
@@ -1953,7 +1949,6 @@ void wm_handle_right_click(int x, int y) {
         if (is_dragging_file) {
             // Drop logic
             
-            // Check drop target - iterate through all windows to find if dropped on an Explorer
             Window *drop_win = NULL;
             int topmost_z = -1;
             for (int w = 0; w < window_count; w++) {
@@ -1983,11 +1978,8 @@ void wm_handle_right_click(int x, int y) {
             } else {
                 // Dropped on Desktop (or elsewhere)
                 if (drag_file_path[0] == ':' && drag_file_path[1] == ':' && drag_file_path[2] == 'A') {
-                    // Dropped Start Menu App -> Create Shortcut
-                    create_desktop_shortcut(drag_file_path + 7); // Skip ::APP::
+                    create_desktop_shortcut(drag_file_path + 7); 
                 } else {
-                    // If source was NOT desktop, move to desktop
-                    // Check if path starts with /Desktop/
                     bool from_desktop = (drag_file_path[0]=='/' && drag_file_path[1]=='D' && drag_file_path[2]=='e');
                     bool dropped_on_target = false;
                     for (int i = 0; i < desktop_icon_count; i++) {
@@ -2076,8 +2068,6 @@ void wm_handle_right_click(int x, int y) {
                             }
                         }
                     } else if (!dropped_on_target) {
-                        // Moved within desktop
-                        // Find which icon was dragged
                         int dragged_idx = -1;
                         for(int i=0; i<desktop_icon_count; i++) {
                             char path[128] = "/Desktop/";
@@ -2129,11 +2119,8 @@ void wm_handle_right_click(int x, int y) {
                                     desktop_icons[dragged_idx].y = 20 + row * 80;
                                 }
                                 
-                                // Check for collision with other icons
-                                // Folders already checked above, this is for overlap prevention
                                 for (int i = 0; i < desktop_icon_count; i++) {
                                     if (i == dragged_idx) continue;
-                                    // Simple distance check or rect overlap
                                     int dx = desktop_icons[i].x - desktop_icons[dragged_idx].x;
                                     int dy = desktop_icons[i].y - desktop_icons[dragged_idx].y;
                                     if (dx < 0) dx = -dx;
@@ -2174,7 +2161,8 @@ void wm_handle_right_click(int x, int y) {
             }
         }
         if (topmost && topmost->data) {
-            syscall_send_mouse_down_event(topmost, mx - topmost->x, my - topmost->y);
+            if (my >= topmost->y + 20)
+                syscall_send_mouse_down_event(topmost, mx - topmost->x, my - topmost->y - 20);
         }
     }
     
@@ -2192,7 +2180,8 @@ void wm_handle_right_click(int x, int y) {
             }
         }
         if (topmost && topmost->data) {
-            syscall_send_mouse_up_event(topmost, mx - topmost->x, my - topmost->y);
+            if (my >= topmost->y + 20)
+                syscall_send_mouse_up_event(topmost, mx - topmost->x, my - topmost->y - 20);
         }
     }
     
@@ -2210,7 +2199,8 @@ void wm_handle_right_click(int x, int y) {
             }
         }
         if (topmost && topmost->data) {
-            syscall_send_mouse_move_event(topmost, mx - topmost->x, my - topmost->y, buttons);
+            if (my >= topmost->y + 20)
+                syscall_send_mouse_move_event(topmost, mx - topmost->x, my - topmost->y - 20, buttons);
         }
     }
     
@@ -2346,12 +2336,10 @@ void wm_init(void) {
     all_windows[2] = &win_about;
     window_count = 3;
     
-    // Only show Explorer on desktop (initially hidden)
     win_explorer.visible = false;
     win_explorer.focused = false;
     win_explorer.z_index = 10;
     
-    // Rest are hidden initially
     win_cmd.visible = false;
     win_about.visible = false;
     
@@ -2366,8 +2354,6 @@ uint32_t wm_get_ticks(void) {
 void wm_timer_tick(void) {
     timer_ticks++;
     
-    // Auto-refresh desktop every 5 seconds  to save CPU in QEMU
-    // But NOT if the user is dragging a window or file.
     if (!is_dragging && !is_dragging_file) {
         desktop_refresh_timer++;
         if (desktop_refresh_timer >= 300) {
@@ -2378,8 +2364,7 @@ void wm_timer_tick(void) {
         }
     }
     
-    // Only redraw if there are dirty areas (clock updates at most every second, cursor rarely moves in timer only)
-    // Most of the time, nothing changes between ticks
+
     
     static uint8_t last_second = 0xFF;
     
@@ -2389,17 +2374,14 @@ void wm_timer_tick(void) {
     if (current_sec != last_second) {
         last_second = current_sec;
         int sw = get_screen_width();
-        // Mark clock area in the top menu bar (around draw_clock at sw - 80, y=12)
         wm_mark_dirty(sw - 110, 6, 110, 24);
     }
     
-    // If force_redraw is set, do a full redraw
     if (force_redraw) {
         graphics_mark_screen_dirty();
         force_redraw = false;
     }
     
-    // Perform redraw if there are dirty areas
     DirtyRect dirty = graphics_get_dirty_rect();
     if (dirty.active) {
         wm_paint();

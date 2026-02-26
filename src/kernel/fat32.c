@@ -46,6 +46,8 @@ typedef struct {
     uint32_t total_sectors;
     uint32_t partition_offset; // LBA offset of partition start
     bool mounted;
+    uint32_t cached_fat_sector;
+    uint8_t cached_fat_buf[512];
 } FAT32_Volume;
 
 static FAT32_Volume volumes[26]; // A-Z
@@ -413,6 +415,7 @@ static bool realfs_mount(char drive) {
     volumes[idx].fat_size = bpb->sectors_per_fat_32;
     volumes[idx].total_sectors = bpb->total_sectors_32;
     volumes[idx].mounted = true;
+    volumes[idx].cached_fat_sector = 0xFFFFFFFF;
     
     fs_serial_str("[FAT32] mounted drive ");
     fs_serial_char(drive);
@@ -456,18 +459,16 @@ static uint32_t realfs_next_cluster(FAT32_Volume *vol, uint32_t cluster) {
     uint32_t fat_sector = vol->fat_begin_lba + (cluster * 4) / 512;
     uint32_t fat_offset = (cluster * 4) % 512;
     
-    uint8_t *buf = (uint8_t*)kmalloc(512);
-    if (!buf) return 0xFFFFFFFF;
-    
-    if (vol->disk->read_sector(vol->disk, fat_sector, buf) != 0) {
-        kfree(buf);
-        return 0xFFFFFFFF;
+    if (vol->cached_fat_sector != fat_sector) {
+        if (vol->disk->read_sector(vol->disk, fat_sector, vol->cached_fat_buf) != 0) {
+            return 0xFFFFFFFF;
+        }
+        vol->cached_fat_sector = fat_sector;
     }
     
-    uint32_t next = *(uint32_t*)&buf[fat_offset];
+    uint32_t next = *(uint32_t*)&vol->cached_fat_buf[fat_offset];
     next &= 0x0FFFFFFF; // Mask top 4 bits
     
-    kfree(buf);
     return next;
 }
 
@@ -791,6 +792,9 @@ static uint32_t realfs_allocate_cluster(FAT32_Volume *vol) {
         if ((val & 0x0FFFFFFF) == 0) {
             *(uint32_t*)&fat_buf[offset] = 0x0FFFFFFF; // EOC
             vol->disk->write_sector(vol->disk, sector, fat_buf);
+            if (vol->cached_fat_sector == sector) {
+                vol->cached_fat_sector = 0xFFFFFFFF;
+            }
             kfree(fat_buf);
             return current;
         }

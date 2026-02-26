@@ -915,7 +915,7 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
 static void explorer_paint(Window *win) {
     ExplorerState *state = (ExplorerState*)win->data;
     int offset_x = win->x + 4;
-    int offset_y = win->y + 24;
+    int offset_y = win->y + 20;
     DirtyRect dirty = graphics_get_dirty_rect();
     
     // Fill background with dark mode
@@ -1367,7 +1367,7 @@ static void explorer_handle_click(Window *win, int x, int y) {
     // Handle Drive Menu Selection
     if (state->drive_menu_visible) {
         int menu_x = 4; // Window relative
-        int menu_y = 50; // 24+26
+        int menu_y = 26; // 24+26
         int menu_w = 80;
         int count = disk_get_count();
         int menu_h = count * 25;
@@ -1396,7 +1396,7 @@ static void explorer_handle_click(Window *win, int x, int y) {
     // Handle dropdown menu clicks
     if (state->dropdown_menu_visible) {
         int dropdown_btn_x = win->w - 90;  // Window-relative
-        int menu_y = 50;  // Window-relative (offset_y + 26, where offset_y = 24)
+        int menu_y = 26;  // Window-relative (offset_y + 26, where offset_y = 24)
         
         // New File
         if (x >= dropdown_btn_x && x < dropdown_btn_x + DROPDOWN_MENU_WIDTH &&
@@ -1434,7 +1434,7 @@ static void explorer_handle_click(Window *win, int x, int y) {
     // x, y are already relative to window (0,0 is top-left of window content area)
     
     // Check Drive Button
-    int button_y = 27;
+    int button_y = 3;
     if (x >= 4 && x < 64 && y >= button_y && y < button_y + 22) {
         state->drive_menu_visible = !state->drive_menu_visible;
         state->dropdown_menu_visible = false; // Close other menu
@@ -1476,7 +1476,7 @@ static void explorer_handle_click(Window *win, int x, int y) {
     }
     
     // File items start at y=64 relative to window
-    int content_start_y = 54;
+    int content_start_y = 30;
     int offset_x = 4;
     
     for (int i = 0; i < state->item_count; i++) {
@@ -1647,7 +1647,7 @@ static void explorer_handle_key(Window *win, char c) {
 static void explorer_handle_right_click(Window *win, int x, int y) {
     ExplorerState *state = (ExplorerState*)win->data;
     // File items start at y=64 relative to window
-    int content_start_y = 54;
+    int content_start_y = 30;
     int offset_x = 4;
     
     for (int i = 0; i < state->item_count; i++) {

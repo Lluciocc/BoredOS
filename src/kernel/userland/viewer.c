@@ -49,7 +49,7 @@ static void viewer_scale_rgb_to_argb(const unsigned char *rgb, int src_w, int sr
 
 static void viewer_paint(ui_window_t win) {
     int cx = 4;
-    int cy = 24;
+    int cy = 0;
     int cw = win_w - 8;
     int ch = win_h - 28;
 
@@ -75,21 +75,25 @@ static void viewer_paint(ui_window_t win) {
     int ox = cx + (cw - disp_w) / 2;
     int oy = cy + (ch - disp_h - 30) / 2;
 
-    for (int y = 0; y < disp_h; y++) {
-        int src_y = y * viewer_img_h / disp_h;
-        if (src_y >= viewer_img_h) src_y = viewer_img_h - 1;
-        for (int x = 0; x < disp_w; x++) {
-            int src_x = x * viewer_img_w / disp_w;
-            if (src_x >= viewer_img_w) src_x = viewer_img_w - 1;
-            uint32_t pixel = viewer_pixels[src_y * viewer_img_w + src_x];
-            ui_draw_rect(win, ox + x, oy + y, 1, 1, pixel);
+    uint32_t *temp_buf = malloc(disp_w * disp_h * sizeof(uint32_t));
+    if (temp_buf) {
+        for (int y = 0; y < disp_h; y++) {
+            int src_y = y * viewer_img_h / disp_h;
+            if (src_y >= viewer_img_h) src_y = viewer_img_h - 1;
+            for (int x = 0; x < disp_w; x++) {
+                int src_x = x * viewer_img_w / disp_w;
+                if (src_x >= viewer_img_w) src_x = viewer_img_w - 1;
+                temp_buf[y * disp_w + x] = viewer_pixels[src_y * viewer_img_w + src_x];
+            }
         }
+        ui_draw_image(win, ox, oy, disp_w, disp_h, temp_buf);
+        free(temp_buf);
     }
 
     int btn_w = 160;
     int btn_h = 22;
     int btn_x = cx + (cw - btn_w) / 2;
-    int btn_y = win_h - 30;
+    int btn_y = (win_h - 20) - 30;
     ui_draw_rounded_rect_filled(win, btn_x, btn_y, btn_w, btn_h, 6, 0xFF2D2D2D);
     ui_draw_string(win, btn_x + 10, btn_y + 6, "Set as Wallpaper", 0xFFF0F0F0);
 }
@@ -101,7 +105,7 @@ static void viewer_handle_click(ui_window_t win, int x, int y) {
     int cw = win_w - 8;
     int btn_w = 160;
     int btn_x = cx + (cw - btn_w) / 2;
-    int btn_y = win_h - 30;
+    int btn_y = (win_h - 20) - 30;
     
     if (x >= btn_x && x < btn_x + btn_w && y >= btn_y && y < btn_y + 22) {
         // SYSTEM_CMD_SET_WALLPAPER is 3 based on syscall.c code
@@ -214,7 +218,7 @@ int main(int argc, char **argv) {
         if (ui_get_event(win, &ev)) {
             if (ev.type == GUI_EVENT_PAINT) {
                 viewer_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h);
+                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_CLICK) {
                 viewer_handle_click(win, ev.arg1, ev.arg2);
             } else if (ev.type == GUI_EVENT_CLOSE) {

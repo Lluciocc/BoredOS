@@ -23,7 +23,6 @@
 #define COLOR_APPLE_INDIGO 0xFF4B0082
 #define COLOR_APPLE_VIOLET 0xFF9400D3
 
-// --- Dark Mode Colors ---
 #define COLOR_NOTEPAD_BG    0xFFF5F5DC       
 #define COLOR_DARK_BG       0xFF1E1E1E  // Main dark background
 #define COLOR_DARK_PANEL    0xFF2D2D2D  // Slightly lighter panel background
@@ -36,7 +35,7 @@
 #define COLOR_TRAFFIC_YELLOW 0xFFFCC02E // Minimize button (not used for now)
 #define COLOR_TRAFFIC_GREEN 0xFF5FC038  // Zoom button (not used for now)
 
-#define DESKTOP_TOP_DEADSPACE_HEIGHT 80 // Height of the dead space at the top of the desktop grid
+#define DESKTOP_TOP_DEADSPACE_HEIGHT 80 // stops files from being rendered under menu bar
 typedef struct Window Window;
 struct Window {
     char *title;
@@ -46,10 +45,10 @@ struct Window {
     int buf_len;
     int cursor_pos;
     bool focused;
-    int z_index;  // Layering depth (higher = on top)
-    void *data;   // Per-window private data
-    uint32_t *pixels; // Pointer to backing buffer for UI events (Back Buffer)
-    uint32_t *comp_pixels; // Pointer to composition buffer (Front Buffer)
+    int z_index;  
+    void *data;   
+    uint32_t *pixels; 
+    uint32_t *comp_pixels; 
     
     // Callbacks
     void (*paint)(Window *win);
@@ -88,7 +87,7 @@ void draw_bevel_rect(int x, int y, int w, int h, bool sunken);
 void draw_button(int x, int y, int w, int h, const char *text, bool pressed);
 void draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
 void draw_rounded_rect_filled(int x, int y, int w, int h, int radius, uint32_t color);
-void draw_traffic_light(int x, int y);  // Red close button only
+void draw_traffic_light(int x, int y); 
 void draw_icon(int x, int y, const char *label);
 void draw_folder_icon(int x, int y, const char *label);
 void draw_document_icon(int x, int y, const char *label);

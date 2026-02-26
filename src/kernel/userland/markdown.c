@@ -235,7 +235,7 @@ static void md_draw_text_bold(ui_window_t win, int x, int y, const char *text, u
 
 static void md_paint(ui_window_t win) {
     int offset_x = 4;
-    int offset_y = 24;
+    int offset_y = 0;
     int content_width = win_w - 8;
     int content_height = win_h - 28;
     
@@ -392,7 +392,7 @@ static void md_handle_key(char c) {
 static void md_handle_click(int x, int y) {
     int content_width = win_w - 8;
     int btn_x_up = 4 + content_width - 50;
-    int btn_y = 24 + 2;
+    int btn_y = 2;
     if (x >= btn_x_up && x < btn_x_up + 20 && y >= btn_y && y < btn_y + 16) {
         scroll_top -= 3;
         if (scroll_top < 0) scroll_top = 0;
@@ -423,15 +423,15 @@ int main(int argc, char **argv) {
         if (ui_get_event(win, &ev)) {
             if (ev.type == GUI_EVENT_PAINT) {
                 md_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h);
+                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_CLICK) {
                 md_handle_click(ev.arg1, ev.arg2);
                 md_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h);
+                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_KEY) {
                 md_handle_key((char)ev.arg1);
                 md_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h);
+                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_CLOSE) {
                 sys_exit(0);
             }

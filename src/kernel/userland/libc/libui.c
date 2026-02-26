@@ -39,3 +39,8 @@ void ui_mark_dirty(ui_window_t win, int x, int y, int w, int h) {
     uint64_t params[4] = { (uint64_t)x, (uint64_t)y, (uint64_t)w, (uint64_t)h };
     syscall3(SYS_GUI, GUI_CMD_MARK_DIRTY, (uint64_t)win, (uint64_t)params);
 }
+
+void ui_draw_image(ui_window_t win, int x, int y, int w, int h, uint32_t *image_data) {
+    uint64_t params[4] = { (uint64_t)x, (uint64_t)y, (uint64_t)w, (uint64_t)h };
+    syscall4(SYS_GUI, GUI_CMD_DRAW_IMAGE, (uint64_t)win, (uint64_t)params, (uint64_t)image_data);
+}

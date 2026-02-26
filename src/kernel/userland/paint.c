@@ -50,24 +50,17 @@ static void paint_reset(void) {
 
 static void paint_paint(ui_window_t win) {
     int canvas_x = 60;
-    int canvas_y = 30;
+    int canvas_y = 0;
     
-    // Canvas Area with dark background and rounded corners (draw first so it's behind everything)
     ui_draw_rounded_rect_filled(win, canvas_x - 2, canvas_y - 2, CANVAS_W + 4, CANVAS_H + 4, 4, COLOR_DARK_BG);
-
-    // Toolbar area - dark mode
-    ui_draw_rounded_rect_filled(win, 10, 30, 40, 260 - 40, 6, COLOR_DARK_PANEL);
+    ui_draw_rounded_rect_filled(win, 10, 0, 40, 230, 6, COLOR_DARK_PANEL);
     
-    // Color Palette with rounded corners
     uint32_t colors[] = {COLOR_BLACK, COLOR_RED, COLOR_APPLE_GREEN, COLOR_APPLE_BLUE, COLOR_APPLE_YELLOW, COLOR_WHITE};
     for (int i = 0; i < 6; i++) {
-        int cy = 40 + (i * 25);
+        int cy = 10 + (i * 25);
         ui_draw_rounded_rect_filled(win, 15, cy, 30, 20, 3, colors[i]);
         
-        // Highlight selected color with border
         if (current_color == colors[i]) {
-            // Note: libui might not have draw_rounded_rect (hollow), so we just draw four lines simulating it
-            // or we use ui_draw_rect for hollow border
             ui_draw_rect(win, 13, cy - 2, 34, 1, COLOR_DARK_TEXT);
             ui_draw_rect(win, 13, cy - 2 + 24, 34, 1, COLOR_DARK_TEXT);
             ui_draw_rect(win, 13, cy - 2, 1, 24, COLOR_DARK_TEXT);
@@ -75,12 +68,11 @@ static void paint_paint(ui_window_t win) {
         }
     }
 
-    // Toolbar Buttons - dark mode with rounded corners
-    ui_draw_rounded_rect_filled(win, 12, 260 - 65, 36, 20, 4, COLOR_DARK_BORDER);
-    ui_draw_string(win, 18, 260 - 58, "CLR", COLOR_DARK_TEXT);
+    ui_draw_rounded_rect_filled(win, 12, 230 - 65, 36, 20, 4, COLOR_DARK_BORDER);
+    ui_draw_string(win, 18, 230 - 58, "CLR", COLOR_DARK_TEXT);
     
-    ui_draw_rounded_rect_filled(win, 12, 260 - 40, 36, 20, 4, COLOR_DARK_BORDER);
-    ui_draw_string(win, 18, 260 - 33, "SAV", COLOR_DARK_TEXT);
+    ui_draw_rounded_rect_filled(win, 12, 230 - 40, 36, 20, 4, COLOR_DARK_BORDER);
+    ui_draw_string(win, 18, 230 - 33, "SAV", COLOR_DARK_TEXT);
 
     // Draw canvas content
     if (canvas_buffer) {
@@ -93,7 +85,7 @@ static void paint_paint(ui_window_t win) {
     }
 }
 
-static void paint_put_brush(ui_window_t win, int cx, int cy) {
+static void paint_put_brush(ui_window_t win, int cx, int cy, int *min_x, int *min_y, int *max_x, int *max_y) {
     if (!canvas_buffer) return;
     for (int dy = 0; dy < 2; dy++) {
         for (int dx = 0; dx < 2; dx++) {
@@ -101,26 +93,32 @@ static void paint_put_brush(ui_window_t win, int cx, int cy) {
             int py = cy + dy;
             if (px >= 0 && px < CANVAS_W && py >= 0 && py < CANVAS_H) {
                 canvas_buffer[py * CANVAS_W + px] = current_color;
-                ui_draw_rect(win, 60 + px, 30 + py, 1, 1, current_color);
+                ui_draw_rect(win, 60 + px, 0 + py, 1, 1, current_color);
+                
+                if (px < *min_x) *min_x = px;
+                if (py < *min_y) *min_y = py;
+                if (px > *max_x) *max_x = px;
+                if (py > *max_y) *max_y = py;
             }
         }
     }
-    ui_mark_dirty(win, 60 + cx, 30 + cy, 2, 2);
 }
 
 void paint_handle_mouse(ui_window_t win, int x, int y) {
     int cx = x - 60;
-    int cy = y - 30;
+    int cy = y;
 
     if (cx < 0 || cx >= CANVAS_W || cy < 0 || cy >= CANVAS_H) {
         last_mx = -1;
         return;
     }
 
+    int min_x = CANVAS_W, min_y = CANVAS_H;
+    int max_x = -1, max_y = -1;
+
     if (last_mx == -1) {
-        paint_put_brush(win, cx, cy);
+        paint_put_brush(win, cx, cy, &min_x, &min_y, &max_x, &max_y);
     } else {
-        // Bresenham's line algorithm to fill gaps between points
         int x0 = last_mx, y0 = last_my;
         int x1 = cx, y1 = cy;
         int dx = (x1 - x0 > 0) ? (x1 - x0) : (x0 - x1);
@@ -130,13 +128,18 @@ void paint_handle_mouse(ui_window_t win, int x, int y) {
         int err = dx - dy;
 
         while (1) {
-            paint_put_brush(win, x0, y0);
+            paint_put_brush(win, x0, y0, &min_x, &min_y, &max_x, &max_y);
             if (x0 == x1 && y0 == y1) break;
             int e2 = 2 * err;
             if (e2 > -dy) { err -= dy; x0 += sx; }
             if (e2 < dx) { err += dx; y0 += sy; }
         }
     }
+    
+    if (min_x <= max_x && min_y <= max_y) {
+        ui_mark_dirty(win, 60 + min_x, 0 + min_y, (max_x - min_x) + 1, (max_y - min_y) + 1);
+    }
+
     last_mx = cx;
     last_my = cy;
 }
@@ -146,11 +149,9 @@ void paint_reset_last_pos(void) {
     last_my = -1;
 }
 
-// Simple window message dialog wrapper using syscall
+
 static void wm_show_message(const char *title, const char *msg) {
-    // Wait, userland doesn't have wm_show_message syscall available yet, or maybe it does? 
-    // We didn't add it or GUI_EVENT doesn't support it directly.
-    // For now we do nothing, or just open a small window.
+
 }
 
 static void paint_save(const char *path) {
@@ -181,13 +182,13 @@ void paint_load(const char *path) {
 static void paint_click(ui_window_t win, int x, int y) {
     // Check Buttons
     if (x >= 12 && x < 48) {
-        if (y >= 260 - 65 && y < 260 - 45) {
+        if (y >= 230 - 65 && y < 230 - 45) {
             paint_reset();
             paint_paint(win);
-            ui_mark_dirty(win, 0, 0, 380, 260);
+            ui_mark_dirty(win, 0, 0, 380, 230);
             return;
         }
-        if (y >= 260 - 40 && y < 260 - 20) {
+        if (y >= 230 - 40 && y < 230 - 20) {
             paint_save(current_file_path);
             return;
         }
@@ -196,12 +197,12 @@ static void paint_click(ui_window_t win, int x, int y) {
     // Check Palette
     if (x >= 15 && x < 45) {
         for (int i = 0; i < 6; i++) {
-            int cy = 40 + (i * 25);
+            int cy = 10 + (i * 25);
             if (y >= cy && y < cy + 20) {
                 uint32_t colors[] = {COLOR_BLACK, COLOR_RED, COLOR_APPLE_GREEN, COLOR_APPLE_BLUE, COLOR_APPLE_YELLOW, COLOR_WHITE};
                 current_color = colors[i];
                 paint_paint(win);
-                ui_mark_dirty(win, 0, 0, 380, 260);
+                ui_mark_dirty(win, 0, 0, 380, 230);
                 return;
             }
         }
@@ -227,11 +228,9 @@ int main(int argc, char **argv) {
         if (ui_get_event(win, &ev)) {
             if (ev.type == GUI_EVENT_PAINT) {
                 paint_paint(win);
-                ui_mark_dirty(win, 0, 0, 380, 260);
+                ui_mark_dirty(win, 0, 0, 380, 240);
             } else if (ev.type == GUI_EVENT_CLICK) {
                 paint_click(win, ev.arg1, ev.arg2);
-                paint_paint(win);
-                ui_mark_dirty(win, 0, 0, 380, 260);
             } else if (ev.type == GUI_EVENT_MOUSE_DOWN) {
                 paint_handle_mouse(win, ev.arg1, ev.arg2);
             } else if (ev.type == GUI_EVENT_MOUSE_UP) {

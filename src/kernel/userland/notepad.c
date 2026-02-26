@@ -241,8 +241,7 @@ int main(int argc, char **argv) {
                 sys_exit(0);
             }
         } else {
-            // Optional: sys_yield() or similar to avoid high CPU
-            // For now, just keep looping but it's better than nothing
+
             for(volatile int i=0; i<10000; i++); 
         }
     }

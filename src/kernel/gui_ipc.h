@@ -7,6 +7,7 @@
 #define GUI_CMD_MARK_DIRTY    4
 #define GUI_CMD_GET_EVENT     5
 #define GUI_CMD_DRAW_ROUNDED_RECT_FILLED 6
+#define GUI_CMD_DRAW_IMAGE    7
 
 #define GUI_EVENT_NONE        0
 #define GUI_EVENT_PAINT       1

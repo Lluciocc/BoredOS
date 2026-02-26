@@ -26,14 +26,13 @@ static void debug_print(const char *msg) {
 #define CELL_SIZE 20
 
 // Game state
-static int grid[GRID_HEIGHT][GRID_WIDTH];  // -1 = mine, 0-8 = adjacent mine count
+static int grid[GRID_HEIGHT][GRID_WIDTH];  
 static bool revealed[GRID_HEIGHT][GRID_WIDTH];
 static bool flagged[GRID_HEIGHT][GRID_WIDTH];
 static bool game_over = false;
 static bool game_won = false;
 static int revealed_count = 0;
 
-// Helper: Random number generator (simple LCG)
 static uint32_t random_seed = 12345;
 static uint32_t random_next(void) {
     random_seed = random_seed * 1103515245 + 12345;
@@ -120,10 +119,8 @@ static void reveal_cell(int x, int y) {
             }
         }
     } else if (grid[y][x] == 0) {
-        // Empty cell - flood fill
         flood_fill(x, y);
     } else {
-        // Numbered cell
         revealed[y][x] = true;
         revealed_count++;
     }
@@ -144,21 +141,19 @@ static void flag_cell(int x, int y) {
 static void minesweeper_paint(ui_window_t win) {
     int win_w = 240, win_h = 340;
     
-    // Background - dark mode
-    ui_draw_rect(win, 4, 30, win_w - 8, win_h - 34, COLOR_DARK_BG);
+    ui_draw_rect(win, 4, 0, win_w - 8, win_h - 34, COLOR_DARK_BG);
     
-    // Game status
     if (game_over) {
-        ui_draw_string(win, 10, 36, "Game Over!", COLOR_TRAFFIC_RED);
+        ui_draw_string(win, 10, 6, "Game Over!", COLOR_TRAFFIC_RED);
     } else if (game_won) {
-        ui_draw_string(win, 10, 36, "You Won!", 0xFF00FF00);  // Bright green
+        ui_draw_string(win, 10, 6, "You Won!", 0xFF00FF00);  // Bright green
     } else {
-        ui_draw_string(win, 10, 36, "", COLOR_DARK_TEXT);
+        ui_draw_string(win, 10, 6, "", COLOR_DARK_TEXT);
     }
     
     // Draw grid
     int grid_start_x = 10;
-    int grid_start_y = 56;
+    int grid_start_y = 26;
     
     for (int y = 0; y < GRID_HEIGHT; y++) {
         for (int x = 0; x < GRID_WIDTH; x++) {
@@ -196,7 +191,7 @@ static void minesweeper_paint(ui_window_t win) {
 
 static void minesweeper_handle_click(ui_window_t win, int x, int y, int button) {
     int grid_start_x = 10;
-    int grid_start_y = 56;
+    int grid_start_y = 26;
     int btn_y = grid_start_y + GRID_HEIGHT * CELL_SIZE + 10;
     
     // Check "New Game" button
@@ -231,7 +226,6 @@ int main(int argc, char **argv) {
     ui_window_t win = ui_window_create("Minesweeper", 250, 100, 240, 340);
     if (!win) return 1;
 
-    // Use current time or something for seed? No syscall for time right now.
     random_seed = 987654321;
     init_game();
 
@@ -240,17 +234,17 @@ int main(int argc, char **argv) {
         if (ui_get_event(win, &ev)) {
             if (ev.type == GUI_EVENT_PAINT) {
                 minesweeper_paint(win);
-                ui_mark_dirty(win, 0, 0, 240, 340);
+                ui_mark_dirty(win, 0, 0, 240, 320);
             } else if (ev.type == GUI_EVENT_CLICK) {
                 debug_print("[MINESWEEPER] LEFT CLICK");
                 minesweeper_handle_click(win, ev.arg1, ev.arg2, ev.type);
                 minesweeper_paint(win);
-                ui_mark_dirty(win, 0, 0, 240, 340);
+                ui_mark_dirty(win, 0, 0, 240, 320);
             } else if (ev.type == GUI_EVENT_RIGHT_CLICK) {
                 debug_print("[MINESWEEPER] RIGHT CLICK DETECTED");
                 minesweeper_handle_click(win, ev.arg1, ev.arg2, ev.type);
                 minesweeper_paint(win);
-                ui_mark_dirty(win, 0, 0, 240, 340);
+                ui_mark_dirty(win, 0, 0, 240, 320);
             } else if (ev.type == GUI_EVENT_CLOSE) {
                 sys_exit(0);
             }

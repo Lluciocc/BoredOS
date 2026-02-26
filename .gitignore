@@ -18,6 +18,6 @@ limine 2/Makefile
 limine 2/limine
 limine 2/limine.dSYM/Contents/Resources/DWARF/limine
 limine 2/limine.exe
-build/*
 boredos.dump
 qemu-debug.log
+build/

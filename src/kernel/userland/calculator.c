@@ -86,12 +86,12 @@ static void update_display(void) {
 static void calculator_paint(void) {
     int w = 180;
     int h = 230;
-    ui_draw_rect(win_calculator, 4, 30, w - 8, h - 34, COLOR_DARK_BG);
-    ui_draw_rounded_rect_filled(win_calculator, 10, 36, w - 20, 25, 6, COLOR_DARK_PANEL);
+    ui_draw_rect(win_calculator, 4, 4, w - 8, h - 34, COLOR_DARK_BG);
+    ui_draw_rounded_rect_filled(win_calculator, 10, 10, w - 20, 25, 6, COLOR_DARK_PANEL);
     
     int text_w = display_buf_len * 8;
     int text_x = w - 15 - text_w;
-    ui_draw_string(win_calculator, text_x, 44, display_buffer, COLOR_DARK_TEXT);
+    ui_draw_string(win_calculator, text_x, 18, display_buffer, COLOR_DARK_TEXT);
     
     const char *labels[] = {
         "C", "sqr", "rt", "/",
@@ -105,7 +105,7 @@ static void calculator_paint(void) {
     int bh = 25;
     int gap = 5;
     int start_x = 10;
-    int start_y = 70;
+    int start_y = 40;
     
     for (int i = 0; i < 20; i++) {
         int r = i / 4;
@@ -136,7 +136,7 @@ static void calculator_click(int x, int y) {
     int bh = 25;
     int gap = 5;
     int start_x = 10;
-    int start_y = 65; // Matches the hitboxes
+    int start_y = 35; // Matches the hitboxes
     
     for (int i = 0; i < 20; i++) {
         int r = i / 4;

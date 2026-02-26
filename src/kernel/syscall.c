@@ -209,10 +209,18 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
             
             serial_write("Kernel: Dims initialized.\n");
             
+            size_t pixel_size = 0;
             // Safe allocation
-            size_t pixel_size = (size_t)win->w * win->h * 4;
-            win->pixels = kmalloc(pixel_size);
-            win->comp_pixels = kmalloc(pixel_size);
+            size_t client_h = win->h - 20;
+            if (win->w <= 0 || win->h <= 20) {
+                // Invalid dimensions, but prevent underflow/bad alloc
+                win->pixels = NULL;
+                win->comp_pixels = NULL;
+            } else {
+                pixel_size = (size_t)win->w * client_h * 4;
+                win->pixels = kmalloc(pixel_size);
+                win->comp_pixels = kmalloc(pixel_size);
+            }
             
             serial_write("Kernel: Buffers allocated.\n");
             
@@ -259,10 +267,10 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
                     if (rx < 0) { rw += rx; rx = 0; }
                     if (ry < 0) { rh += ry; ry = 0; }
                     if (rx + rw > win->w) rw = win->w - rx;
-                    if (ry + rh > win->h) rh = win->h - ry;
+                    if (ry + rh > (win->h - 20)) rh = (win->h - 20) - ry;
                     
                     if (rw > 0 && rh > 0) {
-                        graphics_set_render_target(win->pixels, win->w, win->h);
+                        graphics_set_render_target(win->pixels, win->w, win->h - 20);
                         draw_rect(rx, ry, rw, rh, color);
                         graphics_set_render_target(NULL, 0, 0);
                     }
@@ -293,10 +301,10 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
                     if (rx < 0) { rw += rx; rx = 0; }
                     if (ry < 0) { rh += ry; ry = 0; }
                     if (rx + rw > win->w) rw = win->w - rx;
-                    if (ry + rh > win->h) rh = win->h - ry;
+                    if (ry + rh > (win->h - 20)) rh = (win->h - 20) - ry;
 
                     if (rw > 0 && rh > 0) {
-                        graphics_set_render_target(win->pixels, win->w, win->h);
+                        graphics_set_render_target(win->pixels, win->w, win->h - 20);
                         draw_rounded_rect_filled(rx, ry, rw, rh, rr, color);
                         graphics_set_render_target(NULL, 0, 0);
                     }
@@ -330,13 +338,48 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
                 if (win->pixels) {
                     // String clipping is handled by draw_char -> put_pixel, 
                     // but we ensure coordinate sanity here
-                    if (ux >= -100 && ux < win->w && uy >= -100 && uy < win->h) {
-                        graphics_set_render_target(win->pixels, win->w, win->h);
+                    if (ux >= -100 && ux < win->w && uy >= -100 && uy < (win->h - 20)) {
+                        graphics_set_render_target(win->pixels, win->w, win->h - 20);
                         draw_string(ux, uy, kernel_str, color);
                         graphics_set_render_target(NULL, 0, 0);
                     }
                 } else {
                     draw_string(win->x + ux, win->y + uy, kernel_str, color);
+                }
+                
+                asm volatile("push %0; popfq" : : "r"(rflags));
+            }
+        } else if (cmd == GUI_CMD_DRAW_IMAGE) {
+            Window *win = (Window *)arg2;
+            uint64_t *u_params = (uint64_t *)arg3;
+            uint32_t *image_data = (uint32_t *)arg4;
+            if (win && u_params && image_data) {
+                uint64_t params[4];
+                for (int i = 0; i < 4; i++) params[i] = u_params[i];
+                
+                uint64_t rflags;
+                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                
+                if (win->pixels) {
+                    int rx = (int)params[0]; int ry = (int)params[1];
+                    int rw = (int)params[2]; int rh = (int)params[3];
+                    
+                    int src_x_offset = 0;
+                    int src_y_offset = 0;
+                    if (rx < 0) { src_x_offset = -rx; rw += rx; rx = 0; }
+                    if (ry < 0) { src_y_offset = -ry; rh += ry; ry = 0; }
+                    if (rx + rw > win->w) rw = win->w - rx;
+                    if (ry + rh > (win->h - 20)) rh = (win->h - 20) - ry;
+                    
+                    if (rw > 0 && rh > 0) {
+                        for (int y = 0; y < rh; y++) {
+                            uint32_t *dest = &win->pixels[(ry + y) * win->w + rx];
+                            uint32_t *src = &image_data[(src_y_offset + y) * (int)params[2] + src_x_offset];
+                            for (int x = 0; x < rw; x++) {
+                                dest[x] = src[x];
+                            }
+                        }
+                    }
                 }
                 
                 asm volatile("push %0; popfq" : : "r"(rflags));
@@ -351,7 +394,7 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
                 // Dual-buffer commit: copy pixels to comp_pixels
                 if (win->pixels && win->comp_pixels) {
                     extern void mem_memcpy(void *dest, const void *src, size_t len);
-                    mem_memcpy(win->comp_pixels, win->pixels, (size_t)win->w * win->h * 4);
+                    mem_memcpy(win->comp_pixels, win->pixels, (size_t)win->w * (win->h - 20) * 4);
                 }
                 wm_mark_dirty(win->x + (int)params[0], win->y + (int)params[1], (int)params[2], (int)params[3]);
             }
@@ -458,14 +501,19 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
             uint64_t start_page = (old_end + 0xFFF) & ~0xFFF;
             uint64_t end_page = (new_end + 0xFFF) & ~0xFFF;
             
-            for (uint64_t page = start_page; page < end_page; page += 4096) {
-                void *phys = kmalloc_aligned(4096, 4096);
-                if (!phys) return (uint64_t)-1; // Out of memory
+            if (end_page > start_page) {
+                uint64_t total_size = end_page - start_page;
+                void *phys_block = kmalloc_aligned(total_size, 4096);
+                if (!phys_block) return (uint64_t)-1; // Out of memory
                 
                 extern void mem_memset(void *dest, int val, size_t len);
-                mem_memset(phys, 0, 4096);
+                mem_memset(phys_block, 0, total_size);
                 
-                paging_map_page(proc->pml4_phys, page, v2p((uint64_t)phys), 0x07); // PT_PRESENT | PT_RW | PT_USER
+                uint64_t phys_addr = (uint64_t)phys_block;
+                for (uint64_t page = start_page; page < end_page; page += 4096) {
+                    paging_map_page(proc->pml4_phys, page, v2p(phys_addr), 0x07); // PT_PRESENT | PT_RW | PT_USER
+                    phys_addr += 4096;
+                }
             }
         }
         

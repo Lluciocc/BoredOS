@@ -11,6 +11,7 @@
 #define GUI_CMD_MARK_DIRTY    4
 #define GUI_CMD_GET_EVENT     5
 #define GUI_CMD_DRAW_ROUNDED_RECT_FILLED 6
+#define GUI_CMD_DRAW_IMAGE    7
 
 // Event Types
 #define GUI_EVENT_NONE        0
@@ -42,5 +43,6 @@ void ui_draw_rect(ui_window_t win, int x, int y, int w, int h, uint32_t color);
 void ui_draw_rounded_rect_filled(ui_window_t win, int x, int y, int w, int h, int radius, uint32_t color);
 void ui_draw_string(ui_window_t win, int x, int y, const char *str, uint32_t color);
 void ui_mark_dirty(ui_window_t win, int x, int y, int w, int h);
+void ui_draw_image(ui_window_t win, int x, int y, int w, int h, uint32_t *image_data);
 
 #endif

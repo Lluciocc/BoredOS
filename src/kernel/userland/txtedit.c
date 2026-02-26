@@ -197,7 +197,7 @@ static void editor_insert_char(char ch) {
 
 static void editor_paint(ui_window_t win) {
     int offset_x = 4;
-    int offset_y = 24;
+    int offset_y = 0;
     int content_width = win_w - 8;
     int content_height = win_h - 28;
     
@@ -390,7 +390,7 @@ static void editor_handle_key(char c) {
 static void editor_handle_click(int x, int y) {
     int content_width = win_w - 8;
     int button_x = 4 + content_width - 80;
-    int button_y = 24 + 3;
+    int button_y = 3;
     
     if (x >= button_x && x < button_x + 70 && y >= button_y && y < button_y + 20) {
         editor_save_file();
@@ -413,15 +413,15 @@ int main(int argc, char **argv) {
         if (ui_get_event(win, &ev)) {
             if (ev.type == GUI_EVENT_PAINT) {
                 editor_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h);
+                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_CLICK) {
                 editor_handle_click(ev.arg1, ev.arg2);
                 editor_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h);
+                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_KEY) {
                 editor_handle_key((char)ev.arg1);
                 editor_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h);
+                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_CLOSE) {
                 sys_exit(0);
             }

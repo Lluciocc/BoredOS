@@ -24,9 +24,6 @@ static BlockMeta *find_free_block(BlockMeta **last, size_t size) {
 static BlockMeta *request_space(BlockMeta* last, size_t size) {
     BlockMeta *block;
     block = (BlockMeta *)sys_sbrk(0);
-    // Ask for space, ensuring everything stays 8-byte aligned if sizes are odd.
-    // For simplicity, we just request exactly what is needed, 
-    // but typically `size` should be aligned.
     size_t align = 8;
     if (size % align != 0) {
         size += align - (size % align);
@@ -70,7 +67,6 @@ void *malloc(size_t size) {
             if (!block) return NULL;
         } else { // Found free block
             block->free = 0;
-            // We could split the block here if block->size is much larger than size...
         }
     }
 
