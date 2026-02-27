@@ -1,11 +1,11 @@
+; Copyright (c) 2023-2026 Chris (boreddevnl)
+; This software is released under the GNU General Public License v3.0. See LICENSE file for details.
+; This header needs to maintain in any file it is present in, as per the GPL license terms.
 global process_jump_usermode
 
 section .text
 
-; void process_jump_usermode(uint64_t entry_point, uint64_t user_stack)
-; System V AMD64 ABI:
-; RDI = entry_point
-; RSI = user_stack
+
 process_jump_usermode:
     cli
 

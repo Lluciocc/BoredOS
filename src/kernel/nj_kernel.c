@@ -1,6 +1,6 @@
-// nj_kernel.c - Kernel adapter for NanoJPEG memory functions
-// Provides njAllocMem, njFreeMem, njFillMem, njCopyMem for NJ_USE_LIBC=0 mode
-
+// Copyright (c) 2023-2026 Chris (boreddevnl)
+// This software is released under the GNU General Public License v3.0. See LICENSE file for details.
+// This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include "memory_manager.h"
 #include <stddef.h>
 
