@@ -27,6 +27,7 @@ int main(int argc, char **argv) {
     printf("man <cmd>      - Show manual page\n");
     printf("clear          - Clear the screen\n");
     printf("exit           - Exit the terminal\n");
+    printf("net            - Network tools\n");
     printf("\nHint: Use Ctrl+C to force quit any running application.\n");
     return 0;
 }
