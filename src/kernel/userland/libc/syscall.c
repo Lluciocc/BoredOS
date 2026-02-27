@@ -121,3 +121,15 @@ int sys_exists(const char *path) {
     return (int)syscall2(SYS_FS, FS_CMD_EXISTS, (uint64_t)path);
 }
 
+int sys_getcwd(char *buf, int size) {
+    return (int)syscall3(SYS_FS, FS_CMD_GETCWD, (uint64_t)buf, (uint64_t)size);
+}
+
+int sys_chdir(const char *path) {
+    return (int)syscall2(SYS_FS, FS_CMD_CHDIR, (uint64_t)path);
+}
+
+void sys_kill(int pid) {
+    syscall1(SYS_KILL, (uint64_t)pid);
+}
+

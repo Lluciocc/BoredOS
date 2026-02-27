@@ -22,6 +22,7 @@ uint64_t timer_handler(registers_t *regs) {
 
 // --- Keyboard ---
 static bool shift_pressed = false;
+static bool ctrl_pressed = false;
 static bool extended_scancode = false;
 
 // Simple US QWERTY Scan Code Set 1 Map
@@ -48,6 +49,27 @@ uint64_t keyboard_handler(registers_t *regs) {
         extended_scancode = true;
         outb(0x20, 0x20);
         return (uint64_t)regs;
+    }
+
+    if (scancode == 0x1D) {
+        ctrl_pressed = true;
+        extended_scancode = false; // Reset if Ctrl is pressed (prevents E0 1D bug)
+    } else if (scancode == 0x9D) {
+        ctrl_pressed = false;
+        extended_scancode = false;
+    }
+
+    if (ctrl_pressed && scancode == 0x2E) {
+        extern process_t* process_get_current(void);
+        process_t* proc = process_get_current();
+        if (proc && proc->is_user && proc->is_terminal_proc && proc->ui_window) {
+            // Only kill if the associated terminal window is focused
+            if (((Window*)proc->ui_window)->focused) {
+                extern uint64_t process_terminate_current(void);
+                outb(0x20, 0x20); // EOI before context switch
+                return process_terminate_current();
+            }
+        }
     }
 
     if (scancode == 0x2A || scancode == 0x36) { // Shift Down

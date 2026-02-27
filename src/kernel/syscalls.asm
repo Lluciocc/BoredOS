@@ -48,7 +48,9 @@ syscall_entry:
     mov rdi, rax ; syscall_num
 
     ; 5. Call C handler
+    sti
     call syscall_handler_c
+    cli
 
     ; 6. Restore RCX and R11
     pop r11

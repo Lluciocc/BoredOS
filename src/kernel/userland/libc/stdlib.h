@@ -11,4 +11,22 @@ void* realloc(void* ptr, size_t size);
 void *memset(void *s, int c, size_t n);
 void *memcpy(void *dest, const void *src, size_t n);
 
+// String functions
+size_t strlen(const char *s);
+int strcmp(const char *s1, const char *s2);
+char* strcpy(char *dest, const char *src);
+char* strcat(char *dest, const char *src);
+int atoi(const char *nptr);
+void itoa(int n, char *buf);
+
+// IO functions
+void puts(const char *s);
+void printf(const char *fmt, ...);
+
+// System/Process functions
+int chdir(const char *path);
+char* getcwd(char *buf, int size);
+void sleep(int ms);
+void exit(int status);
+
 #endif

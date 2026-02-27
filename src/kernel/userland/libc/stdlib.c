@@ -123,14 +123,142 @@ void *realloc(void *ptr, size_t size) {
 }
 
 void *memset(void *s, int c, size_t n) {
-    unsigned char *p = s;
+    unsigned char *p = (unsigned char *)s;
     while (n--) *p++ = (unsigned char)c;
     return s;
 }
 
 void *memcpy(void *dest, const void *src, size_t n) {
-    unsigned char *d = dest;
-    const unsigned char *s = src;
+    unsigned char *d = (unsigned char *)dest;
+    const unsigned char *s = (const unsigned char *)src;
     while (n--) *d++ = *s++;
     return dest;
+}
+
+// String functions
+size_t strlen(const char *s) {
+    size_t len = 0;
+    while (s[len]) len++;
+    return len;
+}
+
+int strcmp(const char *s1, const char *s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+}
+
+char* strcpy(char *dest, const char *src) {
+    char *ret = dest;
+    while (*src) *dest++ = *src++;
+    *dest = 0;
+    return ret;
+}
+
+char* strcat(char *dest, const char *src) {
+    char *ret = dest;
+    while (*dest) dest++;
+    while (*src) *dest++ = *src++;
+    *dest = 0;
+    return ret;
+}
+
+int atoi(const char *nptr) {
+    int res = 0;
+    int sign = 1;
+    if (*nptr == '-') {
+        sign = -1;
+        nptr++;
+    }
+    while (*nptr >= '0' && *nptr <= '9') {
+        res = res * 10 + (*nptr - '0');
+        nptr++;
+    }
+    return sign * res;
+}
+
+void itoa(int n, char *buf) {
+    if (n == 0) {
+        buf[0] = '0'; buf[1] = 0; return;
+    }
+    int i = 0;
+    int sign = n < 0;
+    if (sign) n = -n;
+    while (n > 0) {
+        buf[i++] = (n % 10) + '0';
+        n /= 10;
+    }
+    if (sign) buf[i++] = '-';
+    buf[i] = 0;
+    // Reverse
+    for (int j = 0; j < i / 2; j++) {
+        char t = buf[j];
+        buf[j] = buf[i - 1 - j];
+        buf[i - 1 - j] = t;
+    }
+}
+
+// IO functions
+void puts(const char *s) {
+    sys_write(1, s, strlen(s));
+    sys_write(1, "\n", 1);
+}
+
+void printf(const char *fmt, ...) {
+    // Simple printf implementation
+    __builtin_va_list args;
+    __builtin_va_start(args, fmt);
+    char buf[1024];
+    int buf_idx = 0;
+
+    while (*fmt) {
+        if (*fmt == '%') {
+            fmt++;
+            if (*fmt == 's') {
+                char *s = __builtin_va_arg(args, char *);
+                while (*s) buf[buf_idx++] = *s++;
+            } else if (*fmt == 'd') {
+                int d = __builtin_va_arg(args, int);
+                char ibuf[32];
+                itoa(d, ibuf);
+                char *s = ibuf;
+                while (*s) buf[buf_idx++] = *s++;
+            } else if (*fmt == 'c') {
+                char c = (char)__builtin_va_arg(args, int);
+                buf[buf_idx++] = c;
+            } else if (*fmt == '%') {
+                buf[buf_idx++] = '%';
+            }
+        } else {
+            buf[buf_idx++] = *fmt;
+        }
+        fmt++;
+        if (buf_idx >= 1022) break; // Simple overflow protection
+    }
+    buf[buf_idx] = 0;
+    sys_write(1, buf, buf_idx);
+    __builtin_va_end(args);
+}
+
+// System/Process functions
+int chdir(const char *path) {
+    return sys_chdir(path);
+}
+
+char* getcwd(char *buf, int size) {
+    if (sys_getcwd(buf, size) == 0) return buf;
+    return NULL;
+}
+
+void sleep(int ms) {
+    // We don't have a sleep syscall yet, so we'll just busy wait for now or skip
+    // Actually, BoredOS doesn't seem to have a sleep syscall. 
+    // I'll add one if needed, but for now I'll just skip.
+    (void)ms;
+}
+
+void exit(int status) {
+    sys_exit(status);
 }

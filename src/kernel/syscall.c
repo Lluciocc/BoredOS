@@ -7,6 +7,9 @@
 #include "fat32.h"
 #include "paging.h"
 #include "platform.h"
+#include "io.h"
+#include "pci.h"
+#include "kutils.h"
 
 // Read MSR
 static inline uint64_t rdmsr(uint32_t msr) {
@@ -130,7 +133,6 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
     if (syscall_num == 1) { // SYS_WRITE
         // arg2 is the buffer based on our user_test logic
         cmd_write((const char*)arg2);
-        serial_write((const char*)arg2);
     } else if (syscall_num == 0 || syscall_num == 60) { // SYS_EXIT
         serial_write("Kernel: SYS_EXIT called\n");
         uint64_t next_rsp = process_terminate_current();
@@ -478,12 +480,28 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
             const char *path = (const char *)arg2;
             if (!path) return 0;
             return fat32_exists(path) ? 1 : 0;
+        } else if (cmd == FS_CMD_GETCWD) {
+            char *buf = (char *)arg2;
+            int size = (int)arg3;
+            if (!buf) return -1;
+            fat32_get_current_dir(buf, size);
+            return 0;
+        } else if (cmd == FS_CMD_CHDIR) {
+            const char *path = (const char *)arg2;
+            if (!path) return -1;
+            return fat32_chdir(path) ? 0 : -1;
         }
         return 0;
     } else if (syscall_num == 8) { // DEBUG_SERIAL_WRITE
         extern void serial_write(const char *str);
         serial_write((const char *)arg2);
         return 0;
+    } else if (syscall_num == 10) { // SYS_KILL
+        // Simplified kill: just terminate current for now
+        uint64_t next_rsp = process_terminate_current();
+        extern void context_switch_to(uint64_t rsp);
+        context_switch_to(next_rsp);
+        while(1);
     } else if (syscall_num == 9) { // SYS_SBRK
         int incr = (int)arg1;
         process_t *proc = process_get_current();
@@ -591,6 +609,68 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
             if (!thumb) return -1;
             for (int i=0; i<100*60; i++) dest[i] = thumb[i];
             return 0;
+        } else if (cmd == 10) { // SYSTEM_CMD_CLEAR_SCREEN
+            extern void cmd_screen_clear(void);
+            cmd_screen_clear();
+            return 0;
+        } else if (cmd == 11) { // SYSTEM_CMD_RTC_GET
+            int *dt = (int *)arg2;
+            if (!dt) return -1;
+            extern void rtc_get_datetime(int *y, int *m, int *d, int *h, int *min, int *s);
+            rtc_get_datetime(&dt[0], &dt[1], &dt[2], &dt[3], &dt[4], &dt[5]);
+            return 0;
+        } else if (cmd == 12) { // SYSTEM_CMD_REBOOT
+            k_reboot();
+            return 0;
+        } else if (cmd == 13) { // SYSTEM_CMD_SHUTDOWN
+            k_shutdown();
+            return 0;
+        } else if (cmd == 14) { // SYSTEM_CMD_BEEP
+            int freq = (int)arg2;
+            int ms = (int)arg3;
+            if (freq > 0) {
+                int div = 1193180 / freq;
+                outb(0x43, 0xB6);
+                outb(0x42, div & 0xFF);
+                outb(0x42, (div >> 8) & 0xFF);
+                outb(0x61, inb(0x61) | 0x03);
+            }
+            // Sleep - kernel side
+            k_sleep(ms);
+            outb(0x61, inb(0x61) & 0xFC);
+            return 0;
+        } else if (cmd == 15) { // SYSTEM_CMD_MEMINFO
+            uint64_t *out = (uint64_t *)arg2;
+            if (!out) return -1;
+            MemStats stats = memory_get_stats();
+            out[0] = stats.total_memory;
+            out[1] = stats.used_memory;
+            return 0;
+        } else if (cmd == 16) { // SYSTEM_CMD_UPTIME
+            return wm_get_ticks();
+        } else if (cmd == 17) { // SYSTEM_CMD_PCI_LIST
+            typedef struct {
+                uint16_t vendor;
+                uint16_t device;
+                uint8_t class_code;
+                uint8_t subclass;
+            } pci_info_t;
+            pci_info_t *info = (pci_info_t *)arg2;
+            int idx = (int)arg3;
+            if (!info) {
+                pci_device_t pci_devs[128];
+                return pci_enumerate_devices(pci_devs, 128);
+            }
+            pci_device_t pci_devs[128];
+            int count = pci_enumerate_devices(pci_devs, 128);
+            if (idx >= 0 && idx < count) {
+                info->vendor = pci_devs[idx].vendor_id;
+                info->device = pci_devs[idx].device_id;
+                info->class_code = pci_devs[idx].class_code;
+                info->subclass = pci_devs[idx].subclass;
+                return 0;
+            }
+            return -1;
         }
         return -1;
     }

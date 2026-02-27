@@ -31,6 +31,8 @@ typedef struct Window Window;
 #define FS_CMD_SIZE 9
 #define FS_CMD_MKDIR 10
 #define FS_CMD_EXISTS 11
+#define FS_CMD_GETCWD 12
+#define FS_CMD_CHDIR 13
 
 void syscall_init(void);
 uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);

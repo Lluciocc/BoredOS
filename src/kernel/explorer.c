@@ -724,8 +724,8 @@ static void explorer_load_directory(Window *win, const char *path) {
 
     int count = fat32_list_directory(path, entries, EXPLORER_MAX_FILES);
     
-    state->item_count = 0;
-    for (int i = 0; i < count && state->item_count < EXPLORER_MAX_FILES; i++) {
+    int temp_count = 0;
+    for (int i = 0; i < count && temp_count < EXPLORER_MAX_FILES; i++) {
         // Skip .color files
         if (explorer_strcmp(entries[i].name, ".color") == 0) {
             continue;
@@ -736,23 +736,25 @@ static void explorer_load_directory(Window *win, const char *path) {
             continue;
         }
 
-        explorer_strcpy(state->items[state->item_count].name, entries[i].name);
-        state->items[state->item_count].is_directory = entries[i].is_directory;
-        state->items[state->item_count].size = entries[i].size;
+        explorer_strcpy(state->items[temp_count].name, entries[i].name);
+        state->items[temp_count].is_directory = entries[i].is_directory;
+        state->items[temp_count].size = entries[i].size;
         
-        if (state->items[state->item_count].is_directory) {
+        if (state->items[temp_count].is_directory) {
             char subfolder_path[FAT32_MAX_PATH];
             explorer_strcpy(subfolder_path, path);
             if (subfolder_path[explorer_strlen(subfolder_path) - 1] != '/') {
                 explorer_strcat(subfolder_path, "/");
             }
-            explorer_strcat(subfolder_path, state->items[state->item_count].name);
-            state->items[state->item_count].color = explorer_get_folder_color(subfolder_path);
+            explorer_strcat(subfolder_path, state->items[temp_count].name);
+            state->items[temp_count].color = explorer_get_folder_color(subfolder_path);
         } else {
-            state->items[state->item_count].color = COLOR_APPLE_YELLOW;
+            state->items[temp_count].color = COLOR_APPLE_YELLOW;
         }
-        state->item_count++;
+        temp_count++;
     }
+    
+    state->item_count = temp_count;
     
     kfree(entries);
     if (path_changed) {

@@ -22,4 +22,7 @@ boredos.dump
 qemu-debug.log
 build/
 iso_root/
-limine
+limine/
+src/kernel/userland/bin/
+boredos.iso
+disk.img

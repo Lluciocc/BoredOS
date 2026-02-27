@@ -6,7 +6,7 @@
 
 #include "fat32.h"
 #include "disk.h"
-#include "cli_apps/cli_apps.h"
+#include "kutils.h"
 #include "licensewr.h"
 #include <stddef.h>
 #include "memory_manager.h"
@@ -17,6 +17,7 @@
 #include "network.h"
 #include "vm.h"
 #include "net_defs.h"
+#include "man_entries.h"
 
 #define CMD_COLS 116
 #define CMD_ROWS 41
@@ -376,22 +377,7 @@ void pager_set_mode(void) {
 // Internal LS command to avoid stack overflow in external module
 static void cmd_update_dir(const char *path);  // Forward declaration
 
-static void internal_cmd_pwd(char *args) {
-    (void)args;
-    if (cmd_state) {
-        char drive_str[3];
-        drive_str[0] = cmd_state->current_drive;
-        drive_str[1] = ':';
-        drive_str[2] = 0;
-        cmd_write(drive_str);
-        cmd_write(cmd_state->current_dir);
-    } else {
-        char cwd[256];
-        fat32_get_current_dir(cwd, sizeof(cwd));
-        cmd_write(cwd);
-    }
-    cmd_write("\n");
-}
+
 
 static void internal_cmd_cd(char *args) {
     // Handle cd with proper cmd_state context
@@ -533,46 +519,14 @@ static void internal_cmd_txtedit(char *args) {
     cmd_write("\n");
 
     cmd_is_waiting_for_process = true;
-    process_create_elf("A:/bin/txtedit.elf", normalized_path);
+    process_t *proc = process_create_elf("A:/bin/txtedit.elf", normalized_path);
+    if (proc) {
+        proc->is_terminal_proc = true;
+        proc->ui_window = &win_cmd;
+    }
 }
 
-static void internal_cmd_ls(char *args) {
-    char path[256];
-    if (args && *args) {
-        int i=0;
-        while(args[i] && i < 255) { path[i] = args[i]; i++; }
-        path[i] = 0;
-    } else {
-        path[0] = '.'; path[1] = 0;
-    }
 
-    int max_files = 64;
-    FAT32_FileInfo *files = (FAT32_FileInfo*)kmalloc(max_files * sizeof(FAT32_FileInfo));
-    if (!files) {
-        cmd_write("Error: Out of memory\n");
-        return;
-    }
-
-    int count = fat32_list_directory(path, files, max_files);
-    
-    for (int i = 0; i < count; i++) {
-        if (files[i].is_directory) {
-            cmd_write("[DIR]  ");
-        } else {
-            cmd_write("[FILE] ");
-        }
-        
-        cmd_write(files[i].name);
-        if (!files[i].is_directory) {
-            cmd_write(" ");
-            cmd_write_int(files[i].size);
-            cmd_write("b");
-        }
-        cmd_write("\n");
-    }
-    
-    kfree(files);
-}
 
 
 void cmd_exec_elf(char *args) {
@@ -611,7 +565,11 @@ void cmd_exec_elf(char *args) {
     }
     
     cmd_is_waiting_for_process = true;
-    process_create_elf(full_exec_path, args);
+    process_t *proc = process_create_elf(full_exec_path, args);
+    if (proc) {
+        proc->is_terminal_proc = true;
+        proc->ui_window = &win_cmd;
+    }
 }
 
 // Public API for syscall exit 
@@ -628,6 +586,11 @@ void cmd_process_finished(void) {
     }
 }
 
+static void internal_cmd_exit(char *args) {
+    (void)args;
+    cmd_window_exit();
+}
+
 // Command dispatch table
 typedef struct {
     const char *name;
@@ -637,99 +600,16 @@ typedef struct {
 static const CommandEntry commands[] = {
     {"EXEC", cmd_exec_elf},
     {"exec", cmd_exec_elf},
-    {"HELP", cli_cmd_help},
-    {"help", cli_cmd_help},
-    {"DATE", cli_cmd_date},
-    {"date", cli_cmd_date},
-    {"CLEAR", cli_cmd_clear},
-    {"clear", cli_cmd_clear},
-    {"BOREDVER", cli_cmd_boredver},
-    {"boredver", cli_cmd_boredver},
-    {"MATH", cli_cmd_math},
-    {"math", cli_cmd_math},
-    {"MAN", cli_cmd_man},
-    {"man", cli_cmd_man},
     {"TXTEDIT", internal_cmd_txtedit},
     {"txtedit", internal_cmd_txtedit},
-    {"UPTIME", cli_cmd_uptime},
-    {"uptime", cli_cmd_uptime},
-    {"BEEP", cli_cmd_beep},
-    {"beep", cli_cmd_beep},
-    {"COWSAY", cli_cmd_cowsay},
-    {"cowsay", cli_cmd_cowsay},
-    {"REBOOT", cli_cmd_reboot},
-    {"reboot", cli_cmd_reboot},
-    {"SHUTDOWN", cli_cmd_shutdown},
-    {"shutdown", cli_cmd_shutdown},
-    {"IREADTHEMANUAL", cli_cmd_readtheman},
-    {"ireadthemanual", cli_cmd_readtheman},
-    {"BLIND", cli_cmd_blind},
-    {"blind", cli_cmd_blind},
-    {"EXIT", cli_cmd_exit},
-    {"exit", cli_cmd_exit},
-    // Filesystem Commands
+    {"EXIT", internal_cmd_exit},
+    {"exit", internal_cmd_exit},
     {"CD", internal_cmd_cd},
     {"cd", internal_cmd_cd},
-    {"PWD", internal_cmd_pwd},
-    {"pwd", internal_cmd_pwd},
-    {"LS", internal_cmd_ls},
-    {"ls", internal_cmd_ls},
-    {"MKDIR", cli_cmd_mkdir},
-    {"mkdir", cli_cmd_mkdir},
-    {"RM", cli_cmd_rm},
-    {"rm", cli_cmd_rm},
-    {"ECHO", cli_cmd_echo},
-    {"echo", cli_cmd_echo},
-    {"CAT", cli_cmd_cat},
-    {"cat", cli_cmd_cat},
-    {"TOUCH", cli_cmd_touch},
-    {"touch", cli_cmd_touch},
-    {"CP", cli_cmd_cp},
-    {"cp", cli_cmd_cp},
-    {"MV", cli_cmd_mv},
-    {"mv", cli_cmd_mv},
-    // Memory Management Commands
-    {"MEMINFO", cli_cmd_meminfo},
-    {"meminfo", cli_cmd_meminfo},
-    {"MALLOC", cli_cmd_malloc},
-    {"malloc", cli_cmd_malloc},
-    {"FREEMEM", cli_cmd_free_mem},
-    {"freemem", cli_cmd_free_mem},
-    {"MEMBLOCK", cli_cmd_memblock},
-    {"memblock", cli_cmd_memblock},
-    {"MEMVALID", cli_cmd_memvalid},
-    {"memvalid", cli_cmd_memvalid},
-    {"MEMTEST", cli_cmd_memtest},
-    {"memtest", cli_cmd_memtest},
-    // Network Commands
-    {"NETINIT", cli_cmd_netinit},
-    {"netinit", cli_cmd_netinit},
-    {"NETINFO", cli_cmd_netinfo},
-    {"netinfo", cli_cmd_netinfo},
-    {"IPSET", cli_cmd_ipset},
-    {"ipset", cli_cmd_ipset},
-    {"UDPSEND", cli_cmd_udpsend},
-    {"udpsend", cli_cmd_udpsend},
-    {"UDPTEST", cli_cmd_udptest},
-    {"udptest", cli_cmd_udptest},
-    {"PING", cli_cmd_ping},
-    {"ping", cli_cmd_ping},
-    {"DNS", cli_cmd_dns},
-    {"dns", cli_cmd_dns},
-    {"HTTPGET", cli_cmd_httpget},
-    {"httpget", cli_cmd_httpget},
-    {"PCILIST", cli_cmd_pcilist},
-    {"pcilist", cli_cmd_pcilist},
-    {"MSGRC", cli_cmd_msgrc},
-    {"msgrc", cli_cmd_msgrc},
-    {"COMPC", cli_cmd_cc},
-    {"compc", cli_cmd_cc},
-    {"CC", cli_cmd_cc},
-    {"cc", cli_cmd_cc},
-    {"sweden", cli_cmd_minecraft},
-    {"SWEDEN", cli_cmd_minecraft},
     {NULL, NULL}
 };
+
+
 
 
 // Helper to sync cmd window directory after cd
@@ -932,6 +812,7 @@ static void cmd_exec_single(char *cmd) {
                             temp_args[j++] = args[i++];
                         }
                     }
+                    (void)in_redirect;
                     temp_args[j] = 0;
                     cmd_strcpy(full_path_arg, temp_args);
                     args = full_path_arg;
@@ -1095,7 +976,11 @@ static void cmd_exec_single(char *cmd) {
         if (fh) {
             fat32_close(fh);
             cmd_is_waiting_for_process = true;
-            process_create_elf(search_path, args);
+            process_t *proc = process_create_elf(search_path, args);
+            if (proc) {
+                proc->is_terminal_proc = true;
+                proc->ui_window = &win_cmd;
+            }
             return;
         }
     }
@@ -1116,7 +1001,11 @@ static void cmd_exec_single(char *cmd) {
         if (fh) {
             fat32_close(fh);
             cmd_is_waiting_for_process = true;
-            process_create_elf(search_path, args);
+            process_t *proc = process_create_elf(search_path, args);
+            if (proc) {
+                proc->is_terminal_proc = true;
+                proc->ui_window = &win_cmd;
+            }
             return;
         }
     }
@@ -1705,6 +1594,7 @@ static void create_test_files(void) {
 
 void cmd_init(void) {
     create_test_files();
+    create_man_entries();
 
     win_cmd.title = "Command Prompt";
     win_cmd.x = 50;

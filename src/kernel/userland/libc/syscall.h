@@ -9,6 +9,7 @@
 #define SYS_GUI   3
 #define SYS_FS    4
 #define SYS_SYSTEM 5
+#define SYS_KILL   10
 #define SYS_SBRK  9
 
 // FS Commands
@@ -23,6 +24,8 @@
 #define FS_CMD_SIZE 9
 #define FS_CMD_MKDIR 10
 #define FS_CMD_EXISTS 11
+#define FS_CMD_GETCWD 12
+#define FS_CMD_CHDIR 13
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);
@@ -36,6 +39,7 @@ extern uint64_t syscall5(uint64_t sys_num, uint64_t arg1, uint64_t arg2, uint64_
 void sys_exit(int status);
 int sys_write(int fd, const char *buf, int len);
 void *sys_sbrk(int incr);
+void sys_kill(int pid);
 int sys_system(int cmd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4);
 
 // FS API
@@ -49,8 +53,18 @@ uint32_t sys_size(int fd);
 int sys_delete(const char *path);
 int sys_mkdir(const char *path);
 int sys_exists(const char *path);
+int sys_getcwd(char *buf, int size);
+int sys_chdir(const char *path);
 
-struct FAT32_FileInfo;
-int sys_list(const char *path, struct FAT32_FileInfo *entries, int max_entries);
+typedef struct {
+    char name[256];
+    uint32_t size;
+    uint8_t is_directory;
+    uint32_t start_cluster;
+    uint16_t write_date;
+    uint16_t write_time;
+} FAT32_FileInfo;
+
+int sys_list(const char *path, FAT32_FileInfo *entries, int max_entries);
 
 #endif

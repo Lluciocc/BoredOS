@@ -38,12 +38,14 @@ typedef struct process {
     void *kernel_stack_alloc; // Original pointer from kmalloc for freeing
     void *user_stack_alloc;   // Original pointer from kmalloc for freeing
 
+    bool is_terminal_proc;     // Was this process started from the shell?
+
     struct process *next;
 } process_t;
 
 void process_init(void);
 void process_create(void* entry_point, bool is_user);
-void process_create_elf(const char* filepath, const char* args_str);
+process_t* process_create_elf(const char* filepath, const char* args_str);
 process_t* process_get_current(void);
 uint64_t process_schedule(uint64_t current_rsp);
 uint64_t process_terminate_current(void);

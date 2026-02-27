@@ -51,8 +51,8 @@ void process_create(void* entry_point, bool is_user) {
     if (!new_proc->pml4_phys) return;
     
     // 2. Allocate aligned stack
-    void* stack = kmalloc_aligned(4096, 4096);
-    void* kernel_stack = kmalloc_aligned(16384, 16384); // Needed for when user interrupts to Ring 0
+    void* stack = kmalloc_aligned(524288, 4096); // 512KB for kernel threads
+    void* kernel_stack = kmalloc_aligned(126976, 16384); // 128KB for ringswitch
     
     if (is_user) {
         // Map user stack to 0x800000
@@ -66,7 +66,7 @@ void process_create(void* entry_point, bool is_user) {
         
         // Build initial stack frame for iretq
         // Stack grows down, start at top
-        uint64_t* stack_ptr = (uint64_t*)((uint64_t)kernel_stack + 16384);
+        uint64_t* stack_ptr = (uint64_t*)((uint64_t)kernel_stack + 126976);
         
         *(--stack_ptr) = 0x1B;          // SS (User Data)
         *(--stack_ptr) = 0x800000 + 4096; // RSP
@@ -79,11 +79,11 @@ void process_create(void* entry_point, bool is_user) {
         // Push 15 zeros for general purpose registers (r15 -> rax)
         for (int i = 0; i < 15; i++) *(--stack_ptr) = 0;
         
-        new_proc->kernel_stack = (uint64_t)kernel_stack + 16384;
+        new_proc->kernel_stack = (uint64_t)kernel_stack + 126976;
         new_proc->rsp = (uint64_t)stack_ptr;
     } else {
         // Kernel thread
-        uint64_t* stack_ptr = (uint64_t*)((uint64_t)stack + 4096);
+        uint64_t* stack_ptr = (uint64_t*)((uint64_t)stack + 524288);
         *(--stack_ptr) = 0x10;          // SS (Kernel Data)
         stack_ptr--;
         *stack_ptr = (uint64_t)stack_ptr; // RSP
@@ -104,8 +104,8 @@ void process_create(void* entry_point, bool is_user) {
     current_process->next = new_proc;
 }
 
-void process_create_elf(const char* filepath, const char* args_str) {
-    if (process_count >= MAX_PROCESSES) return;
+process_t* process_create_elf(const char* filepath, const char* args_str) {
+    if (process_count >= MAX_PROCESSES) return NULL;
 
     process_t *new_proc = &processes[process_count];
     new_proc->pid = next_pid++;
@@ -113,7 +113,7 @@ void process_create_elf(const char* filepath, const char* args_str) {
     
     // 1. Setup Page Table
     new_proc->pml4_phys = paging_create_user_pml4_phys();
-    if (!new_proc->pml4_phys) return;
+    if (!new_proc->pml4_phys) return NULL;
 
     for (int i = 0; i < MAX_PROCESS_FDS; i++) new_proc->fds[i] = NULL;
     new_proc->gui_event_head = 0;
@@ -121,6 +121,7 @@ void process_create_elf(const char* filepath, const char* args_str) {
     new_proc->ui_window = NULL;
     new_proc->heap_start = 0x20000000; // 512MB mark
     new_proc->heap_end = 0x20000000;
+    new_proc->is_terminal_proc = false;
 
     // 2. Load ELF executable
     uint64_t entry_point = elf_load(filepath, new_proc->pml4_phys);
@@ -129,21 +130,23 @@ void process_create_elf(const char* filepath, const char* args_str) {
         serial_write(filepath);
         serial_write("\n");
         // We technically leak the page table here, but let's ignore cleanup for now
-        return;
+        return NULL;
     }
 
     // 3. Allocate generic User stack and Kernel stack for interrupts
-    void* stack = kmalloc_aligned(4096, 4096);
-    void* kernel_stack = kmalloc_aligned(16384, 16384); 
+    void* stack = kmalloc_aligned(2097152, 4096); // 2MB for user apps
+    void* kernel_stack = kmalloc_aligned(126976, 16384); // 128KB for interrupts
     
-    // Map User stack to 0x800000 
-    paging_map_page(new_proc->pml4_phys, 0x800000, v2p((uint64_t)stack), PT_PRESENT | PT_RW | PT_USER);
+    // Map User stack to 0x800000 (starting from 0x600000 for 2MB)
+    for (uint64_t i = 0; i < 512; i++) {
+        paging_map_page(new_proc->pml4_phys, 0x800000 - 2097152 + (i * 4096), v2p((uint64_t)stack + (i * 4096)), PT_PRESENT | PT_RW | PT_USER);
+    }
 
     // Parse arguments and push them to the user stack
     // We'll place the strings at the very high end of the user stack
     int argc = 1;
-    char *args_buf = (char *)stack + 4096;
-    uint64_t user_args_buf = 0x800000 + 4096;
+    char *args_buf = (char *)stack + 2097152;
+    uint64_t user_args_buf = 0x800000;
 
     // Copy filepath as argv[0]
     int path_len = 0;
@@ -194,7 +197,7 @@ void process_create_elf(const char* filepath, const char* args_str) {
     // Align stack to 8 bytes before pushing argv array
     uint64_t current_user_sp = user_args_buf;
     current_user_sp &= ~7ULL;
-    args_buf = (char *)((uint64_t)stack + (current_user_sp - 0x800000));
+    args_buf = (char *)((uint64_t)stack + (current_user_sp - (0x800000 - 2097152)));
 
     // Push argv array
     int argv_size = (argc + 1) * sizeof(uint64_t);
@@ -212,7 +215,7 @@ void process_create_elf(const char* filepath, const char* args_str) {
     current_user_sp &= ~15ULL;
 
     // 4. Build Stack Frame for context switch via IRETQ
-    uint64_t* stack_ptr = (uint64_t*)((uint64_t)kernel_stack + 16384);
+    uint64_t* stack_ptr = (uint64_t*)((uint64_t)kernel_stack + 126976);
     *(--stack_ptr) = 0x1B;            // SS (User Mode Data)
     *(--stack_ptr) = current_user_sp; // RSP (Updated user stack pointer)
     *(--stack_ptr) = 0x202;           // RFLAGS (Interrupts Enabled)
@@ -253,6 +256,7 @@ void process_create_elf(const char* filepath, const char* args_str) {
     serial_write("[PROCESS] Spawned ELF Executable: ");
     serial_write(filepath);
     serial_write("\n");
+    return new_proc;
 }
 
 process_t* process_get_current(void) {
@@ -288,7 +292,7 @@ uint64_t process_terminate_current(void) {
     if (!current_process) return 0;
     
     // 1. Cleanup side effects
-    if (current_process->ui_window) {
+    if (current_process->ui_window && !current_process->is_terminal_proc) {
         extern void serial_write(const char *str);
         serial_write("PROC: Terminating proc with window\n");
         wm_remove_window((Window *)current_process->ui_window);

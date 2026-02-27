@@ -15,16 +15,15 @@ KERNEL_ELF = $(BUILD_DIR)/boredos.elf
 ISO_IMAGE = boredos.iso
 
 C_SOURCES = $(wildcard $(SRC_DIR)/*.c)
-CLI_APP_SOURCES = $(wildcard $(SRC_DIR)/cli_apps/*.c)
+
 ASM_SOURCES = $(wildcard $(SRC_DIR)/*.asm)
 OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(C_SOURCES)) \
-            $(patsubst $(SRC_DIR)/cli_apps/%.c, $(BUILD_DIR)/cli_apps/%.o, $(CLI_APP_SOURCES)) \
             $(patsubst $(SRC_DIR)/%.asm, $(BUILD_DIR)/%.o, $(ASM_SOURCES))
 
 CFLAGS = -g -O2 -pipe -Wall -Wextra -std=gnu11 -ffreestanding \
          -fno-stack-protector -fno-stack-check -fno-lto -fPIE \
          -m64 -march=x86-64 -mno-80387 -mno-mmx -mno-sse -mno-sse2 -mno-red-zone \
-         -I$(SRC_DIR) -I$(SRC_DIR)/cli_apps
+         -I$(SRC_DIR)
 
 LDFLAGS = -m elf_x86_64 -nostdlib -static -pie --no-dynamic-linker \
           -z text -z max-page-size=0x1000 -T linker.ld
@@ -42,7 +41,7 @@ all: $(ISO_IMAGE)
 # Ensure build directories exist
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
-	mkdir -p $(BUILD_DIR)/cli_apps
+	mkdir -p $(BUILD_DIR)
 
 # Download Limine Binaries via Git
 limine-setup:
@@ -62,9 +61,7 @@ limine-setup:
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR) limine-setup
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Compile CLI Apps C Sources
-$(BUILD_DIR)/cli_apps/%.o: $(SRC_DIR)/cli_apps/%.c | $(BUILD_DIR) limine-setup
-	$(CC) $(CFLAGS) -c $< -o $@
+
 
 # Assemble ASM Sources
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.asm | $(BUILD_DIR)
@@ -96,7 +93,7 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.cfg limine-setup
 	# Build ISO limine.cfg natively with modules
 	cp limine.cfg $(ISO_DIR)/
 	mkdir -p $(ISO_DIR)/bin
-	@for f in $(SRC_DIR)/userland/*.elf; do \
+	@for f in $(SRC_DIR)/userland/bin/*.elf; do \
 		if [ -f "$$f" ]; then \
 			basename=$$(basename "$$f"); \
 			cp "$$f" $(ISO_DIR)/bin/; \
@@ -138,4 +135,4 @@ run: $(ISO_IMAGE)
 		-audiodev coreaudio,id=audio0 -machine pcspk-audiodev=audio0 \
 		-netdev user,id=net0,hostfwd=udp::12345-:12345 -device e1000,netdev=net0 \
 		-vga std -global VGA.xres=1920 -global VGA.yres=1080 \
-
+        -drive file=disk.img,format=raw,file.locking=off

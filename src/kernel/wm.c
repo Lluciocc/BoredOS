@@ -4,7 +4,7 @@
 #include "cmd.h"
 #include "process.h"
 #include "syscall.h"
-#include "cli_apps/cli_utils.h"
+#include "kutils.h"
 #include "explorer.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -1586,9 +1586,9 @@ void wm_handle_click(int x, int y) {
             if (existing) wm_bring_to_front(existing);
             else process_create_elf("/bin/settings.elf", NULL);
         } else if (item == 2) {  // Shutdown
-            cli_cmd_shutdown(NULL);
+            k_shutdown();
         } else if (item == 3) {  // Restart
-            cli_cmd_reboot(NULL);
+            k_reboot();
         }
         
         start_menu_open = false;
@@ -1881,9 +1881,9 @@ void wm_handle_right_click(int x, int y) {
             } else if (str_starts_with(start_menu_pending_app, "About")) {
                 wm_bring_to_front(&win_about);
             } else if (str_starts_with(start_menu_pending_app, "Shutdown")) {
-                cli_cmd_shutdown(NULL);
+                k_shutdown();
             } else if (str_starts_with(start_menu_pending_app, "Restart")) {
-                cli_cmd_reboot(NULL);
+                k_reboot();
             }
             
             start_menu_pending_app = NULL;

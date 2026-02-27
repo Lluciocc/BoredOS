@@ -6,7 +6,7 @@
 #include "fat32.h"
 #include "rtc.h"
 #include "ps2.h"
-#include "cli_apps/cli_utils.h"
+#include "kutils.h"
 #include "io.h"
 
 // --- Scancode Map (Set 1) ---
@@ -62,7 +62,7 @@ static void mem_write32(int addr, int val) {
 
 static void vm_reset(void) {
     sp = 0;
-    cli_memset(memory, 0, VM_MEMORY_SIZE);
+    k_memset(memory, 0, VM_MEMORY_SIZE);
     vm_heap_ptr = 8192;
 }
 
@@ -85,22 +85,22 @@ static int pop(void) {
 // Syscall Implementations
 static void vm_syscall(int id) {
     switch (id) {
-        case SYS_EXIT:
+        case VM_SYS_EXIT:
             // Handled by return code in main loop usually, but here just do nothing or treat as halt
             push(0);
             break;
-        case SYS_PRINT_INT:
+        case VM_SYS_PRINT_INT:
             cmd_write_int(pop());
             push(0);
             break;
-        case SYS_PRINT_CHAR: {
+        case VM_SYS_PRINT_CHAR: {
             char c = (char)pop();
             char s[2] = {c, 0};
             cmd_write(s);
             push(0);
             break;
         }
-        case SYS_PRINT_STR: {
+        case VM_SYS_PRINT_STR: {
             int addr = pop();
             if (addr >= 0 && addr < VM_MEMORY_SIZE) {
                 cmd_write((char*)&memory[addr]);
@@ -108,15 +108,15 @@ static void vm_syscall(int id) {
             push(0);
             break;
         }
-        case SYS_NL:
+        case VM_SYS_NL:
             cmd_write("\n");
             push(0);
             break;
-        case SYS_CLS:
+        case VM_SYS_CLS:
             cmd_screen_clear();
             push(0);
             break;
-        case SYS_GETCHAR: {
+        case VM_SYS_GETCHAR: {
             int c = 0;
             // Blocking read for a valid key press
             while (1) {
@@ -133,50 +133,50 @@ static void vm_syscall(int id) {
             push(c);
             break;
         }
-        case SYS_KB_HIT:
+        case VM_SYS_KB_HIT:
             // Simple check if data is waiting in keyboard controller
             push((inb(0x64) & 1) ? 1 : 0);
             break;
-        case SYS_STRLEN: {
+        case VM_SYS_STRLEN: {
             int addr = pop();
             if (addr >= 0 && addr < VM_MEMORY_SIZE) {
-                push(cli_strlen((char*)&memory[addr]));
+                push(k_strlen((char*)&memory[addr]));
             } else push(0);
             break;
         }
-        case SYS_STRCMP: {
+        case VM_SYS_STRCMP: {
             int a2 = pop();
             int a1 = pop();
             if (a1 >= 0 && a1 < VM_MEMORY_SIZE && a2 >= 0 && a2 < VM_MEMORY_SIZE) {
-                push(cli_strcmp((char*)&memory[a1], (char*)&memory[a2]));
+                push(k_strcmp((char*)&memory[a1], (char*)&memory[a2]));
             } else push(0);
             break;
         }
-        case SYS_STRCPY: {
+        case VM_SYS_STRCPY: {
             int src = pop();
             int dest = pop();
-             if (dest >= 0 && dest < VM_MEMORY_SIZE && src >= 0 && src < VM_MEMORY_SIZE) {
-                cli_strcpy((char*)&memory[dest], (char*)&memory[src]);
+            if (dest >= 0 && dest < VM_MEMORY_SIZE && src >= 0 && src < VM_MEMORY_SIZE) {
+                k_strcpy((char*)&memory[dest], (char*)&memory[src]);
                 push(dest);
-             } else push(0);
+            } else push(0);
             break;
         }
-        case SYS_STRCAT: {
+        case VM_SYS_STRCAT: {
              // Not implemented in cli_utils
              pop(); pop(); push(0);
              break;
         }
-        case SYS_MEMSET: {
+        case VM_SYS_MEMSET: {
             int n = pop();
             int val = pop();
             int ptr = pop();
             if (ptr >= 0 && ptr + n <= VM_MEMORY_SIZE) {
-                cli_memset(&memory[ptr], val, n);
+                k_memset(&memory[ptr], val, n);
                 push(ptr);
             } else push(0);
             break;
         }
-        case SYS_MEMCPY: {
+        case VM_SYS_MEMCPY: {
             int n = pop();
             int src = pop();
             int dest = pop();
@@ -189,7 +189,7 @@ static void vm_syscall(int id) {
         // Simplified Heap (using top of memory growing down?)
         // For now, static allocation or mapped.
         // Dummy malloc that returns an index into memory starting at 1024
-        case SYS_MALLOC: {
+        case VM_SYS_MALLOC: {
             int size = pop();
             int res = vm_heap_ptr;
             vm_heap_ptr += size;
@@ -200,38 +200,38 @@ static void vm_syscall(int id) {
             }
             break;
         }
-        case SYS_FREE:
+        case VM_SYS_FREE:
             pop(); // No-op
             push(0);
             break;
-        case SYS_RAND: {
+        case VM_SYS_RAND: {
             rand_next = rand_next * 1103515245 + 12345;
             push((unsigned int)(rand_next/65536) % 32768);
             break;
         }
-        case SYS_SRAND: {
+        case VM_SYS_SRAND: {
             rand_next = pop();
             push(0);
             break;
         }
-        case SYS_ABS: {
+        case VM_SYS_ABS: {
             int x = pop();
             push(x < 0 ? -x : x);
             break;
         }
-        case SYS_MIN: {
+        case VM_SYS_MIN: {
             int b = pop();
             int a = pop();
             push(a < b ? a : b);
             break;
         }
-        case SYS_MAX: {
+        case VM_SYS_MAX: {
             int b = pop();
             int a = pop();
             push(a > b ? a : b);
             break;
         }
-        case SYS_POW: {
+        case VM_SYS_POW: {
             int exp = pop();
             int base = pop();
             int res = 1;
@@ -239,26 +239,26 @@ static void vm_syscall(int id) {
             push(res);
             break;
         }
-        case SYS_SQRT: {
+        case VM_SYS_SQRT: {
              int n = pop();
              int res = 0;
              while ((res*res) <= n) res++;
              push(res - 1);
              break;
         }
-        case SYS_SLEEP:
-            cli_sleep(pop());
+        case VM_SYS_SLEEP:
+            k_sleep(pop());
             push(0);
             break;
         // File IO - Not supported yet as FILE* cannot be easily passed to VM
-        case SYS_FOPEN: pop(); pop(); push(0); break;
-        case SYS_FCLOSE: pop(); push(0); break;
-        case SYS_FREAD: pop(); pop(); pop(); pop(); push(0); break;
-        case SYS_FWRITE: pop(); pop(); pop(); pop(); push(0); break;
-        case SYS_FSEEK: pop(); pop(); pop(); push(0); break;
-        case SYS_REMOVE: pop(); push(0); break;
+        case VM_SYS_FOPEN: pop(); pop(); push(0); break;
+        case VM_SYS_FCLOSE: pop(); push(0); break;
+        case VM_SYS_FREAD: pop(); pop(); pop(); pop(); push(0); break;
+        case VM_SYS_FWRITE: pop(); pop(); pop(); pop(); push(0); break;
+        case VM_SYS_FSEEK: pop(); pop(); pop(); push(0); break;
+        case VM_SYS_REMOVE: pop(); push(0); break;
         
-        case SYS_DRAW_PIXEL: {
+        case VM_SYS_DRAW_PIXEL: {
             int color = pop();
             int y = pop();
             int x = pop();
@@ -266,7 +266,7 @@ static void vm_syscall(int id) {
             push(0);
             break;
         }
-        case SYS_DRAW_RECT: {
+        case VM_SYS_DRAW_RECT: {
             int color = pop();
             int h = pop();
             int w = pop();
@@ -289,65 +289,65 @@ static void vm_syscall(int id) {
             push(0);
             break;
         }
-        case SYS_GET_WIDTH: push(get_screen_width()); break;
-        case SYS_GET_HEIGHT: push(get_screen_height()); break;
+        case VM_SYS_GET_WIDTH: push(get_screen_width()); break;
+        case VM_SYS_GET_HEIGHT: push(get_screen_height()); break;
         
-        case SYS_ATOI: {
+        case VM_SYS_ATOI: {
              int addr = pop();
              if (addr >= 0 && addr < VM_MEMORY_SIZE) {
-                 push(cli_atoi((char*)&memory[addr]));
+                 push(k_atoi((char*)&memory[addr]));
              } else push(0);
              break;
         }
-        case SYS_ITOA: {
+        case VM_SYS_ITOA: {
             int addr = pop();
             int val = pop();
             if (addr >= 0 && addr < VM_MEMORY_SIZE) {
-                cli_itoa(val, (char*)&memory[addr]);
+                k_itoa(val, (char*)&memory[addr]);
             }
             push(0);
             break;
         }
-        case SYS_PEEK: push(mem_read32(pop())); break;
-        case SYS_POKE: {
+        case VM_SYS_PEEK: push(mem_read32(pop())); break;
+        case VM_SYS_POKE: {
             int val = pop();
             int addr = pop();
             mem_write32(addr, val);
             push(0);
             break;
         }
-        case SYS_EXEC: pop(); push(-1); break;
-        case SYS_SYSTEM: pop(); push(-1); break;
+        case VM_SYS_EXEC: pop(); push(-1); break;
+        case VM_SYS_SYSTEM: pop(); push(-1); break;
         
         // --- New Builtins ---
-        case SYS_ISALNUM: {
+        case VM_SYS_ISALNUM: {
             int c = pop();
             push(((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')));
             break;
         }
-        case SYS_ISALPHA: {
+        case VM_SYS_ISALPHA: {
             int c = pop();
             push(((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')));
             break;
         }
-        case SYS_ISDIGIT: {
+        case VM_SYS_ISDIGIT: {
             int c = pop();
             push((c >= '0' && c <= '9'));
             break;
         }
-        case SYS_TOLOWER: {
+        case VM_SYS_TOLOWER: {
             int c = pop();
             if (c >= 'A' && c <= 'Z') push(c + 32);
             else push(c);
             break;
         }
-        case SYS_TOUPPER: {
+        case VM_SYS_TOUPPER: {
             int c = pop();
             if (c >= 'a' && c <= 'z') push(c - 32);
             else push(c);
             break;
         }
-        case SYS_STRNCPY: {
+        case VM_SYS_STRNCPY: {
             int n = pop();
             int src = pop();
             int dest = pop();
@@ -361,7 +361,7 @@ static void vm_syscall(int id) {
             } else push(0);
             break;
         }
-        case SYS_STRNCAT: {
+        case VM_SYS_STRNCAT: {
             int n = pop();
             int src = pop();
             int dest = pop();
@@ -378,7 +378,7 @@ static void vm_syscall(int id) {
             } else push(0);
             break;
         }
-        case SYS_STRNCMP: {
+        case VM_SYS_STRNCMP: {
             int n = pop();
             int s2 = pop();
             int s1 = pop();
@@ -396,7 +396,7 @@ static void vm_syscall(int id) {
             } else push(0);
             break;
         }
-        case SYS_STRSTR: {
+        case VM_SYS_STRSTR: {
             int needle = pop();
             int haystack = pop();
              if (haystack >= 0 && haystack < VM_MEMORY_SIZE && needle >= 0 && needle < VM_MEMORY_SIZE) {
@@ -416,7 +416,7 @@ static void vm_syscall(int id) {
              } else push(0);
             break;
         }
-        case SYS_STRRCHR: {
+        case VM_SYS_STRRCHR: {
             int c = pop();
             int s = pop();
             if (s >= 0 && s < VM_MEMORY_SIZE) {
@@ -433,7 +433,7 @@ static void vm_syscall(int id) {
             } else push(0);
             break;
         }
-        case SYS_MEMMOVE: {
+        case VM_SYS_MEMMOVE: {
             int n = pop();
             int src = pop();
             int dest = pop();
@@ -476,7 +476,7 @@ int vm_exec(const uint8_t *code, int code_size) {
     }
     
     // Load program into memory at address 0
-    cli_memset(memory, 0, VM_MEMORY_SIZE);
+    k_memset(memory, 0, VM_MEMORY_SIZE);
     for(int i=0; i<code_size; i++) memory[i] = code[i];
     
     int pc = 8; // Skip header
