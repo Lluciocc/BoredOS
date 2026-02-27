@@ -4,8 +4,6 @@
 int main(int argc, char **argv) {
     char *msg = (char*)"Bored!";
     if (argc > 1) {
-        // Simple concatenation of args for now
-        // For simplicity in this demo, just use the first arg
         msg = argv[1];
     }
     

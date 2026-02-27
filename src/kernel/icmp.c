@@ -90,3 +90,61 @@ void cli_cmd_ping(char *args) {
     }
     is_pinging = false;
 }
+
+// Syscall version of ping for userland - returns success/failure
+int cli_cmd_ping_syscall(ipv4_address_t *dest) {
+    if (!dest) return -1;
+    
+    // Check if network is initialized
+    if (!network_is_initialized()) {
+        return -2; // Network not initialized
+    }
+
+    ipv4_address_t dest_ip = *dest;
+
+    is_pinging = true;
+    const int payload_size = 8;
+    uint8_t packet[sizeof(icmp_header_t) + payload_size];
+    icmp_header_t *icmp = (icmp_header_t *)packet;
+    int success_count = 0;
+
+    for (int i = 0; i < 4; i++) {
+        current_ping_id = ++ping_id_counter;
+        icmp->type = 8; // Echo Request
+        icmp->code = 0;
+        icmp->id = htons(current_ping_id);
+        icmp->sequence = htons(i + 1);
+        icmp->checksum = 0;
+        
+        // Fill payload
+        for (int j = 0; j < payload_size; j++) {
+            packet[sizeof(icmp_header_t) + j] = (uint8_t)('a' + (j % 26));
+        }
+
+        icmp->checksum = net_checksum(packet, sizeof(packet));
+
+        ping_reply_received = false;
+        ip_send_packet(dest_ip, IP_PROTO_ICMP, packet, sizeof(packet));
+
+        uint32_t start_ticks = wm_get_ticks();
+        while (!ping_reply_received && (wm_get_ticks() - start_ticks) < 180) { // 3 seconds timeout
+            network_process_frames();
+        }
+        
+        if (ping_reply_received) {
+            success_count++;
+        }
+        
+        if (i < 3) {
+            // Wait a bit before next ping
+            uint32_t wait_start = wm_get_ticks();
+            while ((wm_get_ticks() - wait_start) < 60) {
+                 network_process_frames();
+            }
+        }
+    }
+    is_pinging = false;
+    
+    // Return number of successful replies
+    return success_count;
+}

@@ -2,6 +2,7 @@
 #define SYSCALL_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 // Standard syscalls available from Kernel mode
 #define SYS_EXIT  0
@@ -26,6 +27,35 @@
 #define FS_CMD_EXISTS 11
 #define FS_CMD_GETCWD 12
 #define FS_CMD_CHDIR 13
+
+// System Commands (via SYS_SYSTEM)
+#define SYSTEM_CMD_SET_BG_COLOR 1
+#define SYSTEM_CMD_SET_BG_PATTERN 2
+#define SYSTEM_CMD_SET_WALLPAPER 3
+#define SYSTEM_CMD_SET_DESKTOP_PROP 4
+#define SYSTEM_CMD_SET_MOUSE_SPEED 5
+#define SYSTEM_CMD_NETWORK_INIT 6
+#define SYSTEM_CMD_GET_DESKTOP_PROP 7
+#define SYSTEM_CMD_GET_MOUSE_SPEED 8
+#define SYSTEM_CMD_GET_WALLPAPER_THUMB 9
+#define SYSTEM_CMD_CLEAR_SCREEN 10
+#define SYSTEM_CMD_RTC_GET 11
+#define SYSTEM_CMD_REBOOT 12
+#define SYSTEM_CMD_SHUTDOWN 13
+#define SYSTEM_CMD_BEEP 14
+#define SYSTEM_CMD_MEMINFO 15
+#define SYSTEM_CMD_UPTIME 16
+#define SYSTEM_CMD_PCI_LIST 17
+#define SYSTEM_CMD_NETWORK_DHCP 18
+#define SYSTEM_CMD_NETWORK_GET_MAC 19
+#define SYSTEM_CMD_NETWORK_GET_IP 20
+#define SYSTEM_CMD_NETWORK_SET_IP 21
+#define SYSTEM_CMD_UDP_SEND 22
+#define SYSTEM_CMD_NETWORK_GET_STATS 23
+#define SYSTEM_CMD_NETWORK_GET_GATEWAY 24
+#define SYSTEM_CMD_NETWORK_GET_DNS 25
+#define SYSTEM_CMD_ICMP_PING 26
+#define SYSTEM_CMD_NETWORK_IS_INIT 27
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);
@@ -66,5 +96,21 @@ typedef struct {
 } FAT32_FileInfo;
 
 int sys_list(const char *path, FAT32_FileInfo *entries, int max_entries);
+
+// Network API
+typedef struct { uint8_t bytes[6]; } net_mac_address_t;
+typedef struct { uint8_t bytes[4]; } net_ipv4_address_t;
+
+int sys_network_init(void);
+int sys_network_dhcp_acquire(void);
+int sys_network_get_mac(net_mac_address_t *mac);
+int sys_network_get_ip(net_ipv4_address_t *ip);
+int sys_network_set_ip(const net_ipv4_address_t *ip);
+int sys_network_get_stat(int stat_type);
+int sys_network_get_gateway(net_ipv4_address_t *ip);
+int sys_network_get_dns(net_ipv4_address_t *ip);
+int sys_udp_send(const net_ipv4_address_t *dest_ip, uint16_t dest_port, uint16_t src_port, const void *data, size_t data_len);
+int sys_icmp_ping(const net_ipv4_address_t *dest_ip);
+int sys_network_is_initialized(void);
 
 #endif

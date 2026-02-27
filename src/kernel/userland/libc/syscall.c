@@ -105,7 +105,7 @@ uint32_t sys_size(int fd) {
     return (uint32_t)syscall2(SYS_FS, FS_CMD_SIZE, (uint64_t)fd);
 }
 
-int sys_list(const char *path, struct FAT32_FileInfo *entries, int max_entries) {
+int sys_list(const char *path, FAT32_FileInfo *entries, int max_entries) {
     return (int)syscall4(SYS_FS, FS_CMD_LIST, (uint64_t)path, (uint64_t)entries, (uint64_t)max_entries);
 }
 
@@ -131,5 +131,51 @@ int sys_chdir(const char *path) {
 
 void sys_kill(int pid) {
     syscall1(SYS_KILL, (uint64_t)pid);
+}
+
+// Network API implementations
+int sys_network_init(void) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_INIT, 0);
+}
+
+int sys_network_dhcp_acquire(void) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_DHCP, 0);
+}
+
+int sys_network_get_mac(net_mac_address_t *mac) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_MAC, (uint64_t)mac);
+}
+
+int sys_network_get_ip(net_ipv4_address_t *ip) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_IP, (uint64_t)ip);
+}
+
+int sys_network_set_ip(const net_ipv4_address_t *ip) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_SET_IP, (uint64_t)ip);
+}
+
+int sys_network_get_stat(int stat_type) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_STATS, (uint64_t)stat_type);
+}
+
+int sys_network_get_gateway(net_ipv4_address_t *ip) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_GATEWAY, (uint64_t)ip);
+}
+
+int sys_network_get_dns(net_ipv4_address_t *ip) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_DNS, (uint64_t)ip);
+}
+
+int sys_udp_send(const net_ipv4_address_t *dest_ip, uint16_t dest_port, uint16_t src_port, const void *data, size_t data_len) {
+    uint32_t ports = (dest_port & 0xFFFF) | ((src_port & 0xFFFF) << 16);
+    return (int)syscall5(SYS_SYSTEM, SYSTEM_CMD_UDP_SEND, (uint64_t)dest_ip, (uint64_t)ports, (uint64_t)data, (uint64_t)data_len);
+}
+
+int sys_icmp_ping(const net_ipv4_address_t *dest_ip) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_ICMP_PING, (uint64_t)dest_ip);
+}
+
+int sys_network_is_initialized(void) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_IS_INIT, 0);
 }
 

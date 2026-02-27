@@ -31,6 +31,8 @@ void create_man_entries(void) {
     fat32_mkdir("A:/Library");
     fat32_mkdir("A:/Library/man");
 
+    write_man_file("ping", "PING - Send ICMP echo requests\n\nUsage: ping <ip>\n\nSends ICMP echo requests to the specified IP address and displays the response times.");
+    write_man_file("net", "NET - Network utilities\n\nUsage: net init\nnet info\nnet ipset >ip<\nnet udpsend >ip< >port< >message< net ping >ip< net help\n\nA collection of network-related commands.");
     write_man_file("ls", "LS - List directory contents\n\nUsage: ls [path]\n\nLists files and directories in the current or specified directory.");
     write_man_file("cat", "CAT - Concatenate and display file contents\n\nUsage: cat <filename>\n\nDisplays the text content of the specified file.");
     write_man_file("man", "MAN - Display manual pages\n\nUsage: man <command>\n\nDisplays help information for the specified command.");

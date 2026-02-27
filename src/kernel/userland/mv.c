@@ -7,7 +7,6 @@ int main(int argc, char **argv) {
         return 1;
     }
     
-    // Simplification: use cp then rm
     int fd_in = sys_open(argv[1], "r");
     if (fd_in < 0) {
         printf("Error: Cannot open source %s\n", argv[1]);

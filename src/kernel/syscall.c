@@ -10,6 +10,8 @@
 #include "io.h"
 #include "pci.h"
 #include "kutils.h"
+#include "network.h"
+#include "icmp.h"
 
 // Read MSR
 static inline uint64_t rdmsr(uint32_t msr) {
@@ -671,6 +673,54 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
                 return 0;
             }
             return -1;
+        } else if (cmd == 18) { // SYSTEM_CMD_NETWORK_DHCP
+            return network_dhcp_acquire();
+        } else if (cmd == 19) { // SYSTEM_CMD_NETWORK_GET_MAC
+            mac_address_t *mac = (mac_address_t *)arg2;
+            if (!mac) return -1;
+            return network_get_mac_address(mac);
+        } else if (cmd == 20) { // SYSTEM_CMD_NETWORK_GET_IP
+            ipv4_address_t *ip = (ipv4_address_t *)arg2;
+            if (!ip) return -1;
+            return network_get_ipv4_address(ip);
+        } else if (cmd == 21) { // SYSTEM_CMD_NETWORK_SET_IP
+            ipv4_address_t *ip = (ipv4_address_t *)arg2;
+            if (!ip) return -1;
+            return network_set_ipv4_address(ip);
+        } else if (cmd == 22) { // SYSTEM_CMD_UDP_SEND
+            ipv4_address_t *dest_ip = (ipv4_address_t *)arg2;
+            uint32_t ports = (uint32_t)arg3;  // dest_port in lower 16, src_port in upper 16
+            uint16_t dest_port = ports & 0xFFFF;
+            uint16_t src_port = (ports >> 16) & 0xFFFF;
+            const void *data = (const void *)arg4;
+            size_t data_len = (size_t)arg5;
+            if (!dest_ip || !data) return -1;
+            return udp_send_packet(dest_ip, dest_port, src_port, data, data_len);
+        } else if (cmd == 23) { // SYSTEM_CMD_NETWORK_GET_STATS
+            int stat_type = (int)arg2;
+            switch (stat_type) {
+                case 0: return network_get_frames_received();
+                case 1: return network_get_udp_packets_received();
+                case 2: return network_get_udp_callbacks_called();
+                case 3: return network_get_e1000_receive_calls();
+                case 4: return network_get_e1000_receive_empty();
+                case 5: return network_get_process_calls();
+                default: return -1;
+            }
+        } else if (cmd == 24) { // SYSTEM_CMD_NETWORK_GET_GATEWAY
+            ipv4_address_t *ip = (ipv4_address_t *)arg2;
+            if (!ip) return -1;
+            return network_get_gateway_ip(ip);
+        } else if (cmd == 25) { // SYSTEM_CMD_NETWORK_GET_DNS
+            ipv4_address_t *ip = (ipv4_address_t *)arg2;
+            if (!ip) return -1;
+            return network_get_dns_ip(ip);
+        } else if (cmd == 26) { // SYSTEM_CMD_ICMP_PING
+            ipv4_address_t *dest_ip = (ipv4_address_t *)arg2;
+            if (!dest_ip) return -1;
+            return cli_cmd_ping_syscall(dest_ip);
+        } else if (cmd == 27) { // SYSTEM_CMD_NETWORK_IS_INIT
+            return network_is_initialized() ? 1 : 0;
         }
         return -1;
     }

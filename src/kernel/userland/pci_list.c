@@ -10,7 +10,7 @@ typedef struct {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    int count = sys_system(17, 0, 0, 0, 0); // Get count
+    int count = sys_system(17, 0, 0, 0, 0); 
     if (count < 0) {
         printf("Error: Could not retrieve PCI device count.\n");
         return 1;

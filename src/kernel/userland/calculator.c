@@ -191,17 +191,13 @@ static void calculator_click(int x, int y) {
                         if (calc_decimal_divisor > 10) {
                             calc_decimal_divisor /= 10;
                             long long unit = SCALE / calc_decimal_divisor;
-                            // This removes the last decimal digit
                             calc_curr = (calc_curr / (unit * 10)) * (unit * 10);
                         } else {
-                            // Backspace on the dot itself or first decimal
                             calc_decimal_mode = false;
                             calc_decimal_divisor = 10;
-                            // Ensure the fractional part is cleared
                             calc_curr = (calc_curr / SCALE) * SCALE;
                         }
                     } else {
-                        // Integer backspace: remove last digit of integer part
                         calc_curr = (calc_curr / SCALE / 10) * SCALE;
                     }
                 }
@@ -240,11 +236,9 @@ int main(void) {
     calc_new_entry = true;
     update_display();
     
-    // First paint
     calculator_paint();
     ui_mark_dirty(win_calculator, 0, 0, 180, 230);
     
-    // Check events from Kernel User Interface queue
     gui_event_t ev;
     while (1) {
         if (ui_get_event(win_calculator, &ev)) {

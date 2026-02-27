@@ -3,7 +3,7 @@
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-    printf("BoredOS CLI Help (Userspace)\n");
+    printf("BoredOS CLI Help\n");
     printf("---------------------------\n");
     printf("ls [path]      - List directory contents\n");
     printf("cd <path>      - Change current directory (built-in)\n");
@@ -27,6 +27,6 @@ int main(int argc, char **argv) {
     printf("man <cmd>      - Show manual page\n");
     printf("clear          - Clear the screen\n");
     printf("exit           - Exit the terminal\n");
-    printf("\nHint: Use Ctrl+C to force quit any running .elf app.\n");
+    printf("\nHint: Use Ctrl+C to force quit any running application.\n");
     return 0;
 }

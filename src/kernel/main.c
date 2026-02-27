@@ -46,13 +46,6 @@ static volatile struct limine_request *const requests_start_marker[] = {
     NULL
 };
 
-__attribute__((used, section(".requests")))
-static volatile struct limine_stack_size_request stack_size_request = {
-    .id = LIMINE_STACK_SIZE_REQUEST,
-    .revision = 0,
-    .stack_size = 1024 * 1024 // 1MB stack
-};
-
 __attribute__((used, section(".requests_end")))
 static volatile struct limine_request *const requests_end_marker[] = {
     NULL
