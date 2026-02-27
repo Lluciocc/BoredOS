@@ -4,6 +4,7 @@
 #include "disk.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include "wm.h"
 
 
 #define MAX_FILES 256
@@ -87,14 +88,8 @@ static void fs_strcat(char *dest, const char *src) {
     fs_strcpy(dest, src);
 }
 
-static bool fs_ends_with(const char *str, const char *suffix) {
-    int str_len = fs_strlen(str);
-    int suffix_len = fs_strlen(suffix);
-    if (suffix_len > str_len) return false;
-    return fs_strcmp(str + str_len - suffix_len, suffix) == 0;
-}
 
-static bool fs_starts_with(const char *str, const char *prefix) {
+bool fs_starts_with(const char *str, const char *prefix) {
     while (*prefix) {
         if (*prefix++ != *str++) return false;
     }
@@ -147,8 +142,6 @@ static char parse_drive_from_path(const char **path_ptr) {
 
 // Normalize path (remove .., ., etc)
 void fat32_normalize_path(const char *path, char *normalized) {
-
-    
     char temp[FAT32_MAX_PATH];
     int temp_len = 0;
     const char *p = path;
@@ -167,9 +160,9 @@ void fat32_normalize_path(const char *path, char *normalized) {
     while (p[i]) {
         while (p[i] == '/') i++;
         if (!p[i]) break;
-        char component[256];
+        char component[FAT32_MAX_FILENAME];
         int j = 0;
-        while (p[i] && p[i] != '/' && j < 255) {
+        while (p[i] && p[i] != '/' && j < (FAT32_MAX_FILENAME - 1)) {
             component[j++] = p[i++];
         }
         component[j] = 0;
@@ -183,12 +176,15 @@ void fat32_normalize_path(const char *path, char *normalized) {
                 temp[temp_len] = 0;
             }
         } else {
-            if (temp[temp_len - 1] != '/') {
-                temp[temp_len++] = '/';
-                temp[temp_len] = 0;
+            int comp_len = fs_strlen(component);
+            if (temp_len + comp_len + 2 < FAT32_MAX_PATH) {
+                if (temp[temp_len - 1] != '/') {
+                    temp[temp_len++] = '/';
+                    temp[temp_len] = 0;
+                }
+                fs_strcat(temp, component);
+                temp_len = fs_strlen(temp);
             }
-            fs_strcat(temp, component);
-            temp_len = fs_strlen(temp);
         }
     }
     if (temp_len > 1 && temp[temp_len - 1] == '/') temp[--temp_len] = 0;
@@ -368,6 +364,7 @@ static int ramfs_write(FAT32_FileHandle *handle, const void *buffer, int size) {
             break;
         }
     }
+    wm_notify_fs_change();
     return bytes_written;
 }
 
@@ -1137,12 +1134,30 @@ static int realfs_list_directory(char drive, const char *path, FAT32_FileInfo *e
 // === Public API (Dispatch) ===
 
 void fat32_init(void) {
+    // Explicitly zero out all structures for RAMFS safety
+    for (int i = 0; i < MAX_FILES; i++) {
+        files[i].used = false;
+        files[i].full_path[0] = 0;
+        files[i].filename[0] = 0;
+        files[i].parent_path[0] = 0;
+        files[i].size = 0;
+        files[i].attributes = 0;
+        files[i].start_cluster = 0;
+    }
+
     // Initialize FAT table for RAMFS
     for (int i = 0; i < MAX_CLUSTERS; i++) {
         fat_table[i] = 0;
     }
     fat_table[0] = 0xFFFFFFF8;
     fat_table[1] = 0xFFFFFFFF;
+
+    // Zero out cluster data
+    for (int i = 0; i < MAX_CLUSTERS; i++) {
+        for (int j = 0; j < FAT32_CLUSTER_SIZE; j++) {
+            cluster_data[i][j] = 0;
+        }
+    }
     
     // Create root directory entry for RAMFS
     FileEntry *root = ramfs_find_free_entry();
@@ -1353,6 +1368,7 @@ bool fat32_mkdir(const char *path) {
     entry->size = 0;
     entry->attributes = ATTR_DIRECTORY;
     
+    wm_notify_fs_change();
     asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
@@ -1372,6 +1388,7 @@ bool fat32_rmdir(const char *path) {
     }
     
     entry->used = false;
+    wm_notify_fs_change();
     asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
@@ -1397,6 +1414,7 @@ bool fat32_delete(const char *path) {
         }
         
         entry->used = false;
+        wm_notify_fs_change();
         result = true;
     } else {
         // Real FAT32 deletion
@@ -1445,7 +1463,7 @@ bool fat32_rename(const char *old_path, const char *new_path) {
     // Check destination
     if (ramfs_find_file(new_path)) { asm volatile("push %0; popfq" : : "r"(rflags)); return false; }
 
-    int old_len = fs_strlen(old_path);
+    size_t old_len = fs_strlen(old_path);
     // Logic from original rename...
     for (int i = 0; i < MAX_FILES; i++) {
         if (!files[i].used) continue;
@@ -1472,6 +1490,7 @@ bool fat32_rename(const char *old_path, const char *new_path) {
             fs_strcat(files[i].parent_path, suffix);
         }
     }
+    wm_notify_fs_change();
     asm volatile("push %0; popfq" : : "r"(rflags));
     return true;
 }
@@ -1516,16 +1535,14 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
     if (drive == 'A') {
         char normalized[FAT32_MAX_PATH];
         fat32_normalize_path(p, normalized);
-        FileEntry *dir = ramfs_find_file(normalized);
-        if (dir && (dir->attributes & ATTR_DIRECTORY)) {
-            for (int i = 0; i < MAX_FILES && count < max_entries; i++) {
-                if (files[i].used && fs_strcmp(files[i].parent_path, normalized) == 0) {
-                    fs_strcpy(entries[count].name, files[i].filename);
-                    entries[count].size = files[i].size;
-                    entries[count].is_directory = (files[i].attributes & ATTR_DIRECTORY) != 0;
-                    entries[count].start_cluster = files[i].start_cluster;
-                    count++;
-                }
+        
+        for (int i = 0; i < MAX_FILES && count < max_entries; i++) {
+            if (files[i].used && fs_strcmp(files[i].parent_path, normalized) == 0) {
+                fs_strcpy(entries[count].name, files[i].filename);
+                entries[count].size = files[i].size;
+                entries[count].is_directory = (files[i].attributes & ATTR_DIRECTORY) != 0;
+                entries[count].start_cluster = files[i].start_cluster;
+                count++;
             }
         }
     } else {

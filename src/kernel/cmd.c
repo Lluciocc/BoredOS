@@ -731,50 +731,6 @@ static const CommandEntry commands[] = {
     {NULL, NULL}
 };
 
-// Helper to build full path with cmd window's drive context
-static void cmd_build_full_path(const char *relative_path, char *full_path) {
-    if (!cmd_state) {
-        if (relative_path[0]) {
-            cmd_strcpy(full_path, relative_path);
-        } else {
-            full_path[0] = 'A';
-            full_path[1] = ':';
-            full_path[2] = '/';
-            full_path[3] = 0;
-        }
-        return;
-    }
-    
-    // If path already has drive letter, use it as-is
-    if (relative_path && relative_path[1] == ':') {
-        cmd_strcpy(full_path, relative_path);
-        return;
-    }
-    
-    // Build path with cmd_state's drive and directory
-    int i = 0;
-    full_path[i++] = cmd_state->current_drive;
-    full_path[i++] = ':';
-    
-    // Add current directory
-    const char *dir = cmd_state->current_dir;
-    while (*dir && i < 509) {
-        full_path[i++] = *dir++;
-    }
-    
-    // Add path argument
-    if (relative_path && relative_path[0]) {
-        if (i > 2 && full_path[i-1] != '/') {
-            full_path[i++] = '/';
-        }
-        const char *p = relative_path;
-        while (*p && i < 509) {
-            full_path[i++] = *p++;
-        }
-    }
-    
-    full_path[i] = 0;
-}
 
 // Helper to sync cmd window directory after cd
 static void cmd_update_dir(const char *path) {

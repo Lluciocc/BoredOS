@@ -75,6 +75,19 @@ void serial_write(const char *str) {
     }
 }
 
+void serial_write_num(uint32_t n) {
+    if (n >= 10) serial_write_num(n / 10);
+    while ((inb(0x3F8 + 5) & 0x20) == 0);
+    outb(0x3F8, '0' + (n % 10));
+}
+
+void serial_write_hex(uint64_t n) {
+    char *hex = "0123456789ABCDEF";
+    if (n >= 16) serial_write_hex(n / 16);
+    while ((inb(0x3F8 + 5) & 0x20) == 0);
+    outb(0x3F8, hex[n % 16]);
+}
+
 // Kernel Entry Point
 void kmain(void) {
     init_serial();
@@ -82,12 +95,39 @@ void kmain(void) {
 
     platform_init();
     serial_write("[DEBUG] platform_init OK\n");
+    
+    extern uint64_t hhdm_offset;
+    extern uint64_t kernel_phys_base;
+    extern uint64_t kernel_virt_base;
+    
+    serial_write("[DEBUG] HHDM Offset: 0x");
+    serial_write_hex(hhdm_offset);
+    serial_write("\n");
+    serial_write("[DEBUG] Kernel Phys: 0x");
+    serial_write_hex(kernel_phys_base);
+    serial_write("\n");
+    serial_write("[DEBUG] Kernel Virt: 0x");
+    serial_write_hex(kernel_virt_base);
+    serial_write("\n");
 
     uint64_t heap_phys_addr = 0;
     size_t heap_size = 0;
     if (memmap_request.response != NULL) {
+        serial_write("[DEBUG] Memory Map entries: ");
+        serial_write_num(memmap_request.response->entry_count);
+        serial_write("\n");
         for (uint64_t i = 0; i < memmap_request.response->entry_count; i++) {
             struct limine_memmap_entry *entry = memmap_request.response->entries[i];
+            serial_write("[DEBUG] Map entry ");
+            serial_write_num(i);
+            serial_write(": base=");
+            serial_write_hex(entry->base);
+            serial_write(" len=");
+            serial_write_hex(entry->length);
+            serial_write(" type=");
+            serial_write_num(entry->type);
+            serial_write("\n");
+            
             if (entry->type == LIMINE_MEMMAP_USABLE) {
                 if (entry->length > heap_size) {
                     heap_size = entry->length;
@@ -100,10 +140,15 @@ void kmain(void) {
     if (heap_size > 512 * 1024 * 1024) heap_size = 512 * 1024 * 1024;
     
     if (heap_phys_addr != 0) {
+        serial_write("[DEBUG] Selected heap base (Phys): 0x");
+        serial_write_hex(heap_phys_addr);
+        serial_write(", Size: ");
+        serial_write_num(heap_size / 1024 / 1024);
+        serial_write(" MB\n");
         memory_manager_init_at((void*)p2v(heap_phys_addr), heap_size);
         serial_write("[DEBUG] memory_manager_init OK\n");
     } else {
-        serial_write("[DEBUG] ERROR: No usable memory for heap!\n");
+        serial_write("[DEBUG] ERROR: No usable memory for heap! Check Limine memmap.\n");
         hcf();
     }
 
@@ -135,26 +180,51 @@ void kmain(void) {
     serial_write("[DEBUG] Skipping user mode test, proceeding with normal boot.\n");
     
     fat32_init();
-    if (module_request.response != NULL) {
+    serial_write("[DEBUG] fat32_init OK\n");
+    fat32_mkdir("/bin");
+    serial_write("[DEBUG] /bin directory created/checked\n");
+
+    if (module_request.response == NULL) {
+        serial_write("[DEBUG] ERROR: Limine Module Response is NULL!\n");
+    } else {
+        serial_write("[DEBUG] Limine Module Response found. Count: ");
+        serial_write_num(module_request.response->module_count);
+        serial_write("\n");
         for (uint64_t i = 0; i < module_request.response->module_count; i++) {
             struct limine_file *mod = module_request.response->modules[i];
             
-            FAT32_FileHandle *fh = fat32_open(mod->path, "w");
+            serial_write("[DEBUG] Found module: ");
+            serial_write(mod->path);
+            serial_write(" adr=0x");
+            serial_write_hex((uint64_t)mod->address);
+            serial_write(" size=");
+            serial_write_num(mod->size);
+            serial_write("\n");
+
+            const char *clean_path = mod->path;
+            // Strip boot():/ or boot:/// prefixes common in different Limine versions
+            if (fs_starts_with(clean_path, "boot():")) clean_path += 7;
+            else if (fs_starts_with(clean_path, "boot:///")) clean_path += 8;
+            
+            serial_write("[DEBUG] Stripped module path: ");
+            serial_write(clean_path);
+            serial_write("\n");
+
+            FAT32_FileHandle *fh = fat32_open(clean_path, "w");
             if (fh && fh->valid) {
-                fat32_write(fh, mod->address, mod->size);
+                int written = fat32_write(fh, mod->address, mod->size);
                 fat32_close(fh);
-                serial_write("[DEBUG] Limine Module loaded into RAMFS: ");
-                serial_write(mod->path);
+                serial_write("[DEBUG] Module successfully copied to RAMFS. Written bytes: ");
+                serial_write_num(written);
+                serial_write("\n");
+            } else {
+                serial_write("[DEBUG] ERROR: Failed to create file in RAMFS for module: ");
+                serial_write(clean_path);
                 serial_write("\n");
             }
         }
     }
     
-    int ENABLE_USER_TEST = 1; 
-    #ifdef ENABLE_USER_TEST
-        process_init();
-    #endif
-
     asm("cli");
     ps2_init();
     asm("sti");

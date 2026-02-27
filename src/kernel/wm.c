@@ -61,7 +61,7 @@ static int drag_offset_y = 0;
 
 // File Dragging State
 bool is_dragging_file = false;
-static char drag_file_path[256];
+static char drag_file_path[FAT32_MAX_PATH];
 static int drag_icon_type = 0; 
 static int drag_start_x = 0;
 static int drag_start_y = 0;
@@ -82,6 +82,8 @@ static int desktop_refresh_timer = 0;
 static bool cursor_visible = true;
 static int last_cursor_x = 400;
 static int last_cursor_y = 300;
+
+static bool periodic_refresh_pending = false;
 
 // --- Desktop State ---
 #define MAX_DESKTOP_ICONS 32
@@ -509,7 +511,7 @@ void draw_elf_icon(int x, int y, const char *label) {
 #define THUMB_CACHE_SIZE 8
 #define THUMB_PIXELS (48 * 48)
 static struct {
-    char path[256];
+    char path[FAT32_MAX_PATH];
     uint32_t pixels[THUMB_PIXELS];
     bool valid;
     bool failed; // Mark as failed so we don't retry
@@ -518,7 +520,7 @@ static int thumb_cache_next = 0; // Round-robin eviction
 
 // Deferred Thumbnail Request Queue
 #define THUMB_QUEUE_SIZE 16
-static char thumb_request_queue[THUMB_QUEUE_SIZE][256];
+static char thumb_request_queue[THUMB_QUEUE_SIZE][FAT32_MAX_PATH];
 static int thumb_queue_head = 0;
 static int thumb_queue_tail = 0;
 
@@ -2318,6 +2320,15 @@ void wm_handle_key(char c) {
 }
 
 void wm_process_input(void) {
+    if (periodic_refresh_pending) {
+        if (!is_dragging && !is_dragging_file) {
+            refresh_desktop_icons();
+            explorer_refresh_all();
+            force_redraw = true;
+        }
+        periodic_refresh_pending = false;
+    }
+
     uint64_t rflags;
     asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
     while (key_head != key_tail) {
@@ -2399,16 +2410,8 @@ void wm_timer_tick(void) {
     timer_ticks++;
     
     if (!is_dragging && !is_dragging_file) {
-        desktop_refresh_timer++;
-        if (desktop_refresh_timer >= 300) {
-            refresh_desktop_icons();
-            explorer_refresh_all();
-            desktop_refresh_timer = 0;
-            force_redraw = true;
-        }
+        // Periodic refresh removed - now triggered by FS events
     }
-    
-
     
     static uint8_t last_second = 0xFF;
     
@@ -2431,4 +2434,8 @@ void wm_timer_tick(void) {
         wm_paint();
         graphics_clear_dirty();
     }
+}
+
+void wm_notify_fs_change(void) {
+    periodic_refresh_pending = true;
 }

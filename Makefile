@@ -32,7 +32,7 @@ LDFLAGS = -m elf_x86_64 -nostdlib -static -pie --no-dynamic-linker \
 NASMFLAGS = -f elf64
 
 # Limine Version
-LIMINE_VERSION = 10.8.2
+LIMINE_VERSION = 7.0.0
 LIMINE_URL_BASE = https://github.com/limine-bootloader/limine/raw/v$(LIMINE_VERSION)
 
 .PHONY: all clean run limine-setup
@@ -86,25 +86,26 @@ $(KERNEL_ELF): $(OBJ_FILES)
 	$(MAKE) -C $(SRC_DIR)/userland
 
 # Create ISO
-$(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
+$(ISO_IMAGE): $(KERNEL_ELF) limine.cfg limine-setup
 	rm -rf $(ISO_DIR)
 	mkdir -p $(ISO_DIR)
 	mkdir -p $(ISO_DIR)/EFI/BOOT
 	
 	# Copy Kernel and Config
 	cp $(KERNEL_ELF) $(ISO_DIR)/
-	# Build ISO limine.conf natively with modules
-	cp limine.conf $(ISO_DIR)/
+	# Build ISO limine.cfg natively with modules
+	cp limine.cfg $(ISO_DIR)/
 	mkdir -p $(ISO_DIR)/bin
 	@for f in $(SRC_DIR)/userland/*.elf; do \
 		if [ -f "$$f" ]; then \
 			basename=$$(basename "$$f"); \
 			cp "$$f" $(ISO_DIR)/bin/; \
-			echo "    module_path: boot():/bin/$$basename" >> $(ISO_DIR)/limine.conf; \
+			echo "    MODULE_PATH=boot:///bin/$$basename" >> $(ISO_DIR)/limine.cfg; \
 		fi \
 	done
 	
 	# Copy README
+	@if [ -f README.md ]; then cp README.md $(ISO_DIR)/; fi
 	
 	# Copy Wallpaper (if it exists)
 	@if [ -f src/kernel/wallpaper.ppm ]; then cp src/kernel/wallpaper.ppm $(ISO_DIR)/; fi
@@ -133,11 +134,8 @@ clean:
 	rm -rf $(BUILD_DIR) $(ISO_DIR) $(ISO_IMAGE)
 
 run: $(ISO_IMAGE)
-	dd if=/dev/zero of=disk.img bs=1M count=64
-	mformat -i disk.img -F ::
 	qemu-system-x86_64 -m 2G -serial stdio -cdrom $< -boot d \
 		-audiodev coreaudio,id=audio0 -machine pcspk-audiodev=audio0 \
 		-netdev user,id=net0,hostfwd=udp::12345-:12345 -device e1000,netdev=net0 \
 		-vga std -global VGA.xres=1920 -global VGA.yres=1080 \
-		-drive file=disk.img,format=raw \
-		-no-reboot -d int -D qemu-debug.log
+

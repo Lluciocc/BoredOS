@@ -2,6 +2,7 @@
 #define EXPLORER_H
 
 #include "wm.h"
+#include "fat32.h"
 #include <stddef.h>
 
 // External windows references (for opening other apps)
@@ -15,7 +16,7 @@ extern Window win_markdown;
 #define DIALOG_INPUT_MAX 256
 
 typedef struct {
-    char name[256];
+    char name[FAT32_MAX_FILENAME];
     bool is_directory;
     uint32_t size;
     uint32_t color;
@@ -25,7 +26,7 @@ typedef struct {
     ExplorerItem items[EXPLORER_MAX_FILES];
     int item_count;
     int selected_item;
-    char current_path[256];
+    char current_path[FAT32_MAX_PATH];
     int last_clicked_item;
     uint32_t last_click_time;
     int explorer_scroll_row;
@@ -34,11 +35,11 @@ typedef struct {
     int dialog_state;
     char dialog_input[DIALOG_INPUT_MAX];
     int dialog_input_cursor;
-    char dialog_target_path[256];
+    char dialog_target_path[FAT32_MAX_PATH];
     bool dialog_target_is_dir;
-    char dialog_dest_dir[256];
-    char dialog_creation_path[256];
-    char dialog_move_src[256];
+    char dialog_dest_dir[FAT32_MAX_PATH];
+    char dialog_creation_path[FAT32_MAX_PATH];
+    char dialog_move_src[FAT32_MAX_PATH];
 
     // Dropdown menu state
     bool dropdown_menu_visible;

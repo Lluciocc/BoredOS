@@ -43,7 +43,7 @@ static int dropdown_menu_item_height = 25;
 #define CONTEXT_MENU_ITEM_HEIGHT 25
 
 // Clipboard state
-static char clipboard_path[256] = "";
+static char clipboard_path[FAT32_MAX_PATH] = "";
 static int clipboard_action = 0; // 0=None, 1=Copy, 2=Cut
 #define FILE_CONTEXT_ITEMS 2  // "Open with Text Editor" and "Open with Markdown Viewer"
 
@@ -259,7 +259,7 @@ static void dialog_confirm_create_file(Window *win) {
     
     if (!check_desktop_limit_explorer(win)) return;
     
-    char full_path[256];
+    char full_path[FAT32_MAX_PATH];
     explorer_strcpy(full_path, state->dialog_creation_path);
     if (full_path[explorer_strlen(full_path) - 1] != '/') {
         explorer_strcat(full_path, "/");
@@ -283,7 +283,7 @@ static void dialog_confirm_create_file(Window *win) {
 
 static void dialog_force_create_file(Window *win) {
     ExplorerState *state = (ExplorerState*)win->data;
-    char full_path[256];
+    char full_path[FAT32_MAX_PATH];
     explorer_strcpy(full_path, state->dialog_creation_path);
     if (full_path[explorer_strlen(full_path) - 1] != '/') {
         explorer_strcat(full_path, "/");
@@ -304,7 +304,7 @@ static void dialog_confirm_create_folder(Window *win) {
     
     if (!check_desktop_limit_explorer(win)) return;
     
-    char full_path[256];
+    char full_path[FAT32_MAX_PATH];
     explorer_strcpy(full_path, state->dialog_creation_path);
     if (full_path[explorer_strlen(full_path) - 1] != '/') {
         explorer_strcat(full_path, "/");
@@ -331,7 +331,7 @@ bool explorer_delete_permanently(const char *path) {
         for (int i = 0; i < count; i++) {
             if (explorer_strcmp(entries[i].name, ".") == 0 || explorer_strcmp(entries[i].name, "..") == 0) continue;
 
-            char child_path[256];
+            char child_path[FAT32_MAX_PATH];
             explorer_strcpy(child_path, path);
             if (child_path[explorer_strlen(child_path) - 1] != '/') {
                 explorer_strcat(child_path, "/");
@@ -379,13 +379,13 @@ bool explorer_delete_recursive(const char *path) {
             drive_prefix[0] = path[0];
         }
         
-        char dest_path[256];
+        char dest_path[FAT32_MAX_PATH];
         explorer_strcpy(dest_path, drive_prefix);
         explorer_strcat(dest_path, "/RecycleBin/");
         explorer_strcat(dest_path, filename);
         
         // Save origin
-        char origin_path[256];
+        char origin_path[FAT32_MAX_PATH];
         explorer_strcpy(origin_path, dest_path);
         explorer_strcat(origin_path, ".origin");
         FAT32_FileHandle *fh = fat32_open(origin_path, "w");
@@ -446,7 +446,7 @@ static bool explorer_copy_recursive(const char *src_path, const char *dest_path)
         for (int i = 0; i < count; i++) {
             if (explorer_strcmp(files[i].name, ".") == 0 || explorer_strcmp(files[i].name, "..") == 0) continue;
             
-            char s_sub[256], d_sub[256];
+            char s_sub[FAT32_MAX_PATH], d_sub[FAT32_MAX_PATH];
             explorer_strcpy(s_sub, src_path);
             if (s_sub[explorer_strlen(s_sub)-1] != '/') explorer_strcat(s_sub, "/");
             explorer_strcat(s_sub, files[i].name);
@@ -482,7 +482,7 @@ static bool explorer_copy_recursive(const char *src_path, const char *dest_path)
 }
 
 static void explorer_copy_file_internal(const char *src_path, const char *dest_dir) {
-    char filename[256];
+    char filename[FAT32_MAX_FILENAME];
     int len = explorer_strlen(src_path);
     int i = len - 1;
     while (i >= 0 && src_path[i] != '/') i--;
@@ -490,7 +490,7 @@ static void explorer_copy_file_internal(const char *src_path, const char *dest_d
     for (int k = i + 1; k < len; k++) filename[j++] = src_path[k];
     filename[j] = 0;
     
-    char dest_path[256];
+    char dest_path[FAT32_MAX_PATH];
     explorer_strcpy(dest_path, dest_dir);
     if (dest_path[explorer_strlen(dest_path) - 1] != '/') {
         explorer_strcat(dest_path, "/");
@@ -565,7 +565,7 @@ void explorer_create_shortcut(Window *win, const char *target_path) {
     for (int k = i + 1; k < len; k++) filename[j++] = target_path[k];
     filename[j] = 0;
     
-    char shortcut_path[256];
+    char shortcut_path[FAT32_MAX_PATH];
     explorer_strcpy(shortcut_path, state->current_path);
     if (shortcut_path[explorer_strlen(shortcut_path)-1] != '/') explorer_strcat(shortcut_path, "/");
     explorer_strcat(shortcut_path, filename);
@@ -649,7 +649,7 @@ static int explorer_build_context_menu(Window *win, ExplorerContextItem *items_o
 // === Explorer Logic ===
 
 static uint32_t explorer_get_folder_color(const char *folder_path) {
-    char color_file_path[256];
+    char color_file_path[FAT32_MAX_PATH];
     explorer_strcpy(color_file_path, folder_path);
     if (color_file_path[explorer_strlen(color_file_path) - 1] != '/') {
         explorer_strcat(color_file_path, "/");
@@ -669,7 +669,7 @@ static uint32_t explorer_get_folder_color(const char *folder_path) {
 }
 
 static void explorer_set_folder_color(const char *folder_path, uint32_t color) {
-    char color_file_path[256];
+    char color_file_path[FAT32_MAX_PATH];
     explorer_strcpy(color_file_path, folder_path);
     if (color_file_path[explorer_strlen(color_file_path) - 1] != '/') {
         explorer_strcat(color_file_path, "/");
@@ -687,19 +687,19 @@ static void explorer_restore_file(Window *win, int item_idx) {
     ExplorerState *state = (ExplorerState*)win->data;
     if (item_idx < 0 || item_idx >= state->item_count) return;
     
-    char recycle_path[256];
+    char recycle_path[FAT32_MAX_PATH];
     explorer_strcpy(recycle_path, state->current_path);
     if (recycle_path[explorer_strlen(recycle_path) - 1] != '/') explorer_strcat(recycle_path, "/");
     explorer_strcat(recycle_path, state->items[item_idx].name);
     
-    char origin_file_path[256];
+    char origin_file_path[FAT32_MAX_PATH];
     explorer_strcpy(origin_file_path, recycle_path);
     explorer_strcat(origin_file_path, ".origin");
     
-    char original_path[256] = {0};
+    char original_path[FAT32_MAX_PATH] = {0};
     FAT32_FileHandle *fh = fat32_open(origin_file_path, "r");
     if (fh) {
-        int len = fat32_read(fh, original_path, 255);
+        int len = fat32_read(fh, original_path, FAT32_MAX_PATH - 1);
         if (len > 0) original_path[len] = 0;
         fat32_close(fh);
     }
@@ -725,7 +725,7 @@ static void explorer_load_directory(Window *win, const char *path) {
     int count = fat32_list_directory(path, entries, EXPLORER_MAX_FILES);
     
     state->item_count = 0;
-    for (int i = 0; i < count && i < EXPLORER_MAX_FILES; i++) {
+    for (int i = 0; i < count && state->item_count < EXPLORER_MAX_FILES; i++) {
         // Skip .color files
         if (explorer_strcmp(entries[i].name, ".color") == 0) {
             continue;
@@ -741,8 +741,8 @@ static void explorer_load_directory(Window *win, const char *path) {
         state->items[state->item_count].size = entries[i].size;
         
         if (state->items[state->item_count].is_directory) {
-            char subfolder_path[256];
-            explorer_strcpy(subfolder_path, state->current_path);
+            char subfolder_path[FAT32_MAX_PATH];
+            explorer_strcpy(subfolder_path, path);
             if (subfolder_path[explorer_strlen(subfolder_path) - 1] != '/') {
                 explorer_strcat(subfolder_path, "/");
             }
@@ -763,7 +763,7 @@ static void explorer_load_directory(Window *win, const char *path) {
 
 static void explorer_navigate_to(Window *win, const char *dirname) {
     ExplorerState *state = (ExplorerState*)win->data;
-    char new_path[256];
+    char new_path[FAT32_MAX_PATH];
     
     if (explorer_strcmp(dirname, "..") == 0) {
         // Go to parent directory
@@ -827,7 +827,7 @@ static void explorer_open_item(Window *win, int index) {
         return;
     }
 
-    char full_path[256];
+    char full_path[FAT32_MAX_PATH];
     explorer_strcpy(full_path, state->current_path);
     if (full_path[explorer_strlen(full_path) - 1] != '/') {
         explorer_strcat(full_path, "/");
@@ -863,7 +863,7 @@ static void explorer_open_item(Window *win, int index) {
         // Generic shortcut
         FAT32_FileHandle *fh = fat32_open(full_path, "r");
         if (fh) {
-            char buf[256];
+            char buf[FAT32_MAX_PATH];
             int len = fat32_read(fh, buf, 255);
             fat32_close(fh);
             if (len > 0) {
@@ -898,7 +898,7 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
         draw_paint_icon(x + 5, y + 5, "");
     } else if (explorer_str_ends_with(filename, ".jpg") || explorer_str_ends_with(filename, ".JPG")) {
         // Build full path for thumbnail loading
-        char full_path[256];
+        char full_path[FAT32_MAX_PATH];
         explorer_strcpy(full_path, current_path);
         if (full_path[explorer_strlen(full_path) - 1] != '/') explorer_strcat(full_path, "/");
         explorer_strcat(full_path, filename);
@@ -922,7 +922,7 @@ static void explorer_paint(Window *win) {
     draw_rect(offset_x, offset_y, win->w - 8, win->h - 28, COLOR_DARK_BG);
     
     // Draw Drive Button (modern rounded style)
-    char drive_label[8];
+    char drive_label[9]; // 8 chars + null
     // Extract drive from the window's current_path instead of using global current_drive
     char current_drv = 'A';
     if (state->current_path[0] && state->current_path[1] == ':') {
@@ -939,6 +939,7 @@ static void explorer_paint(Window *win) {
     drive_label[5] = 'v';
     drive_label[6] = ' ';
     drive_label[7] = ']';
+    drive_label[8] = 0;
     
     // Button at x+4, y+3, w=60 (rounded)
     draw_rounded_rect_filled(win->x + 4, offset_y + 3, 60, 22, 5, COLOR_DARK_PANEL);
@@ -1209,7 +1210,7 @@ static void explorer_paint(Window *win) {
     if (state->file_context_menu_visible) {
         // Convert window-relative coordinates to screen coordinates for drawing
         int menu_screen_x = win->x + state->file_context_menu_x;
-        int menu_screen_y = win->y + state->file_context_menu_y;
+        int menu_screen_y = win->y + state->file_context_menu_y + 20; // Adjusted for title bar (20px)
         
         ExplorerContextItem menu_items[20];
         int count = explorer_build_context_menu(win, menu_items);
@@ -1250,7 +1251,7 @@ static void explorer_handle_click(Window *win, int x, int y) {
     // Handle dialog clicks
     if (state->dialog_state == DIALOG_CREATE_FILE || state->dialog_state == DIALOG_CREATE_FOLDER) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 60;
+        int dlg_y = win->h / 2 - 80;
         
         // Create button
         if (x >= dlg_x + 50 && x < dlg_x + 130 &&
@@ -1279,9 +1280,10 @@ static void explorer_handle_click(Window *win, int x, int y) {
             }
             return;
         }
+        return; // Clicked inside dialog but not on button - consume click
     } else if (state->dialog_state == DIALOG_DELETE_CONFIRM) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 60;
+        int dlg_y = win->h / 2 - 80; // Adjusted for title bar offset
         
         // Delete button
         if (x >= dlg_x + 50 && x < dlg_x + 130 &&
@@ -1296,9 +1298,10 @@ static void explorer_handle_click(Window *win, int x, int y) {
             dialog_close(win);
             return;
         }
+        return; // Consume click
     } else if (state->dialog_state == DIALOG_REPLACE_CONFIRM) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 60;
+        int dlg_y = win->h / 2 - 80;
         
         if (x >= dlg_x + 50 && x < dlg_x + 130 && y >= dlg_y + 70 && y < dlg_y + 95) {
             dialog_confirm_replace(win);
@@ -1309,9 +1312,10 @@ static void explorer_handle_click(Window *win, int x, int y) {
             dialog_close(win);
             return;
         }
+        return;
     } else if (state->dialog_state == DIALOG_REPLACE_MOVE_CONFIRM) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 60;
+        int dlg_y = win->h / 2 - 80;
         
         if (x >= dlg_x + 50 && x < dlg_x + 130 && y >= dlg_y + 70 && y < dlg_y + 95) {
             dialog_confirm_replace_move(win);
@@ -1322,9 +1326,10 @@ static void explorer_handle_click(Window *win, int x, int y) {
             dialog_close(win);
             return;
         }
+        return;
     } else if (state->dialog_state == DIALOG_CREATE_REPLACE_CONFIRM) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 60;
+        int dlg_y = win->h / 2 - 80;
         
         if (x >= dlg_x + 50 && x < dlg_x + 130 && y >= dlg_y + 70 && y < dlg_y + 95) {
             dialog_force_create_file(win);
@@ -1335,20 +1340,22 @@ static void explorer_handle_click(Window *win, int x, int y) {
             dialog_close(win);
             return;
         }
+        return;
     } else if (state->dialog_state == DIALOG_ERROR) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 60;
+        int dlg_y = win->h / 2 - 80;
         
         if (x >= dlg_x + 110 && x < dlg_x + 190 && y >= dlg_y + 70 && y < dlg_y + 95) {
             dialog_close(win);
             return;
         }
+        return;
     } else if (state->dialog_state == DIALOG_RENAME) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 60;
+        int dlg_y = win->h / 2 - 80;
         
         if (x >= dlg_x + 50 && x < dlg_x + 130 && y >= dlg_y + 65 && y < dlg_y + 90) {
-            char new_path[256];
+            char new_path[FAT32_MAX_PATH];
             explorer_strcpy(new_path, state->current_path);
             if (new_path[explorer_strlen(new_path)-1] != '/') explorer_strcat(new_path, "/");
             explorer_strcat(new_path, state->dialog_input);
@@ -1362,6 +1369,15 @@ static void explorer_handle_click(Window *win, int x, int y) {
             dialog_close(win);
             return;
         }
+
+        if (x >= dlg_x + 10 && x < dlg_x + 290 && y >= dlg_y + 35 && y < dlg_y + 55) {
+            state->dialog_input_cursor = (x - dlg_x - 15) / 8;
+            if (state->dialog_input_cursor > (int)explorer_strlen(state->dialog_input)) {
+                state->dialog_input_cursor = explorer_strlen(state->dialog_input);
+            }
+            return;
+        }
+        return; // Consume click
     }
     
     // Handle Drive Menu Selection
@@ -1525,7 +1541,7 @@ static void explorer_handle_key(Window *win, char c) {
             } else if (state->dialog_state == DIALOG_CREATE_FOLDER) {
                 dialog_confirm_create_folder(win);
             } else if (state->dialog_state == DIALOG_RENAME) {
-                char new_path[256];
+                char new_path[FAT32_MAX_PATH];
                 explorer_strcpy(new_path, state->current_path);
                 if (new_path[explorer_strlen(new_path)-1] != '/') explorer_strcat(new_path, "/");
                 explorer_strcat(new_path, state->dialog_input);
@@ -1725,7 +1741,7 @@ static void explorer_handle_file_context_menu_click(Window *win, int x, int y) {
     if (clicked_action == 0) return;
     
     // Execute Action
-    char full_path[256];
+    char full_path[FAT32_MAX_PATH];
     if (state->file_context_menu_item >= 0) {
         explorer_strcpy(full_path, state->current_path);
         if (full_path[explorer_strlen(full_path) - 1] != '/') explorer_strcat(full_path, "/");
@@ -1943,6 +1959,8 @@ Window* explorer_create_window(const char *path) {
     
     Window *win = (Window*)kmalloc(sizeof(Window));
     ExplorerState *state = (ExplorerState*)kmalloc(sizeof(ExplorerState));
+    if (!state || !win) return NULL;
+    mem_memset(state, 0, sizeof(ExplorerState));
     
     win->title = "Files";
     win->x = 300 + (explorer_win_count * 30);
@@ -1962,9 +1980,6 @@ Window* explorer_create_window(const char *path) {
     state->last_clicked_item = -1;
     state->explorer_scroll_row = 0;
     state->dialog_state = DIALOG_NONE;
-    state->dropdown_menu_visible = false;
-    state->drive_menu_visible = false;
-    state->file_context_menu_visible = false;
     
     explorer_wins[explorer_win_count++] = win;
     wm_add_window(win);
@@ -1977,6 +1992,9 @@ Window* explorer_create_window(const char *path) {
 
 void explorer_init(void) {
     ExplorerState *state = (ExplorerState*)kmalloc(sizeof(ExplorerState));
+    if (!state) return;
+    mem_memset(state, 0, sizeof(ExplorerState));
+
     win_explorer.title = "Files";
     win_explorer.x = 300;
     win_explorer.y = 100;
@@ -1991,7 +2009,11 @@ void explorer_init(void) {
     win_explorer.handle_right_click = explorer_handle_right_click;
     win_explorer.data = state;
     
-    state->drive_menu_visible = false;
+    state->selected_item = -1;
+    state->last_clicked_item = -1;
+    state->explorer_scroll_row = 0;
+    state->dialog_state = DIALOG_NONE;
+
     explorer_wins[explorer_win_count++] = &win_explorer;
     explorer_load_directory(&win_explorer, "A:/");
 }

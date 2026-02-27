@@ -11,9 +11,9 @@ static volatile struct limine_kernel_address_request kernel_addr_request __attri
     .revision = 0,
     .response = NULL
 };
-static uint64_t hhdm_offset = 0;
-static uint64_t kernel_phys_base = 0;
-static uint64_t kernel_virt_base = 0;
+uint64_t hhdm_offset = 0;
+uint64_t kernel_phys_base = 0;
+uint64_t kernel_virt_base = 0;
 void platform_init(void) {
     if (hhdm_request.response) { hhdm_offset = hhdm_request.response->offset; }
     if (kernel_addr_request.response) {

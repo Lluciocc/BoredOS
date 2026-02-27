@@ -93,11 +93,12 @@ static int ata_identify(uint16_t port_base, bool slave) {
     if (status == 0) return 0;
     
     // Wait until BSY clears
-    while (inb(port_base + ATA_REG_STATUS) & ATA_SR_BSY) {
-        // Simple timeout could be added here
+    int timeout = 10000;
+    while ((inb(port_base + ATA_REG_STATUS) & ATA_SR_BSY) && --timeout > 0) {
         status = inb(port_base + ATA_REG_STATUS);
         if (status == 0) return 0; // Check again
     }
+    if (timeout <= 0) return 0; // Hardware didn't respond
     
     // Check for error
     if (inb(port_base + ATA_REG_STATUS) & ATA_SR_ERR) {
