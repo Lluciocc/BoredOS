@@ -5,11 +5,11 @@
 #include <syscall.h>
 
 int main(int argc, char **argv) {
-    uint32_t dir_color = (uint32_t)sys_get_shell_config("dir_color");
-    uint32_t file_color = (uint32_t)sys_get_shell_config("file_color");
-    uint32_t size_color = (uint32_t)sys_get_shell_config("size_color");
-    uint32_t error_color = (uint32_t)sys_get_shell_config("error_color");
-    uint32_t default_color = (uint32_t)sys_get_shell_config("default_text_color");
+    uint64_t dir_color = sys_get_shell_config("dir_color");
+    uint64_t file_color = sys_get_shell_config("file_color");
+    uint64_t size_color = sys_get_shell_config("size_color");
+    uint64_t error_color = sys_get_shell_config("error_color");
+    uint64_t default_color = sys_get_shell_config("default_text_color");
 
     char path[256];
     if (argc > 1) {

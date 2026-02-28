@@ -417,9 +417,7 @@ void cmd_load_config(void) {
 }
 
 // System Call Helper
-uint64_t cmd_get_config_value(const char *key) {
-    if (cmd_strcmp(key, "prompt_drive_color") == 0) return shell_config.prompt_drive_color;
-    if (cmd_strcmp(key, "prompt_colon_color") == 0) return shell_config.prompt_colon_color;
+uint32_t cmd_get_config_value(const char *key) {
     if (cmd_strcmp(key, "prompt_drive_color") == 0) return shell_config.prompt_drive_color;
     if (cmd_strcmp(key, "prompt_colon_color") == 0) return shell_config.prompt_colon_color;
     if (cmd_strcmp(key, "prompt_dir_color") == 0) return shell_config.prompt_dir_color;
@@ -427,8 +425,6 @@ uint64_t cmd_get_config_value(const char *key) {
     if (cmd_strcmp(key, "default_text_color") == 0) return shell_config.default_text_color;
     if (cmd_strcmp(key, "bg_color") == 0) return shell_config.bg_color;
     if (cmd_strcmp(key, "cursor_color") == 0) return shell_config.cursor_color;
-    if (cmd_strcmp(key, "show_drive") == 0) return shell_config.show_drive;
-    if (cmd_strcmp(key, "show_dir") == 0) return shell_config.show_dir;
     if (cmd_strcmp(key, "dir_color") == 0) return shell_config.dir_color;
     if (cmd_strcmp(key, "file_color") == 0) return shell_config.file_color;
     if (cmd_strcmp(key, "size_color") == 0) return shell_config.size_color;
@@ -436,8 +432,13 @@ uint64_t cmd_get_config_value(const char *key) {
     if (cmd_strcmp(key, "success_color") == 0) return shell_config.success_color;
     if (cmd_strcmp(key, "help_color") == 0) return shell_config.help_color;
     if (cmd_strcmp(key, "command_color") == 0) return shell_config.command_color;
+
+    // Return 1 for boolean true values
+    if (cmd_strcmp(key, "show_drive") == 0) return shell_config.show_drive;
+    if (cmd_strcmp(key, "show_dir") == 0) return shell_config.show_dir;
     if (cmd_strcmp(key, "welcome_msg") == 0) return shell_config.welcome_msg;
     if (cmd_strcmp(key, "history_save_prompt") == 0) return shell_config.history_save_prompt;
+    
     return 0;
 }
 
@@ -515,7 +516,6 @@ static void cmd_set_line_content(const char *str) {
     }
 }
 
-// --- Terminal Emulation ---
 
 static void cmd_scroll_up() {
     for (int r = 1; r < CMD_ROWS; r++) {
@@ -1038,6 +1038,49 @@ static void cmd_exec_single(char *cmd) {
         return;
     }
 
+    char *args_ptr = cmd;
+    while (*args_ptr && *args_ptr != ' ') {
+        args_ptr++;
+    }
+    char old_char = *args_ptr;
+    *args_ptr = '\0'; // Temporarily terminate to get just the command
+
+    bool is_path = false;
+    char *p = cmd;
+    while(*p) {
+        if (*p == '/' || *p == ':') {
+            is_path = true;
+            break;
+        }
+        p++;
+    }
+
+    if (is_path) {
+        FAT32_FileHandle *fh = fat32_open(cmd, "r");
+        if (fh) {
+            fat32_close(fh);
+            *args_ptr = old_char; // Restore command string
+
+            // Now properly split command and args
+            char *args = cmd;
+            while (*args && *args != ' ') args++;
+            if (*args) {
+                *args = 0; // Null terminate cmd
+                args++; // Point to start of args
+            }
+
+            cmd_is_waiting_for_process = true;
+            process_t *proc = process_create_elf(cmd, args);
+            if (proc) {
+                proc->is_terminal_proc = true;
+                proc->ui_window = &win_cmd;
+            }
+            return;
+        }
+    }
+    
+    *args_ptr = old_char; // Restore command string if not found or not a path
+
     if (cmd[0] == '.' && cmd[1] == '/') {
         char *filename = cmd + 2;
         
@@ -1384,9 +1427,8 @@ static void cmd_exec_single(char *cmd) {
     cmd_write(cmd);
     cmd_write("\n");
 }
-
 // Execute command with redirection and pipe support
-static void cmd_exec(char *cmd) {
+static void cmd_exec(char *cmd, bool print_prompt) {
     // Check for pipe operator first
     const char* pipe_pos = find_pipe(cmd);
     if (pipe_pos) {
@@ -1606,6 +1648,10 @@ static void cmd_exec(char *cmd) {
         cmd_write(output_file);
         cmd_write("\n");
     }
+
+    if (print_prompt) {
+        cmd_print_prompt();
+    }
 }
 
 
@@ -1685,10 +1731,10 @@ static void cmd_key(Window *target, char c) {
          if (len > 0) cmd_history_add(cmd_buf);
          history_pos = -1;
          
-         cmd_exec(cmd_buf);
+         cmd_exec(cmd_buf, true);
          
          if (!cmd_is_waiting_for_process) {
-             cmd_print_prompt();
+             // cmd_print_prompt(); // This is now handled by cmd_exec
          }
     } else if (c == 17) { // UP
         if (history_len > 0) {
@@ -1756,8 +1802,11 @@ static void cmd_key(Window *target, char c) {
     }
 }
 
+static void cmd_exec(char *cmd, bool print_prompt);
+
 void cmd_reset(void) {
     // Reset terminal to fresh state
+    cmd_screen_clear();
     cmd_load_config();
     
     cursor_row = 0;
@@ -1775,11 +1824,14 @@ void cmd_reset(void) {
     }
     
     if (shell_config.startup_cmd[0]) {
-        // Run startup command without prompt prefix
-        cmd_exec(shell_config.startup_cmd);
+        cmd_exec(shell_config.startup_cmd, false);
     }
-    
-    cmd_print_prompt();
+
+    // If a startup command is running, it will print the prompt when it's done.
+    // Otherwise, we print it now.
+    if (!cmd_is_waiting_for_process) {
+        cmd_print_prompt();
+    }
 }
 
 static void create_ramfs_files(void) {
