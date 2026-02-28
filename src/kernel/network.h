@@ -77,6 +77,7 @@ int udp_send_packet_to_mac(const ipv4_address_t* dest_ip, const mac_address_t* d
 typedef void (*udp_callback_t)(const ipv4_address_t* src_ip, uint16_t src_port, const mac_address_t* src_mac, const void* data, size_t length);
 int udp_register_callback(uint16_t port, udp_callback_t callback);
 int network_is_initialized(void);
+int network_has_ip(void);
 int network_get_frames_received(void);
 int network_get_udp_packets_received(void);
 int network_get_udp_callbacks_called(void);

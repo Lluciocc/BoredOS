@@ -723,6 +723,8 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
             return cli_cmd_ping_syscall(dest_ip);
         } else if (cmd == 27) { // SYSTEM_CMD_NETWORK_IS_INIT
             return network_is_initialized() ? 1 : 0;
+        } else if (cmd == 30) { // SYSTEM_CMD_NETWORK_HAS_IP
+            return network_has_ip() ? 1 : 0;
         } else if (cmd == 28) { // SYSTEM_CMD_GET_SHELL_CONFIG
             const char *key = (const char *)arg2;
             if (!key) return -1;

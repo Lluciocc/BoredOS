@@ -41,7 +41,6 @@ static void about_paint(ui_window_t win) {
     int w = 185;
     int h = 240;
     
-    //ui_draw_rect(win, 0, 0, w, h, 0xFF1E1E1E);
     
     int offset_x = 15;
     int offset_y = 35;

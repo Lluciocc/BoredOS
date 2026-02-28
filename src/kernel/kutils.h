@@ -15,6 +15,7 @@ int k_strcmp(const char *s1, const char *s2);
 void k_strcpy(char *dest, const char *src);
 int k_atoi(const char *str);
 void k_itoa(int n, char *buf);
+void k_itoa_hex(uint64_t n, char *buf);
 
 // Kernel timing utilities
 void k_delay(int iterations);

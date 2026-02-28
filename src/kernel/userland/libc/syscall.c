@@ -179,6 +179,10 @@ int sys_network_is_initialized(void) {
     return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_IS_INIT, 0);
 }
 
+int sys_network_has_ip(void) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_HAS_IP, 0);
+}
+
 uint64_t sys_get_shell_config(const char *key) {
     return (uint64_t)sys_system(SYSTEM_CMD_GET_SHELL_CONFIG, (uint64_t)key, 0, 0, 0);
 }

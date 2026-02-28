@@ -10,6 +10,7 @@
 #include "net_defs.h"
 
 static int network_initialized = 0;
+static int has_ip = 0;
 static mac_address_t our_mac;
 static ipv4_address_t ip_address = {{0,0,0,0}};
 static ipv4_address_t gateway_ip = {{0,0,0,0}};
@@ -68,7 +69,8 @@ int network_get_mac_address(mac_address_t* mac){
 }
 
 int network_get_ipv4_address(ipv4_address_t* ip){ if(!network_initialized) return -1; *ip=ip_address; return 0; }
-int network_set_ipv4_address(const ipv4_address_t* ip){ if(!network_initialized) return -1; ip_address=*ip; return 0; }
+int network_set_ipv4_address(const ipv4_address_t* ip){ if(!network_initialized) return -1; ip_address=*ip; has_ip = 1; return 0; }
+int network_has_ip(void) { return has_ip; }
 
 int network_get_gateway_ip(ipv4_address_t* ip){ if(!network_initialized) return -1; *ip=gateway_ip; return 0; }
 int network_get_dns_ip(ipv4_address_t* ip){ if(!network_initialized) return -1; *ip=dns_server_ip; return 0; }
@@ -485,6 +487,7 @@ static void dhcp_udp_callback(const ipv4_address_t* src_ip,uint16_t src_port,con
             p+=l; 
         }
         
+        has_ip = 1;
         dhcp_state=2;
     } else if(mtype==DHCP_MSG_NAK){
         dhcp_state=-1;

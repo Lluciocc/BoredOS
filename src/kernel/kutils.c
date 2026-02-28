@@ -66,6 +66,26 @@ void k_itoa(int n, char *buf) {
     }
 }
 
+void k_itoa_hex(uint64_t n, char *buf) {
+    const char *digits = "0123456789ABCDEF";
+    if (n == 0) {
+        buf[0] = '0';
+        buf[1] = 0;
+        return;
+    }
+    int i = 0;
+    while (n > 0) {
+        buf[i++] = digits[n & 0xF];
+        n >>= 4;
+    }
+    buf[i] = 0;
+    for (int j = 0; j < i / 2; j++) {
+        char t = buf[j];
+        buf[j] = buf[i - 1 - j];
+        buf[i - 1 - j] = t;
+    }
+}
+
 void k_delay(int iterations) {
     for (volatile int i = 0; i < iterations; i++) {
         __asm__ __volatile__("nop");

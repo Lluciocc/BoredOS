@@ -3,24 +3,13 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include "idt.h"
 #include "io.h"
+#include "kutils.h"
 
 extern void serial_write(const char *str);
 
-// Simple hex printer for debugging
-static void print_hex(uint64_t val) {
-    const char* digits = "0123456789ABCDEF";
-    char buf[17];
-    buf[16] = '\0';
-    for (int i = 15; i >= 0; i--) {
-        buf[i] = digits[val & 0xF];
-        val >>= 4;
-    }
-    serial_write("0x");
-    serial_write(buf);
-}
-
 #include "process.h"
 #include "cmd.h"
+
 
 void kernel_panic(registers_t *regs, const char *error_name);
 
@@ -61,10 +50,13 @@ static const char *exception_messages[] = {
 
 uint64_t exception_handler_c(registers_t *regs) {
     uint64_t vector = regs->int_no;
+    char buf[17];
     
     // Serial Mirror
     serial_write("\n*** EXCEPTION ***\nVector: ");
-    print_hex(vector);
+    k_itoa_hex(vector, buf);
+    serial_write("0x");
+    serial_write(buf);
     
     if ((regs->cs & 0x3) != 0) {
         serial_write("\nUSER MODE EXCEPTION - Terminating process.\n");

@@ -4,6 +4,7 @@
 #include "process.h"
 #include "graphics.h"
 #include "io.h"
+#include "kutils.h"
 
 extern void serial_write(const char *str);
 
@@ -108,9 +109,34 @@ void kernel_panic(registers_t *regs, const char *error_name) {
     graphics_mark_screen_dirty();
     graphics_flip_buffer();
 
+    char hex_buf[17];
     serial_write("\n*** KERNEL PANIC ***\n");
     serial_write(error_name);
     serial_write("\n");
+
+    serial_write("Vector: 0x");
+    k_itoa_hex(regs->int_no, hex_buf);
+    serial_write(hex_buf);
+    serial_write("\n");
+
+    serial_write("Error Code: 0x");
+    k_itoa_hex(regs->err_code, hex_buf);
+    serial_write(hex_buf);
+    serial_write("\n");
+
+    serial_write("RIP: 0x");
+    k_itoa_hex(regs->rip, hex_buf);
+    serial_write(hex_buf);
+    serial_write("\n");
+
+    if (regs->int_no == 14) {
+        uint64_t cr2;
+        asm volatile("mov %%cr2, %0" : "=r"(cr2));
+        serial_write("CR2: 0x");
+        k_itoa_hex(cr2, hex_buf);
+        serial_write(hex_buf);
+        serial_write("\n");
+    }
 
     // Halt
     while(1) {

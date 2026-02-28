@@ -74,13 +74,17 @@ static void cmd_netinfo(void) {
         printf("\n");
     }
     
-    if (sys_network_get_ip(&ip) == 0) {
-        printf("IP: ");
-        for (int i = 0; i < 4; i++) {
-            printf("%d", ip.bytes[i]);
-            if (i < 3) printf(".");
+    if (sys_network_has_ip()) {
+        if (sys_network_get_ip(&ip) == 0) {
+            printf("IP: ");
+            for (int i = 0; i < 4; i++) {
+                printf("%d", ip.bytes[i]);
+                if (i < 3) printf(".");
+            }
+            printf("\n");
         }
-        printf("\n");
+    } else {
+        printf("IP: Not assigned\n");
     }
     
     printf("Frames: %d\n", sys_network_get_stat(0));
