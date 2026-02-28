@@ -1649,7 +1649,8 @@ static void cmd_exec(char *cmd, bool print_prompt) {
         cmd_write("\n");
     }
 
-    if (print_prompt) {
+
+    if (print_prompt && !cmd_is_waiting_for_process) {
         cmd_print_prompt();
     }
 }
