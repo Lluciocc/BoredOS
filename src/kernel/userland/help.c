@@ -6,6 +6,9 @@
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
+    uint32_t help_color = sys_get_shell_config("help_color");
+    if (help_color != 0) sys_set_text_color(help_color);
+
     printf("BoredOS CLI Help\n");
     printf("---------------------------\n");
     printf("ls [path]      - List directory contents\n");

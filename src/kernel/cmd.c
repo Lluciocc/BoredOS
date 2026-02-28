@@ -43,6 +43,35 @@ typedef enum {
     MODE_PAGER
 } CmdMode;
 
+// Shell Configuration
+typedef struct {
+    uint32_t prompt_drive_color;
+    uint32_t prompt_colon_color;
+    uint32_t prompt_dir_color;
+    uint32_t prompt_op_color;
+    char prompt_op_char;
+    uint32_t default_text_color;
+    uint32_t bg_color;
+    uint32_t cursor_color;
+    bool show_drive;
+    bool show_dir;
+    uint32_t dir_color;
+    uint32_t file_color;
+    uint32_t size_color;
+    uint32_t error_color;
+    uint32_t success_color;
+    uint32_t help_color;
+    uint32_t command_color;
+    char title_text[64];
+    char custom_welcome_message[128];
+    char startup_cmd[128];
+    char prompt_suffix[32];
+    bool welcome_msg;
+    bool history_save_prompt;
+} ShellConfig;
+
+static ShellConfig shell_config;
+
 // CMD Window State (per-window context)
 typedef struct {
     char current_drive;
@@ -58,6 +87,7 @@ static int cursor_row = 0;
 static int cursor_col = 0;
 static uint32_t current_color = COLOR_DARK_TEXT;
 static CmdState *cmd_state = NULL;  // Will be set in cmd_init
+static int current_prompt_len = 0;
 
 // Pager State
 static CmdMode current_mode = MODE_SHELL;
@@ -129,6 +159,290 @@ static void itoa(int n, char *buf) {
         buf[j] = buf[i - 1 - j];
         buf[i - 1 - j] = t;
     }
+    buf[i] = 0;
+}
+
+// --- Configuration Parsing ---
+
+static bool parse_bool(const char *s) {
+    if (!s) return false;
+    while (*s == ' ' || *s == '\t') s++;
+    if (cmd_strcmp(s, "true") == 0 || cmd_strcmp(s, "1") == 0 || cmd_strcmp(s, "yes") == 0) return true;
+    return false;
+}
+
+static int parse_int(const char *s) {
+    if (!s) return 0;
+    while (*s == ' ' || *s == '\t') s++;
+    int res = 0;
+    int sign = 1;
+    if (*s == '-') { sign = -1; s++; }
+    while (*s >= '0' && *s <= '9') {
+        res = res * 10 + (*s - '0');
+        s++;
+    }
+    return res * sign;
+}
+
+static uint32_t parse_color(const char *s) {
+    if (!s) return 0;
+    while (*s == ' ' || *s == '\t') s++;
+    if (!*s) return 0;
+
+    // 1. HEX Format: #RRGGBB or 0xRRGGBB
+    if (s[0] == '#' || (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))) {
+        const char *hex = (s[0] == '#') ? s + 1 : s + 2;
+        uint32_t res = 0;
+        int count = 0;
+        while (*hex && count < 8) {
+            char c = *hex++;
+            if (c >= '0' && c <= '9') res = (res << 4) | (c - '0');
+            else if (c >= 'a' && c <= 'f') res = (res << 4) | (c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') res = (res << 4) | (c - 'A' + 10);
+            else break;
+            count++;
+        }
+        if (count == 6) res |= 0xFF000000;
+        return res;
+    }
+
+    // 2. RGB Format: rgb(r, g, b)
+    if (s[0] == 'r' && s[1] == 'g' && s[2] == 'b') {
+        const char *p = s + 3;
+        while (*p && *p != '(') p++;
+        if (*p == '(') {
+            p++;
+            while (*p == ' ' || *p == '\t') p++;
+            int r = parse_int(p);
+            while (*p && *p != ',' && *p != ')') p++;
+            if (*p == ',') {
+                p++;
+                while (*p == ' ' || *p == '\t') p++;
+                int g = parse_int(p);
+                while (*p && *p != ',' && *p != ')') p++;
+                if (*p == ',') {
+                    p++;
+                    while (*p == ' ' || *p == '\t') p++;
+                    int b = parse_int(p);
+                    return 0xFF000000 | ((uint32_t)(r & 0xFF) << 16) | ((uint32_t)(g & 0xFF) << 8) | (uint32_t)(b & 0xFF);
+                }
+            }
+        }
+    }
+
+    // 3. Named Colors (assuming s is trimmed and lowercased)
+    if (cmd_strcmp(s, "black") == 0) return 0xFF000000;
+    if (cmd_strcmp(s, "white") == 0) return 0xFFFFFFFF;
+    if (cmd_strcmp(s, "gray") == 0 || cmd_strcmp(s, "grey") == 0) return 0xFF808080;
+    if (cmd_strcmp(s, "lightgray") == 0 || cmd_strcmp(s, "light gray") == 0 || cmd_strcmp(s, "lightgrey") == 0 || cmd_strcmp(s, "light grey") == 0) return 0xFFD3D3D3;
+    if (cmd_strcmp(s, "darkgray") == 0 || cmd_strcmp(s, "dark gray") == 0 || cmd_strcmp(s, "darkgrey") == 0 || cmd_strcmp(s, "dark grey") == 0) return 0xFFA9A9A9;
+    
+    if (cmd_strcmp(s, "red") == 0) return 0xFFFF0000;
+    if (cmd_strcmp(s, "lightred") == 0 || cmd_strcmp(s, "light red") == 0) return 0xFFFF7F7F;
+    if (cmd_strcmp(s, "darkred") == 0 || cmd_strcmp(s, "dark red") == 0) return 0xFF8B0000;
+    
+    if (cmd_strcmp(s, "green") == 0) return 0xFF00FF00;
+    if (cmd_strcmp(s, "lightgreen") == 0 || cmd_strcmp(s, "light green") == 0) return 0xFF90EE90;
+    if (cmd_strcmp(s, "darkgreen") == 0 || cmd_strcmp(s, "dark green") == 0) return 0xFF006400;
+    
+    if (cmd_strcmp(s, "yellow") == 0) return 0xFFFFFF00;
+    if (cmd_strcmp(s, "lightyellow") == 0 || cmd_strcmp(s, "light yellow") == 0) return 0xFFFFFFE0;
+    
+    if (cmd_strcmp(s, "blue") == 0) return 0xFF0000FF;
+    if (cmd_strcmp(s, "lightblue") == 0 || cmd_strcmp(s, "light blue") == 0) return 0xFFADD8E6;
+    if (cmd_strcmp(s, "darkblue") == 0 || cmd_strcmp(s, "dark blue") == 0) return 0xFF00008B;
+    
+    if (cmd_strcmp(s, "magenta") == 0) return 0xFFFF00FF;
+    if (cmd_strcmp(s, "lightmagenta") == 0 || cmd_strcmp(s, "light magenta") == 0) return 0xFFFF77FF;
+    
+    if (cmd_strcmp(s, "cyan") == 0 || cmd_strcmp(s, "aqua") == 0) return 0xFF00FFFF;
+    if (cmd_strcmp(s, "lightcyan") == 0 || cmd_strcmp(s, "light cyan") == 0) return 0xFFE0FFFF;
+    
+    if (cmd_strcmp(s, "orange") == 0) return 0xFFFFA500;
+    if (cmd_strcmp(s, "brown") == 0) return 0xFFA52A2A;
+    if (cmd_strcmp(s, "pink") == 0) return 0xFFFFC0CB;
+    if (cmd_strcmp(s, "purple") == 0) return 0xFF800080;
+    if (cmd_strcmp(s, "teal") == 0) return 0xFF008080;
+    if (cmd_strcmp(s, "lime") == 0) return 0xFF00FF00;
+    if (cmd_strcmp(s, "maroon") == 0) return 0xFF800000;
+    if (cmd_strcmp(s, "navy") == 0) return 0xFF000080;
+    if (cmd_strcmp(s, "indigo") == 0) return 0xFF4B0082;
+    if (cmd_strcmp(s, "violet") == 0) return 0xFFEE82EE;
+
+    // 4. Fallback: Loose Hex (e.g. "FF00FF")
+    const char *hex = s;
+    uint32_t res = 0;
+    int count = 0;
+    while (*hex && count < 8) {
+        char c = *hex++;
+        if (c >= '0' && c <= '9') res = (res << 4) | (c - '0');
+        else if (c >= 'a' && c <= 'f') res = (res << 4) | (c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F') res = (res << 4) | (c - 'A' + 10);
+        else break;
+        count++;
+    }
+    if (count == 6) res |= 0xFF000000;
+    return res;
+}
+
+static void cmd_init_config_defaults(void) {
+    shell_config.prompt_drive_color = 0xFFCCCCCC; // Default light gray
+    shell_config.prompt_colon_color = 0xFFCCCCCC;
+    shell_config.prompt_dir_color = 0xFF569CD6;   // Blue
+    shell_config.prompt_op_color = 0xFFCCCCCC;
+    shell_config.prompt_op_char = '>';
+    shell_config.default_text_color = 0xFFCCCCCC;
+    shell_config.bg_color = 0xFF1E1E1E;          // Dark background
+    shell_config.cursor_color = 0xFFFFFFFF;
+    shell_config.show_drive = true;
+    shell_config.show_dir = true;
+    shell_config.dir_color = 0xFF569CD6;
+    shell_config.file_color = 0xFFCCCCCC;
+    shell_config.size_color = 0xFF6A9955;         // Green
+    shell_config.error_color = 0xFFFF4444;        // Red
+    shell_config.success_color = 0xFF6A9955;
+    shell_config.help_color = 0xFFCCCCCC;
+    shell_config.command_color = 0xFFFFFFFF;     // White typed text
+    cmd_strcpy(shell_config.title_text, "Command Prompt");
+    cmd_strcpy(shell_config.custom_welcome_message, "");
+    cmd_strcpy(shell_config.startup_cmd, "");
+    cmd_strcpy(shell_config.prompt_suffix, " ");
+    shell_config.welcome_msg = true;
+    shell_config.history_save_prompt = true;
+}
+
+void cmd_load_config(void) {
+    cmd_init_config_defaults();
+    
+    FAT32_FileHandle *fh = fat32_open("Library/conf/shell.cfg", "r");
+    if (!fh) return;
+    
+    char buffer[4096];
+    int bytes = fat32_read(fh, buffer, sizeof(buffer) - 1);
+    fat32_close(fh);
+    
+    if (bytes <= 0) return;
+    buffer[bytes] = 0;
+    
+    char *line = buffer;
+    while (*line) {
+        char *end = line;
+        while (*end && *end != '\n' && *end != '\r') end++;
+        
+        char saved = *end;
+        *end = 0;
+        
+        // Skip comments and empty lines
+        if (line[0] == '/' && line[1] == '/') {
+            line = end + (saved ? 1 : 0);
+            if (saved == '\r' && *line == '\n') line++;
+            continue;
+        }
+        
+        char *sep = line;
+        while (*sep && *sep != '=') sep++;
+        
+        if (*sep == '=') {
+            *sep = 0;
+            char *key = line;
+            char *val = sep + 1;
+            
+            // Trim whitespace from key
+            char *k_end = sep - 1;
+            while (k_end > key && (*k_end == ' ' || *k_end == '\t')) {
+                *k_end-- = 0;
+            }
+            
+            // Trim whitespace from value
+            while (*val == ' ' || *val == '\t') val++;
+            char *v_end = val;
+            while (*v_end) v_end++;
+            if (v_end > val) {
+                v_end--;
+                while (v_end > val && (*v_end == ' ' || *v_end == '\t' || *v_end == '\n' || *v_end == '\r')) {
+                    *v_end-- = 0;
+                }
+            }
+
+            // Lowercase value for easier parsing of named colors, EXCEPT for string fields
+            if (cmd_strcmp(key, "title_text") != 0 && 
+                cmd_strcmp(key, "custom_welcome_message") != 0 &&
+                cmd_strcmp(key, "startup_cmd") != 0 &&
+                cmd_strcmp(key, "prompt_suffix") != 0) {
+                char *p_low = val;
+                while (*p_low) {
+                    if (*p_low >= 'A' && *p_low <= 'Z') *p_low += 32;
+                    p_low++;
+                }
+            }
+            
+            if (cmd_strcmp(key, "prompt_drive_color") == 0) shell_config.prompt_drive_color = parse_color(val);
+            else if (cmd_strcmp(key, "prompt_colon_color") == 0) shell_config.prompt_colon_color = parse_color(val);
+            else if (cmd_strcmp(key, "prompt_dir_color") == 0) shell_config.prompt_dir_color = parse_color(val);
+            else if (cmd_strcmp(key, "prompt_op_color") == 0) shell_config.prompt_op_color = parse_color(val);
+            else if (cmd_strcmp(key, "prompt_op_char") == 0) {
+                if (*val) shell_config.prompt_op_char = *val;
+            }
+            else if (cmd_strcmp(key, "default_text_color") == 0) shell_config.default_text_color = parse_color(val);
+            else if (cmd_strcmp(key, "bg_color") == 0) shell_config.bg_color = parse_color(val);
+            else if (cmd_strcmp(key, "cursor_color") == 0) shell_config.cursor_color = parse_color(val);
+            else if (cmd_strcmp(key, "show_drive") == 0) shell_config.show_drive = parse_bool(val);
+            else if (cmd_strcmp(key, "show_dir") == 0) shell_config.show_dir = parse_bool(val);
+            else if (cmd_strcmp(key, "dir_color") == 0) shell_config.dir_color = parse_color(val);
+            else if (cmd_strcmp(key, "file_color") == 0) shell_config.file_color = parse_color(val);
+            else if (cmd_strcmp(key, "size_color") == 0) shell_config.size_color = parse_color(val);
+            else if (cmd_strcmp(key, "error_color") == 0) shell_config.error_color = parse_color(val);
+            else if (cmd_strcmp(key, "success_color") == 0) shell_config.success_color = parse_color(val);
+            else if (cmd_strcmp(key, "help_color") == 0) shell_config.help_color = parse_color(val);
+            else if (cmd_strcmp(key, "command_color") == 0) shell_config.command_color = parse_color(val);
+            else if (cmd_strcmp(key, "title_text") == 0) {
+                cmd_strcpy(shell_config.title_text, val);
+            }
+            else if (cmd_strcmp(key, "custom_welcome_message") == 0) {
+                cmd_strcpy(shell_config.custom_welcome_message, val);
+            }
+            else if (cmd_strcmp(key, "startup_cmd") == 0) {
+                cmd_strcpy(shell_config.startup_cmd, val);
+            }
+            else if (cmd_strcmp(key, "prompt_suffix") == 0) {
+                cmd_strcpy(shell_config.prompt_suffix, val);
+            }
+            else if (cmd_strcmp(key, "welcome_msg") == 0) shell_config.welcome_msg = parse_bool(val);
+            else if (cmd_strcmp(key, "history_save_prompt") == 0) shell_config.history_save_prompt = parse_bool(val);
+        }
+        
+        line = end + (saved ? 1 : 0);
+        if (saved == '\r' && *line == '\n') line++;
+    }
+}
+
+// System Call Helper
+uint64_t cmd_get_config_value(const char *key) {
+    if (cmd_strcmp(key, "prompt_drive_color") == 0) return shell_config.prompt_drive_color;
+    if (cmd_strcmp(key, "prompt_colon_color") == 0) return shell_config.prompt_colon_color;
+    if (cmd_strcmp(key, "prompt_drive_color") == 0) return shell_config.prompt_drive_color;
+    if (cmd_strcmp(key, "prompt_colon_color") == 0) return shell_config.prompt_colon_color;
+    if (cmd_strcmp(key, "prompt_dir_color") == 0) return shell_config.prompt_dir_color;
+    if (cmd_strcmp(key, "prompt_op_color") == 0) return shell_config.prompt_op_color;
+    if (cmd_strcmp(key, "default_text_color") == 0) return shell_config.default_text_color;
+    if (cmd_strcmp(key, "bg_color") == 0) return shell_config.bg_color;
+    if (cmd_strcmp(key, "cursor_color") == 0) return shell_config.cursor_color;
+    if (cmd_strcmp(key, "show_drive") == 0) return shell_config.show_drive;
+    if (cmd_strcmp(key, "show_dir") == 0) return shell_config.show_dir;
+    if (cmd_strcmp(key, "dir_color") == 0) return shell_config.dir_color;
+    if (cmd_strcmp(key, "file_color") == 0) return shell_config.file_color;
+    if (cmd_strcmp(key, "size_color") == 0) return shell_config.size_color;
+    if (cmd_strcmp(key, "error_color") == 0) return shell_config.error_color;
+    if (cmd_strcmp(key, "success_color") == 0) return shell_config.success_color;
+    if (cmd_strcmp(key, "help_color") == 0) return shell_config.help_color;
+    if (cmd_strcmp(key, "command_color") == 0) return shell_config.command_color;
+    if (cmd_strcmp(key, "welcome_msg") == 0) return shell_config.welcome_msg;
+    if (cmd_strcmp(key, "history_save_prompt") == 0) return shell_config.history_save_prompt;
+    return 0;
+}
+
+void cmd_set_current_color(uint32_t color) {
+    current_color = color;
 }
 
 // --- History ---
@@ -153,25 +467,37 @@ static void cmd_history_add(const char *cmd) {
     if (history_len < HISTORY_MAX) history_len++;
 }
 
-static void cmd_print_prompt(void) {
-    // Clear the current line to prevent old output from corrupting the new command buffer
-    for (int i = 0; i < CMD_COLS; i++) {
-        screen_buffer[cursor_row][i].c = 0;
-        screen_buffer[cursor_row][i].color = current_color;
+void cmd_print_prompt(void) {
+    if (cmd_state) {
+        current_prompt_len = 0;
+        cursor_col = 0;
+        
+        if (shell_config.show_drive) {
+            current_color = shell_config.prompt_drive_color;
+            cmd_putchar(cmd_state->current_drive);
+            current_color = shell_config.prompt_colon_color;
+            cmd_putchar(':');
+        }
+        
+        if (shell_config.show_dir) {
+            current_color = shell_config.prompt_dir_color;
+            cmd_write(cmd_state->current_dir);
+        }
+        
+        current_color = shell_config.prompt_op_color;
+        cmd_putchar(shell_config.prompt_op_char);
+        
+        if (shell_config.prompt_suffix[0]) {
+            cmd_write(shell_config.prompt_suffix);
+        }
+        
+        current_prompt_len = cursor_col;
+        current_color = shell_config.command_color;
     }
-    cursor_col = 0;
-
-    char buf[5];
-    buf[0] = cmd_state ? cmd_state->current_drive : 'A';
-    buf[1] = ':';
-    buf[2] = '>';
-    buf[3] = ' ';
-    buf[4] = 0;
-    cmd_write(buf);
 }
 
-static void cmd_clear_line_content(void) {
-    int prompt_len = 4; // "A:> "
+void cmd_clear_line_content(void) {
+    int prompt_len = current_prompt_len;
     for (int i = prompt_len; i < CMD_COLS; i++) {
         screen_buffer[cursor_row][i].c = ' ';
         screen_buffer[cursor_row][i].color = current_color;
@@ -200,7 +526,7 @@ static void cmd_scroll_up() {
     // Clear bottom row
     for (int c = 0; c < CMD_COLS; c++) {
         screen_buffer[CMD_ROWS - 1][c].c = ' ';
-        screen_buffer[CMD_ROWS - 1][c].color = current_color;
+        screen_buffer[CMD_ROWS - 1][c].color = shell_config.default_text_color;
     }
 }
 
@@ -224,10 +550,15 @@ void cmd_putchar(char c) {
     if (c == '\n') {
         cursor_col = 0;
         cursor_row++;
+    } else if (c == '\t') {
+        int spaces = 4 - (cursor_col % 4);
+        for (int i = 0; i < spaces; i++) cmd_putchar(' ');
+        return;
     } else if (c == '\b') {
         if (cursor_col > 0) {
             cursor_col--;
             screen_buffer[cursor_row][cursor_col].c = ' ';
+            screen_buffer[cursor_row][cursor_col].color = shell_config.default_text_color;
         }
     } else {
         if (cursor_col >= CMD_COLS) {
@@ -252,7 +583,6 @@ void cmd_putchar(char c) {
     
     // Trigger repaint so output from syscalls is immediately visible
     wm_mark_dirty(win_cmd.x, win_cmd.y, win_cmd.w, win_cmd.h);
-    wm_refresh();
 }
 
 // Public for CLI apps to use
@@ -594,6 +924,22 @@ static void internal_cmd_exit(char *args) {
     cmd_window_exit();
 }
 
+static void internal_cmd_reload(char *args) {
+    (void)args;
+    cmd_load_config();
+    win_cmd.title = shell_config.title_text;
+    cmd_write("Configuration reloaded.\n");
+    cmd_print_prompt();
+}
+
+static void internal_cmd_cls(char *args) {
+    (void)args;
+    cmd_screen_clear();
+    cursor_row = 0;
+    cursor_col = 0;
+    cmd_print_prompt();
+}
+
 // Command dispatch table
 typedef struct {
     const char *name;
@@ -609,6 +955,12 @@ static const CommandEntry commands[] = {
     {"exit", internal_cmd_exit},
     {"CD", internal_cmd_cd},
     {"cd", internal_cmd_cd},
+    {"RELOAD", internal_cmd_reload},
+    {"reload", internal_cmd_reload},
+    {"CLS", internal_cmd_cls},
+    {"cls", internal_cmd_cls},
+    {"CLEAR", internal_cmd_cls},
+    {"clear", internal_cmd_cls},
     {NULL, NULL}
 };
 
@@ -793,10 +1145,15 @@ static void cmd_exec_single(char *cmd) {
                             i += 2;
                             while (args[i] == ' ') { temp_args[j++] = ' '; i++; }
                             
-                            // Prepend drive to filename
+                            // Prepend drive and directory to filename if relative
                             if (args[i] && args[i+1] != ':') {
                                 temp_args[j++] = cmd_state->current_drive;
                                 temp_args[j++] = ':';
+                                if (args[i] != '/') {
+                                    const char *d = cmd_state->current_dir;
+                                    while (*d && j < 509) temp_args[j++] = *d++;
+                                    if (j > 2 && temp_args[j-1] != '/') temp_args[j++] = '/';
+                                }
                             }
                             in_redirect = true;
                         } else if (args[i] == '>' && args[i+1] != '>') {
@@ -805,10 +1162,15 @@ static void cmd_exec_single(char *cmd) {
                             i++;
                             while (args[i] == ' ') { temp_args[j++] = ' '; i++; }
                             
-                            // Prepend drive to filename
+                            // Prepend drive and directory to filename if relative
                             if (args[i] && args[i+1] != ':') {
                                 temp_args[j++] = cmd_state->current_drive;
                                 temp_args[j++] = ':';
+                                if (args[i] != '/') {
+                                    const char *d = cmd_state->current_dir;
+                                    while (*d && j < 509) temp_args[j++] = *d++;
+                                    if (j > 2 && temp_args[j-1] != '/') temp_args[j++] = '/';
+                                }
                             }
                             in_redirect = true;
                         } else {
@@ -823,11 +1185,14 @@ static void cmd_exec_single(char *cmd) {
                            cmd_strcmp(cmd, "cc") == 0 || cmd_strcmp(cmd, "CC") == 0 ||
                            cmd_strcmp(cmd, "compc") == 0 || cmd_strcmp(cmd, "COMPC") == 0 ||
                            cmd_strcmp(cmd, "touch") == 0 || cmd_strcmp(cmd, "TOUCH") == 0 ||
+                           cmd_strcmp(cmd, "mkdir") == 0 || cmd_strcmp(cmd, "MKDIR") == 0 ||
+                           cmd_strcmp(cmd, "rm") == 0 || cmd_strcmp(cmd, "RM") == 0 ||
+                           cmd_strcmp(cmd, "ls") == 0 || cmd_strcmp(cmd, "LS") == 0 ||
                            cmd_strcmp(cmd, "cp") == 0 || cmd_strcmp(cmd, "CP") == 0 ||
                            cmd_strcmp(cmd, "mv") == 0 || cmd_strcmp(cmd, "MV") == 0 ||
                            cmd_strcmp(cmd, "txtedit") == 0 || cmd_strcmp(cmd, "TXTEDIT") == 0 ||
                            cmd_strcmp(cmd, "tx") == 0 || cmd_strcmp(cmd, "TX") == 0) {
-                    // For cat, cc, compc, touch, cp, mv, txtedit: prepend drive to file arguments if not already present
+                    // For filesystem commands: prepend drive and current directory if relative
                     if (args[1] == ':') {
                         // Already has drive letter
                         cmd_strcpy(full_path_arg, args);
@@ -1247,39 +1612,42 @@ static void cmd_exec(char *cmd) {
 // --- Window Functions ---
 
 static void cmd_paint(Window *win) {
-    // Draw Window Content Background
+    // Fill background
+    draw_rect(win->x + 4, win->y + 30, win->w - 8, win->h - 34, shell_config.bg_color);
+    
     int offset_x = win->x + 4;
     int offset_y = win->y + 24;
-    
-    // Fill background - dark mode terminal
-    draw_rect(win->x + 4, win->y + 30, win->w - 8, win->h - 34, COLOR_DARK_BG);
-    
     int start_y = offset_y + 4;
     int start_x = offset_x + 4;
 
     if (current_mode == MODE_PAGER) {
         // Draw Pager Content (Wrapped)
         for (int i = 0; i < CMD_ROWS && (pager_top_line + i) < pager_total_lines; i++) {
-            draw_string(start_x, start_y + (i * LINE_HEIGHT), pager_wrapped_lines[pager_top_line + i], COLOR_DARK_TEXT);
+            draw_string(start_x, start_y + (i * LINE_HEIGHT), pager_wrapped_lines[pager_top_line + i], shell_config.default_text_color);
         }
         
         // Status Bar
-        draw_string(start_x, start_y + (CMD_ROWS * LINE_HEIGHT), "-- Press Q to quit --", COLOR_DARK_TEXT);
-        
+        draw_string(start_x, start_y + (CMD_ROWS * LINE_HEIGHT), "-- Press Q to quit --", shell_config.default_text_color);
     } else {
+        // Draw Cursor
+        if (win->focused) {
+            draw_rect(start_x + (cursor_col * CHAR_WIDTH), start_y + (cursor_row * LINE_HEIGHT), 
+                      CHAR_WIDTH, LINE_HEIGHT, shell_config.cursor_color);
+        }
+
         // Draw Shell Buffer
         for (int r = 0; r < CMD_ROWS; r++) {
             for (int c = 0; c < CMD_COLS; c++) {
                 char ch = screen_buffer[r][c].c;
                 if (ch != 0 && ch != ' ') {
-                    draw_char(start_x + (c * CHAR_WIDTH), start_y + (r * LINE_HEIGHT), ch, screen_buffer[r][c].color);
+                    uint32_t color = screen_buffer[r][c].color;
+                    // If cursor is on this character, and cursor color is bright, use background color for char
+                    if (r == cursor_row && c == cursor_col && win->focused) {
+                        color = shell_config.bg_color;
+                    }
+                    draw_char(start_x + (c * CHAR_WIDTH), start_y + (r * LINE_HEIGHT), ch, color);
                 }
             }
-        }
-        
-        // Draw Cursor
-        if (win->focused) {
-            draw_rect(start_x + (cursor_col * CHAR_WIDTH), start_y + (cursor_row * LINE_HEIGHT) + 8, CHAR_WIDTH, 2, COLOR_WHITE);
         }
     }
 }
@@ -1301,17 +1669,18 @@ static void cmd_key(Window *target, char c) {
     if (c == '\n') { // Enter
          char cmd_buf[CMD_COLS + 1];
          int len = 0;
-         int prompt_len = 4;
+         int prompt_len = current_prompt_len;
          
          for (int i = prompt_len; i < CMD_COLS; i++) {
              char ch = screen_buffer[cursor_row][i].c;
-             if (ch == 0) break;
+             if (ch == 0 || (ch == ' ' && i > prompt_len && screen_buffer[cursor_row][i+1].c == 0)) break;
              cmd_buf[len++] = ch;
          }
          while (len > 0 && cmd_buf[len-1] == ' ') len--;
          cmd_buf[len] = 0;
 
          cmd_putchar('\n');
+         current_color = shell_config.default_text_color;
          
          if (len > 0) cmd_history_add(cmd_buf);
          history_pos = -1;
@@ -1326,10 +1695,10 @@ static void cmd_key(Window *target, char c) {
             if (history_pos == -1) {
                 // Save current line
                 int len = 0;
-                int prompt_len = 4;
+                int prompt_len = current_prompt_len;
                 for (int i = prompt_len; i < CMD_COLS; i++) {
                     char ch = screen_buffer[cursor_row][i].c;
-                    if (ch == 0) break;
+                    if (ch == 0 || (ch == ' ' && i > prompt_len && screen_buffer[cursor_row][i+1].c == 0)) break;
                     history_save_buf[len++] = ch;
                 }
                 while (len > 0 && history_save_buf[len-1] == ' ') len--;
@@ -1356,7 +1725,7 @@ static void cmd_key(Window *target, char c) {
             }
         }
     } else if (c == 19) { // LEFT
-        if (cursor_col > 4) {
+        if (cursor_col > current_prompt_len) {
             cursor_col--;
         }
     } else if (c == 20) { // RIGHT
@@ -1364,37 +1733,100 @@ static void cmd_key(Window *target, char c) {
             cursor_col++;
         }
     } else if (c == '\b') { // Backspace
-         if (cursor_col > 4) {
+         if (cursor_col > current_prompt_len) {
+             // Shift characters to the left
+             for (int i = cursor_col; i < CMD_COLS; i++) {
+                 screen_buffer[cursor_row][i - 1] = screen_buffer[cursor_row][i];
+             }
+             screen_buffer[cursor_row][CMD_COLS - 1].c = ' ';
              cursor_col--;
-             screen_buffer[cursor_row][cursor_col].c = ' ';
+             wm_mark_dirty(win_cmd.x, win_cmd.y, win_cmd.w, win_cmd.h);
          }
     } else {
         if (c >= 32 && c <= 126) {
-            cmd_putchar(c);
+            // Shift characters to the right
+            for (int i = CMD_COLS - 1; i > cursor_col; i--) {
+                screen_buffer[cursor_row][i] = screen_buffer[cursor_row][i - 1];
+            }
+            screen_buffer[cursor_row][cursor_col].c = c;
+            screen_buffer[cursor_row][cursor_col].color = current_color;
+            cursor_col++;
+            wm_mark_dirty(win_cmd.x, win_cmd.y, win_cmd.w, win_cmd.h);
         }
     }
 }
 
 void cmd_reset(void) {
     // Reset terminal to fresh state
-    cmd_screen_clear();
-    cmd_write("BoredOS Command Prompt\n");
-    if (msg_count > 0) {
-        cmd_write("You have ");
-        cmd_write_int(msg_count);
-        cmd_write(" new message(s) run \"msgrc\" to see your new message(s).\n");
+    cmd_load_config();
+    
+    cursor_row = 0;
+    cursor_col = 0;
+    current_color = shell_config.default_text_color;
+    win_cmd.title = shell_config.title_text;
+    
+    if (shell_config.welcome_msg) {
+        if (shell_config.custom_welcome_message[0]) {
+            cmd_write(shell_config.custom_welcome_message);
+            cmd_putchar('\n');
+        } else {
+            cmd_write("BoredOS Command Prompt\n");
+        }
     }
+    
+    if (shell_config.startup_cmd[0]) {
+        // Run startup command without prompt prefix
+        cmd_exec(shell_config.startup_cmd);
+    }
+    
     cmd_print_prompt();
 }
 
-static void create_test_files(void) {
+static void create_ramfs_files(void) {
     if (!fat32_exists("Documents")) fat32_mkdir("Documents");
     if (!fat32_exists("Projects")) fat32_mkdir("Projects");
     if (!fat32_exists("Documents/Important")) fat32_mkdir("Documents/Important");
     if (!fat32_exists("Apps")) fat32_mkdir("Apps");
     if (!fat32_exists("Desktop")) fat32_mkdir("Desktop");
     if (!fat32_exists("RecycleBin")) fat32_mkdir("RecycleBin");
-    if (!fat32_exists("bin")) fat32_mkdir("bin");
+    if (!fat32_exists("Library/conf")) fat32_mkdir("Library/conf");
+
+    // Create default shell configuration file (commented out)
+    if (!fat32_exists("Library/conf/shell.cfg")) {
+        FAT32_FileHandle *cfg = fat32_open("Library/conf/shell.cfg", "w");
+        if (cfg) {
+            const char *config_content = 
+                "// BoredOS Shell Configuration\n"
+                "// Colors: HEX (#RRGGBB), RGB (rgb(r,g,b)), or Names (red, blue, light blue, etc.)\n"
+                "// ---------------------------------------------------------------------------\n"
+                "// prompt_drive_color=white\n"
+                "// prompt_colon_color=gray\n"
+                "// prompt_dir_color=light blue\n"
+                "// prompt_op_color=white\n"
+                "// prompt_op_char=>\n"
+                "// prompt_suffix= \n"
+                "// default_text_color=light gray\n"
+                "// command_color=white\n"
+                "// bg_color=#1E1E1E\n"
+                "// cursor_color=white\n"
+                "// title_text=Command Prompt\n"
+                "// custom_welcome_message=\n"
+                "// startup_cmd=\n"
+                "// welcome_msg=true\n"
+                "// show_drive=true\n"
+                "// show_dir=true\n"
+                "// dir_color=light blue\n"
+                "// file_color=white\n"
+                "// size_color=light green\n"
+                "// error_color=light red\n"
+                "// success_color=light green\n"
+                "// help_color=light gray\n"
+                "// history_save_prompt=true\n";
+            fat32_write(cfg, (void *)config_content, cmd_strlen(config_content)); 
+            fat32_close(cfg);
+        }
+    }
+
 
     
   
@@ -1596,14 +2028,18 @@ static void create_test_files(void) {
 
 
 void cmd_init(void) {
-    create_test_files();
+    cmd_init_config_defaults();
+    create_ramfs_files();
     create_man_entries();
+    
+    // Load config after files are created
+    cmd_load_config();
 
-    win_cmd.title = "Command Prompt";
+    win_cmd.title = shell_config.title_text;
     win_cmd.x = 50;
     win_cmd.y = 50;
     win_cmd.w = (CMD_COLS * CHAR_WIDTH) + 20; 
-    win_cmd.h = (CMD_ROWS * LINE_HEIGHT) + 40;
+    win_cmd.h = (CMD_ROWS * LINE_HEIGHT) + 50;
     
     win_cmd.visible = false;
     win_cmd.focused = false;

@@ -5,6 +5,9 @@
 #include <syscall.h>
 
 int main(int argc, char **argv) {
+    uint32_t error_color = (uint32_t)sys_get_shell_config("error_color");
+    uint32_t default_color = (uint32_t)sys_get_shell_config("default_text_color");
+
     if (argc < 2) {
         printf("Usage: cat <filename>\n");
         return 1;
@@ -12,7 +15,9 @@ int main(int argc, char **argv) {
     
     int fd = sys_open(argv[1], "r");
     if (fd < 0) {
+        sys_set_text_color(error_color);
         printf("Error: Cannot open %s\n", argv[1]);
+        sys_set_text_color(default_color);
         return 1;
     }
     

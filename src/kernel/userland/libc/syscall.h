@@ -56,6 +56,8 @@
 #define SYSTEM_CMD_NETWORK_GET_DNS 25
 #define SYSTEM_CMD_ICMP_PING 26
 #define SYSTEM_CMD_NETWORK_IS_INIT 27
+#define SYSTEM_CMD_GET_SHELL_CONFIG 28
+#define SYSTEM_CMD_SET_TEXT_COLOR 29
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);
@@ -112,5 +114,8 @@ int sys_network_get_dns(net_ipv4_address_t *ip);
 int sys_udp_send(const net_ipv4_address_t *dest_ip, uint16_t dest_port, uint16_t src_port, const void *data, size_t data_len);
 int sys_icmp_ping(const net_ipv4_address_t *dest_ip);
 int sys_network_is_initialized(void);
+
+uint64_t sys_get_shell_config(const char *key);
+void sys_set_text_color(uint32_t color);
 
 #endif

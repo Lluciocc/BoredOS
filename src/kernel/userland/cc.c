@@ -13,6 +13,9 @@
 #define STR_POOL_SIZE 16384
 
 static int compile_error = 0;
+static uint32_t color_error = 0xFFFF4444;
+static uint32_t color_success = 0xFF6A9955;
+static uint32_t color_default = 0xFFCCCCCC;
 
 // --- Lexer ---
 typedef enum {
@@ -59,7 +62,9 @@ static Token tokens[MAX_TOKENS];
 static int token_count = 0;
 
 static void lex_error(const char *msg) {
+    sys_set_text_color(color_error);
     printf("Compiler Error: %s\n", msg);
+    sys_set_text_color(color_default);
     compile_error = 1;
 }
 
@@ -304,7 +309,12 @@ static int add_symbol(const char *name) {
 
 static void emit(uint8_t b) {
     if (code_pos < CODE_SIZE) code[code_pos++] = b;
-    else { printf("Error: Code buffer overflow\n"); compile_error = 1; }
+    else { 
+        sys_set_text_color(color_error);
+        printf("Error: Code buffer overflow\n"); 
+        sys_set_text_color(color_default);
+        compile_error = 1; 
+    }
 }
 
 static void emit32(int v) {
@@ -323,7 +333,12 @@ static int add_string(const char *str) {
 static void match(TokenType t) {
     if (compile_error) return;
     if (tokens[cur_token].type == t) cur_token++;
-    else { printf("Syntax Error: Expected token %d got %d\n", t, tokens[cur_token].type); compile_error = 1; }
+    else { 
+        sys_set_text_color(color_error);
+        printf("Syntax Error: Expected token %d got %d\n", t, tokens[cur_token].type); 
+        sys_set_text_color(color_default);
+        compile_error = 1; 
+    }
 }
 
 static void expression();
@@ -352,11 +367,21 @@ static void factor() {
         if (syscall != -1 && tokens[cur_token+1].type == TOK_LPAREN) function_call(syscall);
         else {
             int addr = find_symbol(tokens[cur_token].str_val);
-            if (addr == -1) { printf("Error: Undefined variable: %s\n", tokens[cur_token].str_val); compile_error = 1; }
+            if (addr == -1) { 
+                sys_set_text_color(color_error);
+                printf("Error: Undefined variable: %s\n", tokens[cur_token].str_val); 
+                sys_set_text_color(color_default);
+                compile_error = 1; 
+            }
             emit(OP_LOAD); emit32(addr); cur_token++;
         }
     } else if (tokens[cur_token].type == TOK_LPAREN) { cur_token++; expression(); match(TOK_RPAREN); }
-    else { printf("Syntax Error: Unexpected token in factor\n"); compile_error = 1; }
+    else { 
+        sys_set_text_color(color_error);
+        printf("Syntax Error: Unexpected token in factor\n"); 
+        sys_set_text_color(color_default);
+        compile_error = 1; 
+    }
 }
 
 static void term() {
@@ -461,10 +486,19 @@ static void program() {
 }
 
 int main(int argc, char **argv) {
+    color_error = (uint32_t)sys_get_shell_config("error_color");
+    color_success = (uint32_t)sys_get_shell_config("success_color");
+    color_default = (uint32_t)sys_get_shell_config("default_text_color");
+
     if (argc < 2) { printf("Usage: cc <filename.c>\n"); return 1; }
 
     int fh = sys_open(argv[1], "r");
-    if (fh < 0) { printf("Error: Cannot open source file.\n"); return 1; }
+    if (fh < 0) { 
+        sys_set_text_color(color_error);
+        printf("Error: Cannot open source file.\n"); 
+        sys_set_text_color(color_default);
+        return 1; 
+    }
     
     char *source = (char*)malloc(MAX_SOURCE);
     if (!source) { printf("Error: Out of memory for source buffer.\n"); sys_close(fh); return 1; }
@@ -515,8 +549,14 @@ int main(int argc, char **argv) {
     if (out_fh >= 0) {
         sys_write_fs(out_fh, code, code_pos);
         sys_close(out_fh);
+        sys_set_text_color(color_success);
         printf("Compilation successful. Output: %s\n", out_name);
-    } else { printf("Error: Cannot write output file.\n"); }
+        sys_set_text_color(color_default);
+    } else { 
+        sys_set_text_color(color_error);
+        printf("Error: Cannot write output file.\n"); 
+        sys_set_text_color(color_default);
+    }
     
     return 0;
 }

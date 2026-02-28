@@ -15,6 +15,7 @@
 #include "kutils.h"
 #include "network.h"
 #include "icmp.h"
+#include "cmd.h"
 
 // Read MSR
 static inline uint64_t rdmsr(uint32_t msr) {
@@ -136,10 +137,8 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
     extern void cmd_process_finished(void);
     
     if (syscall_num == 1) { // SYS_WRITE
-        // arg2 is the buffer based on our user_test logic
         cmd_write((const char*)arg2);
     } else if (syscall_num == 0 || syscall_num == 60) { // SYS_EXIT
-        serial_write("Kernel: SYS_EXIT called\n");
         uint64_t next_rsp = process_terminate_current();
         extern void context_switch_to(uint64_t rsp);
         context_switch_to(next_rsp);
@@ -724,6 +723,14 @@ uint64_t syscall_handler_c(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, u
             return cli_cmd_ping_syscall(dest_ip);
         } else if (cmd == 27) { // SYSTEM_CMD_NETWORK_IS_INIT
             return network_is_initialized() ? 1 : 0;
+        } else if (cmd == 28) { // SYSTEM_CMD_GET_SHELL_CONFIG
+            const char *key = (const char *)arg2;
+            if (!key) return -1;
+            return cmd_get_config_value(key);
+        } else if (cmd == 29) { // SYSTEM_CMD_SET_TEXT_COLOR
+            uint32_t color = (uint32_t)arg2;
+            cmd_set_current_color(color);
+            return 0;
         }
         return -1;
     }

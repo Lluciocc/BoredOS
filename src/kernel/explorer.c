@@ -9,7 +9,6 @@
 #include "memory_manager.h"
 #include "cmd.h"
 #include "process.h"
-#include "about.h"
 #define EXPLORER_ITEM_HEIGHT 80
 #define EXPLORER_ITEM_WIDTH 120
 #define EXPLORER_COLS 4
@@ -853,7 +852,7 @@ static void explorer_open_item(Window *win, int index) {
         } else if (explorer_strcmp(state->items[index].name, "Control Panel.shortcut") == 0 || explorer_strcmp(state->items[index].name, "Settings.shortcut") == 0) {
             process_create_elf("/bin/settings.elf", NULL); return;
         } else if (explorer_strcmp(state->items[index].name, "About.shortcut") == 0) {
-            target = &win_about;
+            process_create_elf("/bin/about.elf", NULL); return;
         } else if (explorer_strcmp(state->items[index].name, "Explorer.shortcut") == 0) {
             explorer_open_directory("/"); return;
         } else if (explorer_strcmp(state->items[index].name, "Recycle Bin.shortcut") == 0) {

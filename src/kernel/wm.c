@@ -12,7 +12,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "wallpaper.h"
-#include "about.h"
 #include "fat32.h"
 #include "nanojpeg.h"
 #include "memory_manager.h"
@@ -1583,7 +1582,7 @@ void wm_handle_click(int x, int y) {
         int item = rel_y / 20;
         
         if (item == 0) {  // About
-            wm_bring_to_front(&win_about);
+            process_create_elf("/bin/about.elf", NULL);
         } else if (item == 1) {  // Settings
             Window *existing = wm_find_window_by_title("Settings");
             if (existing) wm_bring_to_front(existing);
@@ -1882,7 +1881,7 @@ void wm_handle_right_click(int x, int y) {
                 if (existing) wm_bring_to_front(existing);
                 else process_create_elf("/bin/paint.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "About")) {
-                wm_bring_to_front(&win_about);
+                process_create_elf("/bin/about.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Shutdown")) {
                 k_shutdown();
             } else if (str_starts_with(start_menu_pending_app, "Restart")) {
@@ -1912,7 +1911,7 @@ void wm_handle_right_click(int x, int y) {
                     } else if (str_ends_with(icon->name, "Terminal.shortcut")) {
                         wm_bring_to_front(&win_cmd); handled = true;
                     } else if (str_ends_with(icon->name, "About.shortcut")) {
-                        wm_bring_to_front(&win_about); handled = true;
+                        process_create_elf("/bin/about.elf", NULL); handled = true;
                     } else if (str_ends_with(icon->name, "Files.shortcut")) {
                         explorer_open_directory("/"); handled = true;
                     } else if (str_ends_with(icon->name, "Recycle Bin.shortcut")) {
@@ -2379,7 +2378,6 @@ void wm_init(void) {
 
     cmd_init();
     explorer_init();
-    about_init();
     wallpaper_init();
     
     refresh_desktop_icons();
@@ -2387,19 +2385,16 @@ void wm_init(void) {
     // Initialize z-indices
     win_cmd.z_index = 0;
     win_explorer.z_index = 1;
-    win_about.z_index = 2;
     
     all_windows[0] = &win_cmd;
     all_windows[1] = &win_explorer;
-    all_windows[2] = &win_about;
-    window_count = 3;
+    window_count = 2;
     
     win_explorer.visible = false;
     win_explorer.focused = false;
     win_explorer.z_index = 10;
     
     win_cmd.visible = false;
-    win_about.visible = false;
     
     force_redraw = true;
 }

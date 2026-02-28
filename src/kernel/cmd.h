@@ -22,4 +22,7 @@ void cmd_screen_clear(void);
 void cmd_increment_msg_count(void);
 void cmd_reset_msg_count(void);
 
+uint64_t cmd_get_config_value(const char *key);
+void cmd_set_current_color(uint32_t color);
+
 #endif

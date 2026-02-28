@@ -294,7 +294,8 @@ uint64_t process_terminate_current(void) {
     if (!current_process) return 0;
     
     // 1. Cleanup side effects
-    if (current_process->ui_window && !current_process->is_terminal_proc) {
+    extern Window win_cmd;
+    if (current_process->ui_window && (current_process->ui_window != &win_cmd)) {
         extern void serial_write(const char *str);
         serial_write("PROC: Terminating proc with window\n");
         wm_remove_window((Window *)current_process->ui_window);
