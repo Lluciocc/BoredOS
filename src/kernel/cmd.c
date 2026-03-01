@@ -1997,7 +1997,7 @@ static void create_ramfs_files(void) {
             "- `iso_root/` - ISO filesystem layout (generated during build)\n"
             "- `limine/` - Limine bootloader files (downloaded automatically)\n"
             "- `linker.ld` - Linker script for x86_64 ELF\n"
-            "- `limine.cfg` - Limine bootloader configuration\n"
+            "- `limine.conf` - Limine bootloader configuration\n"
             "- `Makefile` - Build configuration and targets\n\n"
             "## License\n\n"
             "Copyright (C) 2024-2026 boreddevnl\n\n"

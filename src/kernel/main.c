@@ -177,9 +177,6 @@ void kmain(void) {
             if (fh && fh->valid) {
                 int written = fat32_write(fh, mod->address, mod->size);
                 fat32_close(fh);
-                serial_write("[DEBUG] Module successfully copied to RAMFS. Written bytes: ");
-                serial_write_num(written);
-                serial_write("\n");
             } else {
                 serial_write("[DEBUG] ERROR: Failed to create file in RAMFS for module: ");
                 serial_write(clean_path);

@@ -34,7 +34,7 @@ LDFLAGS = -m elf_x86_64 -nostdlib -static -pie --no-dynamic-linker \
 NASMFLAGS = -f elf64
 
 # Limine Version
-LIMINE_VERSION = 7.0.0
+LIMINE_VERSION = 10.8.2
 LIMINE_URL_BASE = https://github.com/limine-bootloader/limine/raw/v$(LIMINE_VERSION)
 
 .PHONY: all clean run limine-setup
@@ -86,21 +86,21 @@ $(KERNEL_ELF): $(OBJ_FILES)
 	$(MAKE) -C $(SRC_DIR)/userland
 
 # Create ISO
-$(ISO_IMAGE): $(KERNEL_ELF) limine.cfg limine-setup
+$(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 	rm -rf $(ISO_DIR)
 	mkdir -p $(ISO_DIR)
 	mkdir -p $(ISO_DIR)/EFI/BOOT
 	
 	# Copy Kernel and Config
 	cp $(KERNEL_ELF) $(ISO_DIR)/
-	# Build ISO limine.cfg natively with modules
-	cp limine.cfg $(ISO_DIR)/
+	# Build ISO limine.conf natively with modules
+	cp limine.conf $(ISO_DIR)/
 	mkdir -p $(ISO_DIR)/bin
 	@for f in $(SRC_DIR)/userland/bin/*.elf; do \
 		if [ -f "$$f" ]; then \
 			basename=$$(basename "$$f"); \
 			cp "$$f" $(ISO_DIR)/bin/; \
-			echo "    MODULE_PATH=boot:///bin/$$basename" >> $(ISO_DIR)/limine.cfg; \
+			echo "    module_path: boot():/bin/$$basename" >> $(ISO_DIR)/limine.conf; \
 		fi \
 	done
 	
@@ -113,7 +113,7 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.cfg limine-setup
 		if [ -f "$$f" ]; then \
 			basename=$$(basename "$$f"); \
 			cp "$$f" $(ISO_DIR)/Library/images/Wallpapers/; \
-			echo "    MODULE_PATH=boot:///Library/images/Wallpapers/$$basename" >> $(ISO_DIR)/limine.cfg; \
+			echo "    module_path: boot():/Library/images/Wallpapers/$$basename" >> $(ISO_DIR)/limine.conf; \
 		fi \
 	done
 	@if [ -f splash.jpg ]; then cp splash.jpg $(ISO_DIR)/; fi

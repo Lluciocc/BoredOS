@@ -109,7 +109,7 @@ qemu-system-x86_64 -m 2G -serial stdio -cdrom boredos.iso -boot d
 - `iso_root/` - ISO filesystem layout (generated during build)
 - `limine/` - Limine bootloader files (downloaded automatically)
 - `linker.ld` - Linker script for x86_64 ELF
-- `limine.cfg` - Limine bootloader configuration
+- `limine.conf` - Limine bootloader configuration
 - `Makefile` - Build configuration and targets
 
 
