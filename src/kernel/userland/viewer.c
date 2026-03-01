@@ -108,11 +108,11 @@ static void viewer_handle_click(ui_window_t win, int x, int y) {
     int cw = win_w - 8;
     int btn_w = 160;
     int btn_x = cx + (cw - btn_w) / 2;
-    int btn_y = (win_h - 20) - 30;
+    int btn_y = (win_h - 25) - 30; // Matches the hitboxes
     
     if (x >= btn_x && x < btn_x + btn_w && y >= btn_y && y < btn_y + 22) {
-        // SYSTEM_CMD_SET_WALLPAPER is 3 based on syscall.c code
-        sys_system(3, (uint64_t)viewer_file_path, 0, 0, 0);
+        // SYSTEM_CMD_SET_WALLPAPER_PATH is 31
+        sys_system(31, (uint64_t)viewer_file_path, 0, 0, 0);
     }
 }
 

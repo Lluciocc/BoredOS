@@ -3,7 +3,9 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include "libc/syscall.h"
 #include "libc/libui.h"
+#include "nanojpeg.h"
 #include <stddef.h>
+#include <stdint.h>
 
 #define COLOR_COFFEE    0xFF6B4423
 #define COLOR_TEAL      0xFF008080
@@ -40,12 +42,19 @@ static char net_status[64] = "";
 static uint32_t pattern_lumberjack[PATTERN_SIZE * PATTERN_SIZE];
 static uint32_t pattern_blue_diamond[PATTERN_SIZE * PATTERN_SIZE];
 
-#define WALLPAPER_THUMB_W 100
-#define WALLPAPER_THUMB_H 60
-static uint32_t moon_thumb[WALLPAPER_THUMB_W * WALLPAPER_THUMB_H];
-static uint32_t mtn_thumb[WALLPAPER_THUMB_W * WALLPAPER_THUMB_H];
-static _Bool moon_thumb_valid = 0;
-static _Bool mtn_thumb_valid = 0;
+#define MAX_WALLPAPERS 10
+#define WALLPAPER_THUMB_W 80
+#define WALLPAPER_THUMB_H 50
+
+typedef struct {
+    char path[128];
+    char name[64];
+    uint32_t thumb[WALLPAPER_THUMB_W * WALLPAPER_THUMB_H];
+    _Bool valid;
+} wallpaper_entry_t;
+
+static wallpaper_entry_t wallpapers[MAX_WALLPAPERS];
+static int wallpaper_count = 0;
 
 static _Bool desktop_snap_to_grid = 1;
 static _Bool desktop_auto_align = 1;
@@ -92,32 +101,67 @@ static void generate_lumberjack_pattern(void) {
     }
 }
 
-static void generate_blue_diamond_pattern(void) {
-    uint32_t bg_color = 0xFFADD8E6;
-    uint32_t diamond_color = 0xFF0000CD;
-    
-    for (int y = 0; y < PATTERN_SIZE; y++) {
-        for (int x = 0; x < PATTERN_SIZE; x++) {
-            pattern_blue_diamond[y * PATTERN_SIZE + x] = bg_color;
+static void scale_rgb_to_argb(const unsigned char *rgb, int src_w, int src_h, uint32_t *dst, int dst_w, int dst_h) {
+    for (int y = 0; y < dst_h; y++) {
+        int src_y = y * src_h / dst_h;
+        for (int x = 0; x < dst_w; x++) {
+            int src_x = x * src_w / dst_w;
+            int idx = (src_y * src_w + src_x) * 3;
+            dst[y * dst_w + x] = 0xFF000000 | (rgb[idx] << 16) | (rgb[idx + 1] << 8) | rgb[idx + 2];
         }
     }
-    for (int dy = -24; dy <= 24; dy++) {
-        for (int dx = -24; dx <= 24; dx++) {
-            int abs_dx = dx < 0 ? -dx : dx;
-            int abs_dy = dy < 0 ? -dy : dy;
-            if (abs_dx + abs_dy <= 24) {
-                int x1 = 32 + dx;
-                int y1 = 32 + dy;
-                if (x1 >= 0 && x1 < PATTERN_SIZE && y1 >= 0 && y1 < PATTERN_SIZE) {
-                    pattern_blue_diamond[y1 * PATTERN_SIZE + x1] = diamond_color;
-                }
-                int x2 = 96 + dx;
-                int y2 = 96 + dy;
-                if (x2 >= 0 && x2 < PATTERN_SIZE && y2 >= 0 && y2 < PATTERN_SIZE) {
-                    pattern_blue_diamond[y2 * PATTERN_SIZE + x2] = diamond_color;
-                }
+}
+
+static void load_wallpapers(void) {
+    wallpaper_count = 0;
+    FAT32_FileInfo info[MAX_WALLPAPERS];
+    int count = sys_list("/Library/images/Wallpapers", info, MAX_WALLPAPERS);
+    if (count < 0) return;
+
+    for (int i = 0; i < count && wallpaper_count < MAX_WALLPAPERS; i++) {
+        if (info[i].is_directory) continue; // Skip directories
+        
+        // check if .jpg (case-insensitive)
+        int len = 0; while (info[i].name[len]) len++;
+        if (len < 4) continue;
+        char c1 = info[i].name[len-1]; if (c1 >= 'A' && c1 <= 'Z') c1 += 32;
+        char c2 = info[i].name[len-2]; if (c2 >= 'A' && c2 <= 'Z') c2 += 32;
+        char c3 = info[i].name[len-3]; if (c3 >= 'A' && c3 <= 'Z') c3 += 32;
+        if (c1 != 'g' || c2 != 'p' || c3 != 'j') continue;
+
+        wallpaper_entry_t *wp = &wallpapers[wallpaper_count];
+        // Set path
+        char *pref = "/Library/images/Wallpapers/";
+        int pl = 0; while (pref[pl]) { wp->path[pl] = pref[pl]; pl++; }
+        int nl = 0; while (info[i].name[nl]) { wp->path[pl+nl] = info[i].name[nl]; nl++; }
+        wp->path[pl+nl] = 0;
+
+        // Set name (strip .jpg)
+        for (int j = 0; j < nl - 4 && j < 63; j++) wp->name[j] = info[i].name[j];
+        wp->name[(nl-4 < 63) ? nl-4 : 63] = 0;
+
+        // Load and generate thumbnail
+        int fd = sys_open(wp->path, "r");
+        if (fd >= 0) {
+            int size = sys_seek(fd, 0, 2); // SEEK_END
+            sys_seek(fd, 0, 0); // SEEK_SET
+            if (size > 0 && size < 1024 * 1024) {
+                    unsigned char *buf = (unsigned char *)sys_sbrk(size);
+                    if (buf) {
+                        sys_read(fd, buf, size);
+                        njInit();
+                        if (njDecode(buf, size) == NJ_OK) {
+                            scale_rgb_to_argb(njGetImage(), njGetWidth(), njGetHeight(), wp->thumb, WALLPAPER_THUMB_W, WALLPAPER_THUMB_H);
+                            wp->valid = 1;
+                        }
+                        njDone();
+                        sys_sbrk(-size); // Release memory
+                    }
             }
+            sys_close(fd);
         }
+
+        wallpaper_count++;
     }
 }
 
@@ -286,30 +330,20 @@ static void control_panel_paint_wallpaper(ui_window_t win) {
     ui_draw_string(win, offset_x, button_y, "Wallpapers:", COLOR_DARK_TEXT);
     button_y += 20;
     
-    ui_draw_rounded_rect_filled(win, button_x, button_y, WALLPAPER_THUMB_W + 8, WALLPAPER_THUMB_H + 24, 6, COLOR_DARK_PANEL);
-    if (moon_thumb_valid) {
-        for (int ty = 0; ty < WALLPAPER_THUMB_H; ty++) {
-            for (int tx = 0; tx < WALLPAPER_THUMB_W; tx++) {
-                ui_draw_rect(win, button_x + 4 + tx, button_y + 4 + ty, 1, 1, moon_thumb[ty * WALLPAPER_THUMB_W + tx]);
+    for (int i = 0; i < wallpaper_count; i++) {
+        int tx = (i % 3) * (WALLPAPER_THUMB_W + 15);
+        int ty = (i / 3) * (WALLPAPER_THUMB_H + 25);
+        
+        ui_draw_rounded_rect_filled(win, button_x + tx, button_y + ty, WALLPAPER_THUMB_W + 8, WALLPAPER_THUMB_H + 20, 6, COLOR_DARK_PANEL);
+        if (wallpapers[i].valid) {
+            for (int py = 0; py < WALLPAPER_THUMB_H; py++) {
+                for (int px = 0; px < WALLPAPER_THUMB_W; px++) {
+                    ui_draw_rect(win, button_x + tx + 4 + px, button_y + ty + 4 + py, 1, 1, wallpapers[i].thumb[py * WALLPAPER_THUMB_W + px]);
+                }
             }
         }
-    } else {
-        ui_draw_string(win, button_x + 20, button_y + 30, "Error", 0xFFFF4444);
+        ui_draw_string(win, button_x + tx + 8, button_y + ty + WALLPAPER_THUMB_H + 6, wallpapers[i].name, COLOR_DARK_TEXT);
     }
-    ui_draw_string(win, button_x + 30, button_y + WALLPAPER_THUMB_H + 8, "Moon", COLOR_DARK_TEXT);
-    
-    int thumb2_x = button_x + WALLPAPER_THUMB_W + 20;
-    ui_draw_rounded_rect_filled(win, thumb2_x, button_y, WALLPAPER_THUMB_W + 8, WALLPAPER_THUMB_H + 24, 6, COLOR_DARK_PANEL);
-    if (mtn_thumb_valid) {
-        for (int ty = 0; ty < WALLPAPER_THUMB_H; ty++) {
-            for (int tx = 0; tx < WALLPAPER_THUMB_W; tx++) {
-                ui_draw_rect(win, thumb2_x + 4 + tx, button_y + 4 + ty, 1, 1, mtn_thumb[ty * WALLPAPER_THUMB_W + tx]);
-            }
-        }
-    } else {
-        ui_draw_string(win, thumb2_x + 20, button_y + 30, "Error", 0xFFFF4444);
-    }
-    ui_draw_string(win, thumb2_x + 16, button_y + WALLPAPER_THUMB_H + 8, "Mountain", COLOR_DARK_TEXT);
 }
 
 static void control_panel_paint_network(ui_window_t win) {
@@ -429,12 +463,7 @@ static void fetch_kernel_state(void) {
     desktop_max_cols = sys_system(7, 4, 0, 0, 0);
     mouse_speed = sys_system(8 /*GET_MOUSE_SPEED*/, 0, 0, 0, 0);
     
-    if (sys_system(9, 0, (uint64_t)moon_thumb, 0, 0) == 0) {
-        moon_thumb_valid = 1;
-    }
-    if (sys_system(9, 1, (uint64_t)mtn_thumb, 0, 0) == 0) {
-        mtn_thumb_valid = 1;
-    }
+    load_wallpapers();
 }
 
 static void control_panel_handle_click(int x, int y) {
@@ -533,14 +562,14 @@ static void control_panel_handle_click(int x, int y) {
         }
         
         button_y += 80;
-        if (x >= button_x && x < button_x + WALLPAPER_THUMB_W + 8 && y >= button_y && y < button_y + WALLPAPER_THUMB_H + 24) {
-            sys_system(3, 0, 0, 0, 0);
-            return;
-        }
-        int thumb2_x = button_x + WALLPAPER_THUMB_W + 20;
-        if (x >= thumb2_x && x < thumb2_x + WALLPAPER_THUMB_W + 8 && y >= button_y && y < button_y + WALLPAPER_THUMB_H + 24) {
-            sys_system(3, 1, 0, 0, 0);
-            return;
+        for (int i = 0; i < wallpaper_count; i++) {
+            int tx = (i % 3) * (WALLPAPER_THUMB_W + 15);
+            int ty = (i / 3) * (WALLPAPER_THUMB_H + 25);
+            if (x >= button_x + tx && x < button_x + tx + WALLPAPER_THUMB_W + 8 && 
+                y >= button_y + ty && y < button_y + ty + WALLPAPER_THUMB_H + 20) {
+                sys_system(31, (uint64_t)wallpapers[i].path, 0, 0, 0);
+                return;
+            }
         }
     } else if (current_view == VIEW_NETWORK) {
         int offset_x = 8;
@@ -667,7 +696,6 @@ int main(int argc, char **argv) {
     if (!win) return 1;
 
     generate_lumberjack_pattern();
-    generate_blue_diamond_pattern();
     
     fetch_kernel_state();
     

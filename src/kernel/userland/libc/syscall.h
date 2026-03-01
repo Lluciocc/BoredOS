@@ -59,6 +59,7 @@
 #define SYSTEM_CMD_NETWORK_HAS_IP 30
 #define SYSTEM_CMD_GET_SHELL_CONFIG 28
 #define SYSTEM_CMD_SET_TEXT_COLOR 29
+#define SYSTEM_CMD_SET_WALLPAPER_PATH 31
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);

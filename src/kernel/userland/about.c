@@ -5,52 +5,97 @@
 #include "libui.h"
 #include <stddef.h>
 
-static void draw_boredos_logo(ui_window_t win, int x, int y, int scale) {
-    static const uint8_t brewos_bmp[] = {
-        0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,
-        0,1,1,1,1,0,0,0,0,0,0,1,1,1,1,0, 
-        1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1, 
-        1,1,1,1,2,2,2,2,2,2,2,2,1,1,1,1, 
-        1,1,1,2,2,2,2,2,2,2,2,2,2,1,1,1, 
-        1,1,2,2,2,1,1,2,2,1,1,2,2,2,1,1, 
-        1,1,2,2,1,1,1,1,1,1,1,1,2,2,1,1, 
-        1,1,2,2,1,1,1,1,1,1,1,1,2,2,1,1,
-        1,1,2,2,1,1,1,1,1,1,1,1,2,2,1,1,
-        1,1,2,2,2,1,1,2,2,1,1,2,2,2,1,1, 
-        1,1,2,2,2,2,2,1,1,2,2,2,2,2,1,1, 
-        1,1,2,2,2,2,2,2,2,2,2,2,2,2,1,1, 
-        1,1,1,2,2,2,2,2,2,2,2,2,2,1,1,1,
-        0,1,1,1,2,2,2,2,2,2,2,2,1,1,1,0, 
-        0,0,1,1,1,2,2,2,2,2,2,1,1,1,0,0, 
-        0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0 
+static uint32_t ansi_to_boredos_color(int code) {
+    uint32_t default_color = 0xFFFFFFFF;
+
+    switch (code) {
+        case 0: return default_color;
+        case 30: return 0xFF000000; // Black
+        case 31: return 0xFFFF4444; // Red
+        case 32: return 0xFF6A9955; // Green
+        case 33: return 0xFFFFFF00; // Yellow
+        case 34: return 0xFF569CD6; // Blue
+        case 35: return 0xFFB589D6; // Magenta
+        case 36: return 0xFF4EC9B0; // Cyan
+        case 37: return 0xFFCCCCCC; // White
+        case 90: return 0xFF808080; // Bright Black (Gray)
+        case 91: return 0xFFFF6B6B; // Bright Red
+        case 92: return 0xFF78DE78; // Bright Green
+        case 93: return 0xFFFFFF55; // Bright Yellow
+        case 94: return 0xFF87CEEB; // Bright Blue
+        case 95: return 0xFFFF77FF; // Bright Magenta
+        case 96: return 0xFF66D9EF; // Bright Cyan
+        case 97: return 0xFFFFFFFF; // Bright White
+        default: return default_color;
+    }
+}
+
+static void draw_ansi_string(ui_window_t win, int x, int y, const char *str) {
+    uint32_t current_color = 0xFFFFFFFF;
+    int current_x = x;
+    char segment[256];
+    int seg_idx = 0;
+
+    while (*str) {
+        if (*str == '\033' && *(str + 1) == '[') {
+            if (seg_idx > 0) {
+                segment[seg_idx] = 0;
+                ui_draw_string(win, current_x, y, segment, current_color);
+                current_x += seg_idx * 8;
+                seg_idx = 0;
+            }
+
+            str += 2;
+            int code = 0;
+            while (*str >= '0' && *str <= '9') {
+                code = code * 10 + (*str - '0');
+                str++;
+            }
+            if (*str == 'm') {
+                current_color = ansi_to_boredos_color(code);
+                str++;
+            }
+        } else {
+            segment[seg_idx++] = *str++;
+        }
+    }
+
+    if (seg_idx > 0) {
+        segment[seg_idx] = 0;
+        ui_draw_string(win, current_x, y, segment, current_color);
+    }
+}
+
+static void draw_ascii_logo(ui_window_t win, int x, int y) {
+    const char *logo[] = {
+        "\033[35m==================== \033[97m__    ____  ____ \033[0m",
+        "\033[35m=================== \033[97m/ /_  / __ \\/ ___\\\033[0m",
+        "\033[34m================== \033[97m/ __ \\/ / / /\\___ \\\033[0m",
+        "\033[34m================= \033[97m/ /_/ / /_/ /____/ /\033[0m",
+        "\033[36m================ \033[97m/_.___/\\____//_____/ \033[0m",
+        "\033[36m===============                       \033[0m",
+        NULL
     };
 
-    for (int r = 0; r < 16; r++) {
-        for (int c = 0; c < 16; c++) {
-            uint8_t p = brewos_bmp[r * 16 + c];
-            if (p == 1) {
-                ui_draw_rect(win, x + c * scale, y + r * scale, scale, scale, 0xFF1A1A1A);
-            } else if (p == 2) {
-                ui_draw_rect(win, x + c * scale, y + r * scale, scale, scale, 0xFFFEFEFE);
-            }
-        }
+    for (int i = 0; logo[i] != NULL; i++) {
+        draw_ansi_string(win, x, y + (i * 10), logo[i]);
     }
 }
 
 static void about_paint(ui_window_t win) {
-    int w = 185;
+    int w = 340;
     int h = 240;
     
     
     int offset_x = 15;
     int offset_y = 35;
     
-    draw_boredos_logo(win, 60, offset_y, 4);
+    draw_ascii_logo(win, 14, offset_y);
     
     // Version info
-    ui_draw_string(win, offset_x, offset_y + 105, "BoredOS 'Panda'", 0xFFFFFFFF);
-    ui_draw_string(win, offset_x, offset_y + 120, "BoredOS Version 1.64", 0xFFFFFFFF);
-    ui_draw_string(win, offset_x, offset_y + 135, "Kernel Version 3.0.0", 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 105, "BoredOS 'Retrowave'", 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 120, "BoredOS Version 1.65", 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 135, "Kernel Version 3.0.1", 0xFFFFFFFF);
     
     // Copyright
     ui_draw_string(win, offset_x, offset_y + 150, "(C) 2026 boreddevnl.", 0xFFFFFFFF);
@@ -60,7 +105,7 @@ static void about_paint(ui_window_t win) {
 }
 
 int main(void) {
-    ui_window_t win_about = ui_window_create("About BoredOS", 250, 180, 185, 240);
+    ui_window_t win_about = ui_window_create("About BoredOS", 250, 180, 340, 240);
     
     about_paint(win_about);
     

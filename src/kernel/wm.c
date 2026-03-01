@@ -643,19 +643,9 @@ void draw_image_icon(int x, int y, const char *label) {
     graphics_set_render_target(icon_buf, 48, 48);
     
     uint32_t *thumb = NULL;
-    // Fast path: check hardcoded wallpaper names
-    if (str_eq(label, "moon.jpg") != 0) thumb = wallpaper_get_thumb(0);
-    else if (str_eq(label, "mountain.jpg") != 0) thumb = wallpaper_get_thumb(1);
-    else if (str_eq(label, "moon") != 0) thumb = wallpaper_get_thumb(0);
-    else if (str_eq(label, "mountain") != 0) thumb = wallpaper_get_thumb(1);
-    
-    if (!thumb) {
-        if (str_ends_with(label, "moon.jpg")) thumb = wallpaper_get_thumb(0);
-        else if (str_ends_with(label, "mountain.jpg")) thumb = wallpaper_get_thumb(1);
-    }
     
     // Dynamic path: try thumbnail cache for any JPG file path
-    if (!thumb && !thumb_cache_is_failed(label)) {
+    if (!thumb_cache_is_failed(label)) {
         thumb = thumb_cache_lookup(label);
         if (!thumb) {
             // Queue for background decoding
@@ -666,25 +656,13 @@ void draw_image_icon(int x, int y, const char *label) {
     if (thumb) {
         // White border
         draw_rounded_rect_filled(0, 0, 48, 48, 4, 0xFFFFFFFF);
-        // Draw thumbnail into icon - handle both 100x60 wallpaper thumbs and 48x48 dynamic thumbs
-        bool is_wallpaper_thumb = false;
-        if (str_ends_with(label, "moon.jpg") || str_ends_with(label, "mountain.jpg") ||
-            str_eq(label, "moon") != 0 || str_eq(label, "mountain") != 0) {
-            is_wallpaper_thumb = true;
-        }
+        // Draw thumbnail into icon - handle 48x48 dynamic thumbs
         int dst_w = 44, dst_h = 44;
         for (int ty = 0; ty < dst_h; ty++) {
             for (int tx = 0; tx < dst_w; tx++) {
-                uint32_t pixel;
-                if (is_wallpaper_thumb) {
-                    int sx = tx * 100 / dst_w;
-                    int sy = ty * 60 / dst_h;
-                    pixel = thumb[sy * 100 + sx];
-                } else {
-                    int sx = tx * 48 / dst_w;
-                    int sy = ty * 48 / dst_h;
-                    pixel = thumb[sy * 48 + sx];
-                }
+                int sx = tx * 48 / dst_w;
+                int sy = ty * 48 / dst_h;
+                uint32_t pixel = thumb[sy * 48 + sx];
                 put_pixel(2 + tx, 2 + ty, pixel);
             }
         }

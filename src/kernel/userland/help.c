@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
     printf("beep           - Make a beep sound\n");
     printf("reboot         - Reboot the system\n");
     printf("shutdown       - Shutdown the system\n");
-    printf("boredver       - Show BoredOS version\n");
+    printf("sysfetch       - Show system information\n");
     printf("cc <file.c>    - C Compiler\n");
     printf("man <cmd>      - Show manual page\n");
     printf("clear          - Clear the screen\n");

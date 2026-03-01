@@ -148,12 +148,13 @@ void kmain(void) {
 
     process_init();
 
-    serial_write("[DEBUG] Skipping user mode test, proceeding with normal boot.\n");
     
     fat32_init();
     serial_write("[DEBUG] fat32_init OK\n");
     fat32_mkdir("/bin");
-    serial_write("[DEBUG] /bin directory created/checked\n");
+    fat32_mkdir("/Library");
+    fat32_mkdir("/Library/images");
+    fat32_mkdir("/Library/images/Wallpapers");
 
     if (module_request.response == NULL) {
         serial_write("[DEBUG] ERROR: Limine Module Response is NULL!\n");

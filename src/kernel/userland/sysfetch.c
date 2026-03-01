@@ -1,0 +1,300 @@
+// Copyright (c) 2023-2026 Chris (boreddevnl)
+// This software is released under the GNU General Public License v3.0. See LICENSE file for details.
+// This header needs to maintain in any file it is present in, as per the GPL license terms.
+#include <stdlib.h>
+#include <syscall.h>
+#include <stdbool.h>
+
+#define MAX_ASCII_LINES 32
+#define MAX_ASCII_WIDTH 80
+#define MAX_INFO_LINES 10
+
+static char* strchr(const char *s, int c) {
+    while (*s != (char)c) {
+        if (!*s++) {
+            return 0;
+        }
+    }
+    return (char *)s;
+}
+
+static char* strncpy(char *dest, const char *src, size_t n) {
+    size_t i;
+    for (i = 0; i < n && src[i] != '\0'; i++) dest[i] = src[i];
+    for ( ; i < n; i++) dest[i] = '\0';
+    return dest;
+}
+
+typedef struct {
+    char ascii_art_file[256];
+    char user_host_string[64];
+    char separator[64];
+    char os_label[32];
+    char kernel_label[32];
+    char uptime_label[32];
+    char shell_label[32];
+    char memory_label[32];
+} SysfetchConfig;
+
+static SysfetchConfig config;
+static char ascii_lines[MAX_ASCII_LINES][MAX_ASCII_WIDTH];
+static int ascii_line_count = 0;
+
+static uint32_t ansi_to_boredos_color(int code) {
+    uint32_t default_color = sys_get_shell_config("default_text_color");
+    if (default_color == 0) default_color = 0xFFCCCCCC;
+
+    switch (code) {
+        case 0: return default_color;
+        case 30: return 0xFF000000; // Black
+        case 31: return 0xFFFF4444; // Red
+        case 32: return 0xFF6A9955; // Green
+        case 33: return 0xFFFFFF00; // Yellow
+        case 34: return 0xFF569CD6; // Blue
+        case 35: return 0xFFB589D6; // Magenta
+        case 36: return 0xFF4EC9B0; // Cyan
+        case 37: return 0xFFCCCCCC; // White
+        case 90: return 0xFF808080; // Bright Black (Gray)
+        case 91: return 0xFFFF6B6B; // Bright Red
+        case 92: return 0xFF78DE78; // Bright Green
+        case 93: return 0xFFFFFF55; // Bright Yellow
+        case 94: return 0xFF87CEEB; // Bright Blue
+        case 95: return 0xFFFF77FF; // Bright Magenta
+        case 96: return 0xFF66D9EF; // Bright Cyan
+        case 97: return 0xFFFFFFFF; // Bright White
+        default: return default_color;
+    }
+}
+
+static void printf_ansi(const char *str) {
+    uint32_t original_color = sys_get_shell_config("default_text_color");
+    if (original_color == 0) original_color = 0xFFCCCCCC;
+
+    while (*str) {
+        if (*str == '\033' && *(str + 1) == '[') {
+            str += 2; // Skip escape and [
+            int code = 0;
+            while (*str >= '0' && *str <= '9') {
+                code = code * 10 + (*str - '0');
+                str++;
+            }
+            if (*str == 'm') {
+                sys_set_text_color(ansi_to_boredos_color(code));
+                str++;
+            }
+        } else {
+            char c[2] = {*str, 0};
+            sys_write(1, c, 1);
+            str++;
+        }
+    }
+    sys_set_text_color(original_color);
+}
+
+static int strlen_ansi(const char *str) {
+    int len = 0;
+    while (*str) {
+        if (*str == '\033' && *(str + 1) == '[') {
+            str += 2;
+            while (*str && *str != 'm') str++;
+            if (*str == 'm') str++;
+        } else {
+            len++;
+            str++;
+        }
+    }
+    return len;
+}
+
+static char* trim(char *str) {
+    char *end;
+    while (*str == ' ' || *str == '\t' || *str == '\n' || *str == '\r') str++;
+    if (*str == 0) return str;
+    end = str + strlen(str) - 1;
+    while (end > str && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) end--;
+    *(end + 1) = 0;
+    return str;
+}
+
+static void set_config_defaults() {
+    strcpy(config.ascii_art_file, "A:/Library/art/boredos.txt");
+    strcpy(config.user_host_string, "root@boredos");
+    strcpy(config.separator, "------------");
+    strcpy(config.os_label, "OS");
+    strcpy(config.kernel_label, "Kernel");
+    strcpy(config.uptime_label, "Uptime");
+    strcpy(config.shell_label, "Shell");
+    strcpy(config.memory_label, "Memory");
+}
+
+static void parse_config(char* buffer) {
+    char *line = buffer;
+    while (*line) {
+        char *next_line = strchr(line, '\n');
+        if (next_line) *next_line = 0;
+
+        if (line[0] != '/' && line[0] != '\0') {
+            char *key = line;
+            char *val = strchr(line, '=');
+            if (val) {
+                *val = 0;
+                val++;
+                key = trim(key);
+                val = trim(val);
+
+                if (strcmp(key, "ascii_art_file") == 0) strcpy(config.ascii_art_file, val);
+                else if (strcmp(key, "user_host_string") == 0) strcpy(config.user_host_string, val);
+                else if (strcmp(key, "separator") == 0) strcpy(config.separator, val);
+                else if (strcmp(key, "os_label") == 0) strcpy(config.os_label, val);
+                else if (strcmp(key, "kernel_label") == 0) strcpy(config.kernel_label, val);
+                else if (strcmp(key, "uptime_label") == 0) strcpy(config.uptime_label, val);
+                else if (strcmp(key, "shell_label") == 0) strcpy(config.shell_label, val);
+                else if (strcmp(key, "memory_label") == 0) strcpy(config.memory_label, val);
+            }
+        }
+
+        if (next_line) line = next_line + 1;
+        else break;
+    }
+}
+
+static void load_config() {
+    set_config_defaults();
+    int fd = sys_open("A:/Library/conf/sysfetch.cfg", "r");
+    if (fd < 0) return;
+
+    char *buffer = malloc(4096);
+    if (!buffer) {
+        sys_close(fd);
+        return;
+    }
+
+    int bytes = sys_read(fd, buffer, 4095);
+    sys_close(fd);
+
+    if (bytes > 0) {
+        buffer[bytes] = 0;
+        parse_config(buffer);
+    }
+    free(buffer);
+}
+
+static void load_ascii_art() {
+    int fd = sys_open(config.ascii_art_file, "r");
+    if (fd < 0) {
+        strcpy(ascii_lines[0], "\033[35m====================== \033[97m__    ____  ____ \033[0m");
+        strcpy(ascii_lines[1], "\033[35m===================== \033[97m/ /_  / __ \\/ ___\\\033[0m");
+        strcpy(ascii_lines[2], "\033[34m==================== \033[97m/ __ \\/ / / /\\___ \\\033[0m");
+        strcpy(ascii_lines[3], "\033[34m=================== \033[97m/ /_/ / /_/ /____/ /\033[0m");
+        strcpy(ascii_lines[4], "\033[36m================== \033[97m/_.___/\\____//_____/ \033[0m");
+        strcpy(ascii_lines[5], "\033[36m=================                       \033[0m");
+        
+        ascii_line_count = 6;
+        return;
+    }
+    
+
+
+    char *buffer = malloc(4096);
+    if (!buffer) {
+        sys_close(fd);
+        return;
+    }
+
+    int bytes = sys_read(fd, buffer, 4095);
+    sys_close(fd);
+
+    if (bytes > 0) {
+        buffer[bytes] = 0;
+        char *line = buffer;
+        while (*line && ascii_line_count < MAX_ASCII_LINES) {
+            char *next_line = strchr(line, '\n');
+            if (next_line) *next_line = 0;
+            
+            strncpy(ascii_lines[ascii_line_count], line, MAX_ASCII_WIDTH - 1);
+            ascii_lines[ascii_line_count][MAX_ASCII_WIDTH - 1] = 0;
+            ascii_line_count++;
+
+            if (next_line) line = next_line + 1;
+            else break;
+        }
+    }
+    free(buffer);
+}
+
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
+    load_config();
+    load_ascii_art();
+
+    char info_lines[MAX_INFO_LINES][128];
+    char temp_buf[32];
+    int info_line_count = 0;
+
+    if (config.user_host_string[0]) {
+        strcpy(info_lines[info_line_count++], config.user_host_string);
+    }
+    if (config.separator[0]) {
+        strcpy(info_lines[info_line_count++], config.separator);
+    }
+    if (config.os_label[0]) {
+        strcpy(info_lines[info_line_count], config.os_label);
+        strcat(info_lines[info_line_count++], ": BoredOS V1.65");
+    }
+    if (config.kernel_label[0]) {
+        strcpy(info_lines[info_line_count], config.kernel_label);
+        strcat(info_lines[info_line_count++], ": Boredkernel V3.0.1 x86_64");
+    }
+    if (config.uptime_label[0]) {
+        uint64_t ticks = sys_system(16, 0, 0, 0, 0);
+        int minutes = ticks / 3600; // 60Hz timer
+        strcpy(info_lines[info_line_count], config.uptime_label);
+        strcat(info_lines[info_line_count], ": ");
+        itoa(minutes, temp_buf);
+        strcat(info_lines[info_line_count], temp_buf);
+        strcat(info_lines[info_line_count++], " mins");
+    }
+    if (config.shell_label[0]) {
+        strcpy(info_lines[info_line_count], config.shell_label);
+        strcat(info_lines[info_line_count++], ": bsh");
+    }
+    if (config.memory_label[0]) {
+        uint64_t mem[2];
+        if (sys_system(15, (uint64_t)mem, 0, 0, 0) == 0) {
+            strcpy(info_lines[info_line_count], config.memory_label);
+            strcat(info_lines[info_line_count], ": ");
+            itoa((int)(mem[1] / 1024 / 1024), temp_buf);
+            strcat(info_lines[info_line_count], temp_buf);
+            strcat(info_lines[info_line_count], "MiB / ");
+            itoa((int)(mem[0] / 1024 / 1024), temp_buf);
+            strcat(info_lines[info_line_count], temp_buf);
+            strcat(info_lines[info_line_count++], "MiB");
+        }
+    }
+
+    int max_lines = (ascii_line_count > info_line_count) ? ascii_line_count : info_line_count;
+    int ascii_width = 0;
+    for (int i = 0; i < ascii_line_count; i++) {
+        int len = strlen_ansi(ascii_lines[i]);
+        if (len > ascii_width) ascii_width = len;
+    }
+
+    for (int i = 0; i < max_lines; i++) {
+        if (i < ascii_line_count) {
+            printf_ansi(ascii_lines[i]);
+            int padding = ascii_width - strlen_ansi(ascii_lines[i]);
+            for(int j=0; j<padding; j++) printf(" ");
+        } else {
+            for(int j=0; j<ascii_width; j++) printf(" ");
+        }
+
+        printf("   ");
+
+        if (i < info_line_count) {
+            printf_ansi(info_lines[i]);
+        }
+        printf("\n");
+    }
+
+    return 0;
+}

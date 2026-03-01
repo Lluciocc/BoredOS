@@ -55,7 +55,7 @@ void create_man_entries(void) {
     write_man_file("touch", "TOUCH - Create empty file\n\nUsage: touch <filename>\n\nCreates a new empty file if it doesn't exist.");
     write_man_file("cc", "CC - C Compiler\n\nUsage: cc <file.c>\n\nThe BoredOS C Compiler. Compiles C source files into executables. (execute these with ./>file<)");
     write_man_file("crash", "CRASH - Trigger kernel exception\n\nUsage: crash\n\nIntentionally triggers a null pointer dereference to test handlers.");
-    write_man_file("boredver", "BOREDVER - Show OS version\n\nUsage: boredver\n\nDisplays current BoredOS version and kernel build information.");
+    write_man_file("sysfetch", "SYSFETCH - Show OS information\n\nUsage: sysfetch\n\nDisplays system information in a neofetch-like layout. Configurable via A:/Library/conf/sysfetch.cfg.");
     write_man_file("meminfo", "MEMINFO - Memory usage stats\n\nUsage: meminfo\n\nDisplays current physical and virtual memory allocation statistics.");
     write_man_file("pci_list", "PCI_LIST - Scan PCI bus\n\nUsage: pci_list\n\nScans the PCI bus and lists all detected hardware devices.");
     write_man_file("reboot", "REBOOT - Restart system\n\nUsage: reboot\n\nRestarts the computer immediately.");

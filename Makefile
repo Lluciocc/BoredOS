@@ -107,8 +107,15 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.cfg limine-setup
 	# Copy README
 	@if [ -f README.md ]; then cp README.md $(ISO_DIR)/; fi
 	
-	# Copy Wallpaper (if it exists)
-	@if [ -f src/kernel/wallpaper.ppm ]; then cp src/kernel/wallpaper.ppm $(ISO_DIR)/; fi
+	# Copy Wallpapers
+	mkdir -p $(ISO_DIR)/Library/images/Wallpapers
+	@for f in $(SRC_DIR)/images/wallpapers/*.jpg; do \
+		if [ -f "$$f" ]; then \
+			basename=$$(basename "$$f"); \
+			cp "$$f" $(ISO_DIR)/Library/images/Wallpapers/; \
+			echo "    MODULE_PATH=boot:///Library/images/Wallpapers/$$basename" >> $(ISO_DIR)/limine.cfg; \
+		fi \
+	done
 	@if [ -f splash.jpg ]; then cp splash.jpg $(ISO_DIR)/; fi
 	
 	# Copy Limine Bootloader Files (flat structure in binary branch)

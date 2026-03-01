@@ -233,17 +233,17 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     *(--stack_ptr) = 0x202;           // RFLAGS (Interrupts Enabled)
     *(--stack_ptr) = 0x23;            // CS (User Mode Code)
     *(--stack_ptr) = entry_point;     // RIP
-    *(--stack_ptr) = 0;               // int_no
     *(--stack_ptr) = 0;               // err_code
+    *(--stack_ptr) = 0;               // int_no
 
     // 15 General purpose registers
     *(--stack_ptr) = 0;                // RAX
     *(--stack_ptr) = 0;                // RBX
     *(--stack_ptr) = 0;                // RCX
     *(--stack_ptr) = 0;                // RDX
-    *(--stack_ptr) = 0;                // RBP
-    *(--stack_ptr) = argc;             // RDI = argc
     *(--stack_ptr) = actual_argv_ptr;  // RSI = actual argv array
+    *(--stack_ptr) = argc;             // RDI = argc
+    *(--stack_ptr) = 0;                // RBP
     *(--stack_ptr) = 0;                // R8
     *(--stack_ptr) = 0;                // R9
     *(--stack_ptr) = 0;                // R10

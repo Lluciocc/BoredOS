@@ -1539,6 +1539,11 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
         char normalized[FAT32_MAX_PATH];
         fat32_normalize_path(p, normalized);
         
+        extern void serial_write(const char *str);
+        serial_write("[DEBUG] fat32_list_directory (RAMFS) path: ");
+        serial_write(normalized);
+        serial_write("\n");
+        
         for (int i = 0; i < MAX_FILES && count < max_entries; i++) {
             if (files[i].used && fs_strcmp(files[i].parent_path, normalized) == 0) {
                 fs_strcpy(entries[count].name, files[i].filename);
@@ -1548,6 +1553,10 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
                 count++;
             }
         }
+        serial_write("[DEBUG] fat32_list_directory (RAMFS) found count: ");
+        extern void serial_write_num(uint32_t n);
+        serial_write_num(count);
+        serial_write("\n");
     } else {
         count = realfs_list_directory(drive, p, entries, max_entries);
     }

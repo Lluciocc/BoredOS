@@ -1880,6 +1880,47 @@ static void create_ramfs_files(void) {
         }
     }
 
+    // Create default sysfetch configuration file
+    if (!fat32_exists("Library/conf/sysfetch.cfg")) {
+        FAT32_FileHandle *cfg = fat32_open("Library/conf/sysfetch.cfg", "w");
+        if (cfg) {
+            const char *config_content =
+                "// BoredOS System Fetch Configuration\n"
+                "// ----------------------------------\n"
+                "// To use custom ascii art, uncomment the line below and point it to your file.\n"
+                "ascii_art_file=A:/Library/art/boredos.txt\n"
+                "user_host_string=root@boredos\n"
+                "separator=------------\n"
+                "\n"
+                "// Labels (leave empty to hide a line)\n"
+                "os_label=OS\n"
+                "kernel_label=Kernel\n"
+                "uptime_label=Uptime\n"
+                "shell_label=Shell\n"
+                "memory_label=Memory\n";
+            fat32_write(cfg, (void *)config_content, cmd_strlen(config_content));
+            fat32_close(cfg);
+        }
+    }
+
+    // Create default art directory and file
+    if (!fat32_exists("Library/art")) {
+        fat32_mkdir("Library/art");
+    }
+    if (!fat32_exists("Library/art/boredos.txt")) {
+        FAT32_FileHandle *art = fat32_open("Library/art/boredos.txt", "w");
+        if (art) {
+            const char *art_content =
+                "\033[35m==================== \033[97m__    ____  ____ \033[0m\n"
+                "\033[35m=================== \033[97m/ /_  / __ \\/ ___\\\033[0m\n"
+                "\033[34m================== \033[97m/ __ \\/ / / /\\___ \\\033[0m\n"
+                "\033[34m================= \033[97m/ /_/ / /_/ /____/ /\033[0m\n"
+                "\033[36m================ \033[97m/_.___/\\____//_____/ \033[0m\n"
+                "\033[36m===============                       \033[0m\n";
+            fat32_write(art, (void *)art_content, cmd_strlen(art_content));
+            fat32_close(art);
+        }
+    }
 
     
   

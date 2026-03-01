@@ -550,11 +550,8 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
             extern void wm_refresh(void);
             wm_refresh();
             return 0;
-        } else if (cmd == 3) { // SYSTEM_CMD_SET_WALLPAPER
-            int wp_id = (int)arg2;
-            extern void wallpaper_request_set(int index);
-            wallpaper_request_set(wp_id);
-            return 0;
+        } else if (cmd == 3) { // SYSTEM_CMD_SET_WALLPAPER (Obsolete)
+            return -1;
         } else if (cmd == 4) { // SYSTEM_CMD_SET_DESKTOP_PROP
             int prop = (int)arg2;
             int val = (int)arg3;
@@ -590,17 +587,8 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
         } else if (cmd == 8) { // SYSTEM_CMD_GET_MOUSE_SPEED
             extern int mouse_speed;
             return mouse_speed;
-        } else if (cmd == 9) { // SYSTEM_CMD_GET_WALLPAPER_THUMB
-            int id = (int)arg2;
-            uint32_t *dest = (uint32_t *)arg3;
-            if (!dest) return -1;
-            extern uint32_t* wallpaper_get_thumb(int index);
-            extern _Bool wallpaper_thumb_valid(int index);
-            if (!wallpaper_thumb_valid(id)) return -1;
-            uint32_t *thumb = wallpaper_get_thumb(id);
-            if (!thumb) return -1;
-            for (int i=0; i<100*60; i++) dest[i] = thumb[i];
-            return 0;
+        } else if (cmd == 9) { // SYSTEM_CMD_GET_WALLPAPER_THUMB (Obsolete)
+            return -1;
         } else if (cmd == 10) { // SYSTEM_CMD_CLEAR_SCREEN
             extern void cmd_screen_clear(void);
             cmd_screen_clear();
@@ -720,6 +708,22 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
         } else if (cmd == 29) { // SYSTEM_CMD_SET_TEXT_COLOR
             uint32_t color = (uint32_t)arg2;
             cmd_set_current_color(color);
+            return 0;
+        } else if (cmd == 31) { // SYSTEM_CMD_SET_WALLPAPER_PATH
+            const char *user_path = (const char *)arg2;
+            if (!user_path) return -1;
+            
+            // Copy path safely to kernel buffer
+            char kernel_path[256];
+            int i = 0;
+            while (i < 255 && user_path[i]) {
+                kernel_path[i] = user_path[i];
+                i++;
+            }
+            kernel_path[i] = 0;
+            
+            extern void wallpaper_request_set_from_file(const char *path);
+            wallpaper_request_set_from_file(kernel_path);
             return 0;
         }
         return -1;
