@@ -10,11 +10,6 @@
     .blue { fill: #569CD6; }
     .cyan { fill: #4EC9B0; }
     .text-color { fill: #FFFFFF; }
-    
-    /* Adapts the white text to dark grey if the user uses GitHub Light Mode */
-    @media (prefers-color-scheme: light) {
-      .text-color { fill: #24292F; } 
-    }
   </style>
   
   <text x="0" y="20" xml:space="preserve"><tspan class="magenta">====================== </tspan><tspan class="text-color">__    ____  ____ </tspan></text>
