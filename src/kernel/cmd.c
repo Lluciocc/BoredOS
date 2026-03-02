@@ -108,6 +108,8 @@ static char redirect_filename[256];
 static bool pipe_capture_mode = false;
 static char pipe_buffer[8192];
 static int pipe_buffer_pos = 0;
+static bool pipe_waiting_for_first = false;
+static char pipe_next_command[512];
 int boot_year, boot_month, boot_day, boot_hour, boot_min, boot_sec;
 
 // Message notification state
@@ -140,6 +142,9 @@ static void cmd_strcpy(char *dest, const char *src) {
     while (*src) *dest++ = *src++;
     *dest = 0;
 }
+
+static void itoa(int n, char *buf);
+static void handle_pipe_chain(const char* right_cmd, bool print_prompt);
 
 static void itoa(int n, char *buf) {
     if (n == 0) {
@@ -924,6 +929,13 @@ void cmd_process_finished(void) {
             cmd_write("\n");
         }
 
+        if (pipe_waiting_for_first) {
+            pipe_waiting_for_first = false;
+            pipe_capture_mode = false;
+            handle_pipe_chain(pipe_next_command, true);
+            return;
+        }
+
         extern int cursor_col;
         void cmd_putchar(char c);
         if (cursor_col > 0) {
@@ -1441,6 +1453,54 @@ static void cmd_exec_single(char *cmd) {
     cmd_write(cmd);
     cmd_write("\n");
 }
+static void cmd_exec(char *cmd, bool print_prompt);
+
+static void handle_pipe_chain(const char* right_cmd, bool print_prompt) {
+    // 1. Trim trailing whitespace from pipe_buffer
+    while (pipe_buffer_pos > 0 && 
+           (pipe_buffer[pipe_buffer_pos-1] == ' ' || 
+            pipe_buffer[pipe_buffer_pos-1] == '\r' || 
+            pipe_buffer[pipe_buffer_pos-1] == '\n')) {
+        pipe_buffer[--pipe_buffer_pos] = '\0';
+    }
+    pipe_buffer[pipe_buffer_pos] = '\0';
+
+    if (pipe_buffer_pos == 0) {
+        cmd_write("Error: Command produced no output to pipe.\n");
+        return;
+    }
+
+    // 2. Wrap in quotes if needed
+    bool needs_quotes = false;
+    if (pipe_buffer[0] != '"' || pipe_buffer[pipe_buffer_pos-1] != '"') {
+        needs_quotes = true;
+    }
+    
+    // 3. Construct the new command
+    char* full_cmd = (char*)kmalloc(9000); 
+    if (!full_cmd) {
+        cmd_write("Error: Out of memory for pipe operation.\n");
+        return;
+    }
+    
+    cmd_strcpy(full_cmd, right_cmd);
+    int len = cmd_strlen(full_cmd);
+    full_cmd[len++] = ' ';
+    if (needs_quotes) full_cmd[len++] = '"';
+    
+    for (int i = 0; i < pipe_buffer_pos && len < 8990; i++) {
+        full_cmd[len++] = pipe_buffer[i];
+    }
+    
+    if (needs_quotes) full_cmd[len++] = '"';
+    full_cmd[len] = '\0';
+    
+    // 4. Recursive execution
+    cmd_exec(full_cmd, print_prompt);
+    
+    kfree(full_cmd);
+}
+
 // Execute command with redirection and pipe support
 static void cmd_exec(char *cmd, bool print_prompt) {
     // Check for pipe operator first
@@ -1479,120 +1539,22 @@ static void cmd_exec(char *cmd, bool print_prompt) {
             right_cmd[--right_len] = '\0';
         }
         
-        // Check if right command is UDPSEND
-        char right_upper[256] = {0};
-        for (int i = 0; right_cmd[i] && i < 255; i++) {
-            right_upper[i] = right_cmd[i] >= 'a' && right_cmd[i] <= 'z' 
-                           ? right_cmd[i] - 32 
-                           : right_cmd[i];
-        }
+        // Generalized pipe implementation
+        pipe_buffer_pos = 0;
+        pipe_capture_mode = true;
         
-        if (right_upper[0] == 'U' && right_upper[1] == 'D' && right_upper[2] == 'P' && 
-            right_upper[3] == 'S' && right_upper[4] == 'E' && right_upper[5] == 'N' && 
-            right_upper[6] == 'D' && (right_upper[7] == ' ' || right_upper[7] == '\0')) {
-            
-            // Parse UDPSEND arguments (IP and PORT only)
-            const char* args = right_cmd + 7;
-            while (*args == ' ') args++;
-            
-            if (!network_is_initialized()) {
-                cmd_write("Error: Network not initialized. Use NETINIT first.\n");
-                return;
-            }
-            
-            // Parse IP address
-            ipv4_address_t dest_ip;
-            int ip_bytes[4] = {0};
-            int ip_idx = 0;
-            int current = 0;
-            const char* p = args;
-            
-            // Parse IP
-            while (*p && ip_idx < 4) {
-                if (*p >= '0' && *p <= '9') {
-                    current = current * 10 + (*p - '0');
-                } else if (*p == '.' || *p == ' ') {
-                    ip_bytes[ip_idx++] = current;
-                    current = 0;
-                    if (*p == ' ') break;
-                }
-                p++;
-            }
-            if (ip_idx < 4 && current > 0) {
-                ip_bytes[ip_idx++] = current;
-            }
-            
-            if (ip_idx < 4) {
-                cmd_write("Error: Invalid IP address\n");
-                return;
-            }
-            
-            for (int k = 0; k < 4; k++) {
-                dest_ip.bytes[k] = (uint8_t)ip_bytes[k];
-            }
-            
-            // Parse port
-            while (*p == ' ') p++;
-            int port = 0;
-            while (*p >= '0' && *p <= '9') {
-                port = port * 10 + (*p - '0');
-                p++;
-            }
-            
-            if (port == 0 || port > 65535) {
-                cmd_write("Error: Invalid port number\n");
-                return;
-            }
-            
-            // Initialize pipe buffer
-            pipe_buffer_pos = 0;
-            pipe_capture_mode = true;
-            
-            // Execute the left command and capture its output
-            cmd_exec_single(left_cmd);
-            
-            // Disable pipe capture mode
-            pipe_capture_mode = false;
-            
-            // Null-terminate the captured output
-            pipe_buffer[pipe_buffer_pos] = '\0';
-            
-            if (pipe_buffer_pos == 0) {
-                cmd_write("Error: No output to send\n");
-                return;
-            }
-            
-            // Send UDP packet(s) with captured output (chunked if necessary)
-            const size_t chunk_size = 512;
-            size_t offset = 0;
-            int sent_bytes = 0;
-            
-            while (offset < (size_t)pipe_buffer_pos) {
-                size_t to_send = pipe_buffer_pos - offset;
-                if (to_send > chunk_size) {
-                    to_send = chunk_size;
-                }
-                
-                // Send directly from pipe buffer
-                int result = udp_send_packet(&dest_ip, (uint16_t)port, 54321, 
-                                            (const void*)(pipe_buffer + offset), to_send);
-                if (result == 0) {
-                    sent_bytes += to_send;
-                }
-                offset += to_send;
-            }
-            
-            if (sent_bytes > 0) {
-                cmd_write("UDP packets sent successfully (");
-                cmd_write_int(sent_bytes);
-                cmd_write(" bytes)\n");
-            } else {
-                cmd_write("Error: Failed to send UDP packets\n");
-            }
-            
+        // Execute the left command and capture its output
+        cmd_exec_single(left_cmd);
+        
+        if (cmd_is_waiting_for_process) {
+            // Asynchronous: wait for completion in cmd_process_finished
+            pipe_waiting_for_first = true;
+            cmd_strcpy(pipe_next_command, right_cmd);
             return;
         } else {
-            cmd_write("Error: Only UDPSEND is supported after pipe operator\n");
+            // Synchronous: process immediately
+            pipe_capture_mode = false;
+            handle_pipe_chain(right_cmd, print_prompt);
             return;
         }
     }

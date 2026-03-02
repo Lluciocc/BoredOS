@@ -20,12 +20,6 @@ struct e1000_netif_state {
 
 static err_t e1000_low_level_output(struct netif *netif, struct pbuf *p) {
   (void)netif;
-  extern void serial_write(const char *str);
-  serial_write("[E1000] TX Packet, len: ");
-  char buf[32];
-  k_itoa(p->tot_len, buf);
-  serial_write(buf);
-  serial_write("\n");
 
   if (p->next == NULL) {
     if (e1000_send_packet(p->payload, p->len) != 0) {
@@ -48,12 +42,6 @@ static void e1000_low_level_input(struct netif *netif) {
   int len;
   
   while ((len = e1000_receive_packet(buffer, sizeof(buffer))) > 0) {
-    extern void serial_write(const char *str);
-    serial_write("[E1000] RX Packet, len: ");
-    char buf[32];
-    k_itoa(len, buf);
-    serial_write(buf);
-    serial_write("\n");
     
     struct pbuf *p = pbuf_alloc(PBUF_RAW, len, PBUF_POOL);
     if (p != NULL) {

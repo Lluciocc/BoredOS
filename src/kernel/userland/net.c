@@ -72,7 +72,7 @@ static void cmd_dig(const char* name) {
     }
 }
 
-static void cmd_nc(const char* host, const char* port_str) {
+static void cmd_nc(const char* host, const char* port_str, const char* msg) {
     net_ipv4_address_t ip;
     if (resolve_host(host, &ip) != 0) {
         printf("Failed to resolve %s\n", host);
@@ -87,8 +87,8 @@ static void cmd_nc(const char* host, const char* port_str) {
     }
     printf("Connected.\n");
     
-    const char* msg = "Hello from BoredOS NC!\n";
-    sys_tcp_send(msg, 23);
+    if (msg == NULL) msg = "Hello world! (From BoredOS)\n";
+    sys_tcp_send(msg, strlen(msg));
     
     char buf[1024];
     int len = sys_tcp_recv(buf, 1023);
@@ -249,8 +249,11 @@ int main(int argc, char** argv) {
         if (argc < 3) printf("Usage: net dig <host>\n");
         else cmd_dig(argv[2]);
     } else if (strcmp(argv[1], "nc") == 0) {
-        if (argc < 4) printf("Usage: net nc <host> <port>\n");
-        else cmd_nc(argv[2], argv[3]);
+        if (argc < 4) printf("Usage: net nc <host> <port> [message]\n");
+        else {
+            const char* msg = (argc >= 5) ? argv[4] : NULL;
+            cmd_nc(argv[2], argv[3], msg);
+        }
     } else if (strcmp(argv[1], "curl") == 0) {
         if (argc < 3) printf("Usage: net curl <url>\n");
         else cmd_curl(argv[2]);
