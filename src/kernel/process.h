@@ -54,6 +54,7 @@ uint64_t process_schedule(uint64_t current_rsp);
 uint64_t process_terminate_current(void);
 
 void process_push_gui_event(process_t *proc, gui_event_t *ev);
+process_t* process_get_by_ui_window(void* win);
 
 #endif
 

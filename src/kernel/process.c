@@ -399,3 +399,12 @@ void process_push_gui_event(process_t *proc, gui_event_t *ev) {
     proc->gui_event_tail = next_tail;
 }
 
+process_t* process_get_by_ui_window(void *win) {
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[i].pid != 0xFFFFFFFF && processes[i].ui_window == win) {
+            return &processes[i];
+        }
+    }
+    return NULL;
+}
+

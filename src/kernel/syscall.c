@@ -164,8 +164,10 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
                 serial_write("Kernel: Error - kmalloc failed for Window\n");
                 return 0;
             }
-            
             serial_write("Kernel: Window allocated.\n");
+            
+            extern void mem_memset(void *dest, int val, size_t len);
+            mem_memset(win, 0, sizeof(Window));
 
             // Copy title from user space to kernel space so wm.c can access it safely
             int title_len = 0;
@@ -240,6 +242,8 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
             win->handle_right_click = user_window_right_click;
             win->handle_close = user_window_close;
             win->handle_key = user_window_key;
+            win->handle_resize = NULL;
+            win->resizable = false;
             
             proc->ui_window = win;
             wm_add_window(win);

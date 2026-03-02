@@ -22,6 +22,9 @@ void cmd_screen_clear(void);
 void cmd_increment_msg_count(void);
 void cmd_reset_msg_count(void);
 
+void cmd_handle_resize(Window *win, int w, int h);
+void cmd_handle_click(Window *win, int x, int y);
+
 uint32_t cmd_get_config_value(const char *key);
 void cmd_set_current_color(uint32_t color);
 

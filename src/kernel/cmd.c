@@ -22,15 +22,15 @@
 #include "net_defs.h"
 #include "man_entries.h"
 
-#define CMD_COLS 116
-#define CMD_ROWS 41
+#define DEFAULT_CMD_COLS 116
+#define DEFAULT_CMD_ROWS 41
+#define MAX_CMD_COLS 256
 #define LINE_HEIGHT 10
 #define CHAR_WIDTH 8
 
 #define COLOR_RED 0xFFFF0000
 
 #define TXT_BUFFER_SIZE 4096
-#define TXT_VISIBLE_LINES (CMD_ROWS - 2)
 
 // --- Structs ---
 typedef struct {
@@ -82,16 +82,40 @@ typedef struct {
 Window win_cmd;
 
 // Shell State
-static CharCell screen_buffer[CMD_ROWS][CMD_COLS];
+static int terminal_cols = DEFAULT_CMD_COLS;
+static int terminal_rows = DEFAULT_CMD_ROWS;
+static CharCell *screen_buffer = NULL;
 static int cursor_row = 0;
 static int cursor_col = 0;
-static uint32_t current_color = COLOR_DARK_TEXT;
+static uint32_t current_color = 0xFFFFFFFF; // Default light text
+static uint32_t current_bg_color = 0;        // 0 = translucent/default
 static CmdState *cmd_state = NULL;  // Will be set in cmd_init
 static int current_prompt_len = 0;
 
+static size_t cmd_strlen(const char *s) {
+    size_t len = 0;
+    while (s[len]) len++;
+    return len;
+}
+
+static int cmd_strcmp(const char *s1, const char *s2) {
+    while (*s1 && (*s1 == *s2)) {
+        s1++;
+        s2++;
+    }
+    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+}
+
+// ANSI State Machine
+static int ansi_state = 0;
+#define ANSI_MAX_PARAMS 8
+static int ansi_params[ANSI_MAX_PARAMS];
+static int ansi_param_count = 0;
+static bool ansi_private_mode = false;
+
 // Pager State
 static CmdMode current_mode = MODE_SHELL;
-static char pager_wrapped_lines[2000][CMD_COLS + 1]; 
+static char pager_wrapped_lines[2000][MAX_CMD_COLS + 1]; 
 static int pager_total_lines = 0;
 static int pager_top_line = 0;
 
@@ -123,19 +147,52 @@ void cmd_reset_msg_count(void) {
     msg_count = 0;
 }
 
-// --- Helpers ---
-static size_t cmd_strlen(const char *str) {
-    size_t len = 0;
-    while (str[len]) len++;
-    return len;
+static uint32_t ansi_get_256_color(int n) {
+    if (n < 16) {
+        static uint32_t base[16] = {
+            0xFF000000, 0xFFAA0000, 0xFF00AA00, 0xFFAA5500, 0xFF0000AA, 0xFFAA00AA, 0xFF00AAAA, 0xFFAAAAAA,
+            0xFF555555, 0xFFFF5555, 0xFF55FF55, 0xFFFFFF55, 0xFF5555FF, 0xFFFF55FF, 0xFF55FFFF, 0xFFFFFFFF
+        };
+        return base[n];
+    }
+    if (n >= 232) {
+        uint8_t v = (n - 232) * 10 + 8;
+        return 0xFF000000 | (v << 16) | (v << 8) | v;
+    }
+    n -= 16;
+    static uint8_t levels[] = {0, 95, 135, 175, 215, 255};
+    int r = levels[n / 36];
+    int g = levels[(n / 6) % 6];
+    int b = levels[n % 6];
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
 }
 
-static int cmd_strcmp(const char *s1, const char *s2) {
-    while (*s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
+static void ansi_handle_sgr() {
+    if (ansi_param_count == 0) {
+        current_color = 0xFFFFFFFF;
+        current_bg_color = 0;
+        return;
     }
-    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
+    for (int i = 0; i < ansi_param_count; i++) {
+        int p = ansi_params[i];
+        if (p == 0) { current_color = 0xFFFFFFFF; current_bg_color = 0; }
+        else if (p >= 30 && p <= 37) current_color = ansi_get_256_color(p - 30);
+        else if (p >= 40 && p <= 47) current_bg_color = ansi_get_256_color(p - 40);
+        else if (p >= 90 && p <= 97) current_color = ansi_get_256_color(p - 90 + 8);
+        else if (p >= 100 && p <= 107) current_bg_color = ansi_get_256_color(p - 100 + 8);
+        else if (p == 38 || p == 48) {
+            bool is_fg = (p == 38);
+            if (i + 2 < ansi_param_count && ansi_params[i+1] == 5) {
+                uint32_t c = ansi_get_256_color(ansi_params[i+2]);
+                if (is_fg) current_color = c; else current_bg_color = c;
+                i += 2;
+            } else if (i + 4 < ansi_param_count && ansi_params[i+1] == 2) {
+                uint32_t c = 0xFF000000 | ((ansi_params[i+2] & 0xFF) << 16) | ((ansi_params[i+3] & 0xFF) << 8) | (ansi_params[i+4] & 0xFF);
+                if (is_fg) current_color = c; else current_bg_color = c;
+                i += 4;
+            }
+        }
+    }
 }
 
 static void cmd_strcpy(char *dest, const char *src) {
@@ -453,12 +510,12 @@ void cmd_set_current_color(uint32_t color) {
 }
 
 // --- History ---
-#define HISTORY_MAX 16
-static char cmd_history[HISTORY_MAX][CMD_COLS + 1];
+#define HISTORY_MAX 64
+static char cmd_history[HISTORY_MAX][MAX_CMD_COLS + 1];
 static int history_head = 0;
 static int history_len = 0;
 static int history_pos = -1;
-static char history_save_buf[CMD_COLS + 1];
+static char history_save_buf[MAX_CMD_COLS + 1];
 
 static void cmd_history_add(const char *cmd) {
     if (!cmd || !*cmd) return;
@@ -505,18 +562,18 @@ void cmd_print_prompt(void) {
 
 void cmd_clear_line_content(void) {
     int prompt_len = current_prompt_len;
-    for (int i = prompt_len; i < CMD_COLS; i++) {
-        screen_buffer[cursor_row][i].c = ' ';
-        screen_buffer[cursor_row][i].color = current_color;
+    for (int i = prompt_len; i < terminal_cols; i++) {
+        screen_buffer[cursor_row * terminal_cols + i].c = ' ';
+        screen_buffer[cursor_row * terminal_cols + i].color = current_color;
     }
     cursor_col = prompt_len;
 }
 
 static void cmd_set_line_content(const char *str) {
     cmd_clear_line_content();
-    while (*str && cursor_col < CMD_COLS) {
-        screen_buffer[cursor_row][cursor_col].c = *str;
-        screen_buffer[cursor_row][cursor_col].color = current_color;
+    while (*str && cursor_col < terminal_cols) {
+        screen_buffer[cursor_row * terminal_cols + cursor_col].c = *str;
+        screen_buffer[cursor_row * terminal_cols + cursor_col].color = current_color;
         cursor_col++;
         str++;
     }
@@ -524,15 +581,15 @@ static void cmd_set_line_content(const char *str) {
 
 
 static void cmd_scroll_up() {
-    for (int r = 1; r < CMD_ROWS; r++) {
-        for (int c = 0; c < CMD_COLS; c++) {
-            screen_buffer[r - 1][c] = screen_buffer[r][c];
+    for (int r = 1; r < terminal_rows; r++) {
+        for (int c = 0; c < terminal_cols; c++) {
+            screen_buffer[(r - 1) * terminal_cols + c] = screen_buffer[r * terminal_cols + c];
         }
     }
     // Clear bottom row
-    for (int c = 0; c < CMD_COLS; c++) {
-        screen_buffer[CMD_ROWS - 1][c].c = ' ';
-        screen_buffer[CMD_ROWS - 1][c].color = shell_config.default_text_color;
+    for (int c = 0; c < terminal_cols; c++) {
+        screen_buffer[(terminal_rows - 1) * terminal_cols + c].c = ' ';
+        screen_buffer[(terminal_rows - 1) * terminal_cols + c].color = shell_config.default_text_color;
     }
 }
 
@@ -552,10 +609,80 @@ void cmd_putchar(char c) {
         fat32_write(redirect_file, &c, 1);
         return;
     }
+
+    if (ansi_state == 0) {
+        if (c == '\x1b') {
+            ansi_state = 1;
+            return;
+        }
+    } else if (ansi_state == 1) {
+        if (c == '[') {
+            ansi_state = 2;
+            ansi_param_count = 0;
+            for(int i=0; i<ANSI_MAX_PARAMS; i++) ansi_params[i] = 0;
+            ansi_private_mode = false;
+            return;
+        } else {
+            ansi_state = 0; // Unsupported ESC sequence
+        }
+    } else if (ansi_state == 2) {
+        if (c == '?') {
+            ansi_private_mode = true;
+            return;
+        } else if (c >= '0' && c <= '9') {
+            if (ansi_param_count < ANSI_MAX_PARAMS) {
+                ansi_params[ansi_param_count] = ansi_params[ansi_param_count] * 10 + (c - '0');
+            }
+            return;
+        } else if (c == ';') {
+            ansi_param_count++;
+            return;
+        } else {
+            // End of sequence
+            if (ansi_param_count < ANSI_MAX_PARAMS) ansi_param_count++;
+            
+            if (c == 'm') {
+                ansi_handle_sgr();
+            } else if (c == 'H' || c == 'f') {
+                int r = ansi_params[0] > 0 ? ansi_params[0] - 1 : 0;
+                int col = ansi_params[1] > 0 ? ansi_params[1] - 1 : 0;
+                if (r >= terminal_rows) r = terminal_rows - 1;
+                if (col >= terminal_cols) col = terminal_cols - 1;
+                cursor_row = r;
+                cursor_col = col;
+            } else if (c == 'A') {
+                int n = ansi_params[0] > 0 ? ansi_params[0] : 1;
+                cursor_row -= n; if (cursor_row < 0) cursor_row = 0;
+            } else if (c == 'B') {
+                int n = ansi_params[0] > 0 ? ansi_params[0] : 1;
+                cursor_row += n; if (cursor_row >= terminal_rows) cursor_row = terminal_rows - 1;
+            } else if (c == 'C') {
+                int n = ansi_params[0] > 0 ? ansi_params[0] : 1;
+                cursor_col += n; if (cursor_col >= terminal_cols) cursor_col = terminal_cols - 1;
+            } else if (c == 'D') {
+                int n = ansi_params[0] > 0 ? ansi_params[0] : 1;
+                cursor_col -= n; if (cursor_col < 0) cursor_col = 0;
+            } else if (c == 'J') {
+                if (ansi_params[0] == 2) {
+                    cmd_screen_clear();
+                }
+            } else if (c == 'K') {
+                for (int i = cursor_col; i < terminal_cols; i++) {
+                    screen_buffer[cursor_row * terminal_cols + i].c = ' ';
+                    screen_buffer[cursor_row * terminal_cols + i].color = current_color;
+                }
+            }
+            
+            ansi_state = 0;
+            return;
+        }
+    }
     
     if (c == '\n') {
         cursor_col = 0;
         cursor_row++;
+    } else if (c == '\r') {
+        cursor_col = 0;
     } else if (c == '\t') {
         int spaces = 4 - (cursor_col % 4);
         for (int i = 0; i < spaces; i++) cmd_putchar(' ');
@@ -563,28 +690,29 @@ void cmd_putchar(char c) {
     } else if (c == '\b') {
         if (cursor_col > 0) {
             cursor_col--;
-            screen_buffer[cursor_row][cursor_col].c = ' ';
-            screen_buffer[cursor_row][cursor_col].color = shell_config.default_text_color;
+            screen_buffer[cursor_row * terminal_cols + cursor_col].c = ' ';
+            screen_buffer[cursor_row * terminal_cols + cursor_col].color = shell_config.default_text_color;
         }
     } else {
-        if (cursor_col >= CMD_COLS) {
+        if (cursor_col >= terminal_cols) {
             cursor_col = 0;
             cursor_row++;
         }
         
-        if (cursor_row >= CMD_ROWS) {
+        if (cursor_row >= terminal_rows) {
             cmd_scroll_up();
-            cursor_row = CMD_ROWS - 1;
+            cursor_row = terminal_rows - 1;
         }
 
-        screen_buffer[cursor_row][cursor_col].c = c;
-        screen_buffer[cursor_row][cursor_col].color = current_color;
+        screen_buffer[cursor_row * terminal_cols + cursor_col].c = c;
+        screen_buffer[cursor_row * terminal_cols + cursor_col].color = current_color;
+        // Optionally set background color if we support it in CharCell
         cursor_col++;
     }
 
-    if (cursor_row >= CMD_ROWS) {
+    if (cursor_row >= terminal_rows) {
         cmd_scroll_up();
-        cursor_row = CMD_ROWS - 1;
+        cursor_row = terminal_rows - 1;
     }
     
     // Trigger repaint so output from syscalls is immediately visible
@@ -644,10 +772,10 @@ int cmd_get_cursor_col(void) {
 
 // Public for CLI apps to use - clear the terminal screen
 void cmd_screen_clear() {
-    for(int r=0; r<CMD_ROWS; r++) {
-        for(int c=0; c<CMD_COLS; c++) {
-            screen_buffer[r][c].c = ' ';
-            screen_buffer[r][c].color = COLOR_DARK_TEXT;
+    for(int r=0; r<terminal_rows; r++) {
+        for(int c=0; c<terminal_cols; c++) {
+            screen_buffer[r * terminal_cols + c].c = ' ';
+            screen_buffer[r * terminal_cols + c].color = COLOR_DARK_TEXT;
         }
     }
     cursor_row = 0;
@@ -681,7 +809,7 @@ void pager_wrap_content(const char **lines, int count) {
 
             int remaining = len - processed;
             int chunk_len = remaining;
-            if (chunk_len > CMD_COLS) chunk_len = CMD_COLS;
+            if (chunk_len > terminal_cols) chunk_len = terminal_cols;
 
             // If cutting a word, backtrack to last space
             if (chunk_len < remaining) { // Only check if actually wrapping
@@ -1649,12 +1777,13 @@ static void cmd_paint(Window *win) {
 
     if (current_mode == MODE_PAGER) {
         // Draw Pager Content (Wrapped)
-        for (int i = 0; i < CMD_ROWS && (pager_top_line + i) < pager_total_lines; i++) {
+        for (int i = 0; i < terminal_rows && (pager_top_line + i) < pager_total_lines; i++) {
             draw_string(start_x, start_y + (i * LINE_HEIGHT), pager_wrapped_lines[pager_top_line + i], shell_config.default_text_color);
         }
         
         // Status Bar
-        draw_string(start_x, start_y + (CMD_ROWS * LINE_HEIGHT), "-- Press Q to quit --", shell_config.default_text_color);
+        // Status Bar
+        draw_string(start_x, start_y + (terminal_rows * LINE_HEIGHT), "-- Press Q to quit --", shell_config.default_text_color);
     } else {
         // Draw Cursor
         if (win->focused) {
@@ -1663,11 +1792,11 @@ static void cmd_paint(Window *win) {
         }
 
         // Draw Shell Buffer
-        for (int r = 0; r < CMD_ROWS; r++) {
-            for (int c = 0; c < CMD_COLS; c++) {
-                char ch = screen_buffer[r][c].c;
+        for (int r = 0; r < terminal_rows; r++) {
+            for (int c = 0; c < terminal_cols; c++) {
+                char ch = screen_buffer[r * terminal_cols + c].c;
                 if (ch != 0 && ch != ' ') {
-                    uint32_t color = screen_buffer[r][c].color;
+                    uint32_t color = screen_buffer[r * terminal_cols + c].color;
                     // If cursor is on this character, and cursor color is bright, use background color for char
                     if (r == cursor_row && c == cursor_col && win->focused) {
                         color = shell_config.bg_color;
@@ -1676,6 +1805,90 @@ static void cmd_paint(Window *win) {
                 }
             }
         }
+    }
+
+    // Column/Row Indicator in top-right
+    char size_buf[32];
+    itoa(terminal_cols, size_buf);
+    int p = 0; while(size_buf[p]) p++; size_buf[p++] = 'x'; itoa(terminal_rows, size_buf + p);
+    draw_string(win->x + win->w - 80, win->y + 5, size_buf, 0xFFAAAAAA);
+}
+
+void cmd_handle_resize(Window *win, int w, int h) {
+    (void)win;
+    int new_cols = (w - 20) / CHAR_WIDTH;
+    int new_rows = (h - 50) / LINE_HEIGHT;
+    if (new_cols < 20) new_cols = 20;
+    if (new_rows < 5) new_rows = 5;
+
+    if (new_cols == terminal_cols && new_rows == terminal_rows) return;
+
+    CharCell *new_buffer = (CharCell*)kmalloc(new_rows * new_cols * sizeof(CharCell));
+    for (int i = 0; i < new_rows * new_cols; i++) {
+        new_buffer[i].c = ' ';
+        new_buffer[i].color = shell_config.default_text_color;
+    }
+
+    // Reflow Logic: Copy characters and track cursor
+    int new_r = 0;
+    int new_c = 0;
+    int target_cursor_r = 0;
+    int target_cursor_c = 0;
+
+    for (int r = 0; r < terminal_rows; r++) {
+        // Find logical end of this line for copying
+        int last_c = terminal_cols - 1;
+        while (last_c >= 0 && screen_buffer[r * terminal_cols + last_c].c == ' ') last_c--;
+        
+        // If this is the cursor row, we MUST copy up to the cursor col at least
+        if (r == cursor_row) {
+            if (last_c < cursor_col) last_c = cursor_col;
+        }
+
+        for (int c = 0; c <= last_c; c++) {
+            if (r == cursor_row && c == cursor_col) {
+                target_cursor_r = new_r;
+                target_cursor_c = new_c;
+            }
+
+            if (new_c >= new_cols) {
+                new_c = 0;
+                new_r++;
+            }
+            if (new_r < new_rows) {
+                new_buffer[new_r * new_cols + new_c] = screen_buffer[r * terminal_cols + c];
+                new_c++;
+            }
+        }
+
+        // If it was the cursor row, we've found our target position
+        if (r == cursor_row) break;
+
+        // Force newline after each source line if it wasn't a wrap
+        if (last_c < terminal_cols - 1) {
+            new_c = 0;
+            new_r++;
+        }
+    }
+
+    kfree(screen_buffer);
+    screen_buffer = new_buffer;
+    terminal_rows = new_rows;
+    terminal_cols = new_cols;
+    
+    cursor_row = target_cursor_r;
+    cursor_col = target_cursor_c;
+    if (cursor_row >= terminal_rows) cursor_row = terminal_rows - 1;
+    if (cursor_col >= terminal_cols) cursor_col = terminal_cols - 1;
+}
+
+void cmd_handle_click(Window *win, int x, int y) {
+    (void)win;
+    // Basic mouse support: convert pixel to char coords
+    int c = (x - 10) / CHAR_WIDTH;
+    int r = (y - 25) / LINE_HEIGHT;
+    if (r >= 0 && r < terminal_rows && c >= 0 && c < terminal_cols) {
+        // If telnet or other app wants mouse reporting, we'd handle it here
     }
 }
 
@@ -1687,24 +1900,24 @@ static void cmd_key(Window *target, char c) {
         } else if (c == 17) { // UP
             if (pager_top_line > 0) pager_top_line--;
         } else if (c == 18) { // DOWN
-            if (pager_top_line < pager_total_lines - CMD_ROWS) pager_top_line++;
+            if (pager_top_line < pager_total_lines - terminal_rows) pager_top_line++;
         }
         return;
     }
 
     // Shell Mode
-    if (c == '\n') { // Enter
-         char cmd_buf[CMD_COLS + 1];
-         int len = 0;
-         int prompt_len = current_prompt_len;
-         
-         for (int i = prompt_len; i < CMD_COLS; i++) {
-             char ch = screen_buffer[cursor_row][i].c;
-             if (ch == 0 || (ch == ' ' && i > prompt_len && screen_buffer[cursor_row][i+1].c == 0)) break;
-             cmd_buf[len++] = ch;
-         }
-         while (len > 0 && cmd_buf[len-1] == ' ') len--;
-         cmd_buf[len] = 0;
+     if (c == '\n') { // Enter
+          char cmd_buf[512]; // Use a fixed large enough buffer or dynamic
+          int len = 0;
+          int prompt_len = current_prompt_len;
+          
+          for (int i = prompt_len; i < terminal_cols; i++) {
+              char ch = screen_buffer[cursor_row * terminal_cols + i].c;
+              if (ch == 0 || (ch == ' ' && i > prompt_len && (i + 1 < terminal_cols) && screen_buffer[cursor_row * terminal_cols + i + 1].c == 0)) break;
+              if (len < 511) cmd_buf[len++] = ch;
+          }
+          while (len > 0 && cmd_buf[len-1] == ' ') len--;
+          cmd_buf[len] = 0;
 
          cmd_putchar('\n');
          current_color = shell_config.default_text_color;
@@ -1723,9 +1936,9 @@ static void cmd_key(Window *target, char c) {
                 // Save current line
                 int len = 0;
                 int prompt_len = current_prompt_len;
-                for (int i = prompt_len; i < CMD_COLS; i++) {
-                    char ch = screen_buffer[cursor_row][i].c;
-                    if (ch == 0 || (ch == ' ' && i > prompt_len && screen_buffer[cursor_row][i+1].c == 0)) break;
+                for (int i = prompt_len; i < terminal_cols; i++) {
+                    char ch = screen_buffer[cursor_row * terminal_cols + i].c;
+                    if (ch == 0 || (ch == ' ' && i > prompt_len && (i + 1 < terminal_cols) && screen_buffer[cursor_row * terminal_cols + i + 1].c == 0)) break;
                     history_save_buf[len++] = ch;
                 }
                 while (len > 0 && history_save_buf[len-1] == ' ') len--;
@@ -1756,27 +1969,27 @@ static void cmd_key(Window *target, char c) {
             cursor_col--;
         }
     } else if (c == 20) { // RIGHT
-        if (cursor_col < CMD_COLS - 1) {
+        if (cursor_col < terminal_cols - 1) {
             cursor_col++;
         }
     } else if (c == '\b') { // Backspace
          if (cursor_col > current_prompt_len) {
              // Shift characters to the left
-             for (int i = cursor_col; i < CMD_COLS; i++) {
-                 screen_buffer[cursor_row][i - 1] = screen_buffer[cursor_row][i];
+             for (int i = cursor_col; i < terminal_cols; i++) {
+                 screen_buffer[cursor_row * terminal_cols + i - 1] = screen_buffer[cursor_row * terminal_cols + i];
              }
-             screen_buffer[cursor_row][CMD_COLS - 1].c = ' ';
+             screen_buffer[cursor_row * terminal_cols + terminal_cols - 1].c = ' ';
              cursor_col--;
              wm_mark_dirty(win_cmd.x, win_cmd.y, win_cmd.w, win_cmd.h);
          }
     } else {
         if (c >= 32 && c <= 126) {
             // Shift characters to the right
-            for (int i = CMD_COLS - 1; i > cursor_col; i--) {
-                screen_buffer[cursor_row][i] = screen_buffer[cursor_row][i - 1];
+            for (int i = terminal_cols - 1; i > cursor_col; i--) {
+                screen_buffer[cursor_row * terminal_cols + i] = screen_buffer[cursor_row * terminal_cols + i - 1];
             }
-            screen_buffer[cursor_row][cursor_col].c = c;
-            screen_buffer[cursor_row][cursor_col].color = current_color;
+            screen_buffer[cursor_row * terminal_cols + cursor_col].c = c;
+            screen_buffer[cursor_row * terminal_cols + cursor_col].color = current_color;
             cursor_col++;
             wm_mark_dirty(win_cmd.x, win_cmd.y, win_cmd.w, win_cmd.h);
         }
@@ -2109,19 +2322,28 @@ void cmd_init(void) {
     // Load config after files are created
     cmd_load_config();
 
+    // Default sizes
+    terminal_cols = DEFAULT_CMD_COLS;
+    terminal_rows = DEFAULT_CMD_ROWS;
+    
+    // Allocate screen buffer
+    screen_buffer = (CharCell*)kmalloc(terminal_cols * terminal_rows * sizeof(CharCell));
+
     win_cmd.title = shell_config.title_text;
     win_cmd.x = 50;
     win_cmd.y = 50;
-    win_cmd.w = (CMD_COLS * CHAR_WIDTH) + 20; 
-    win_cmd.h = (CMD_ROWS * LINE_HEIGHT) + 50;
+    win_cmd.w = (terminal_cols * CHAR_WIDTH) + 20; 
+    win_cmd.h = (terminal_rows * LINE_HEIGHT) + 50;
     
     win_cmd.visible = false;
     win_cmd.focused = false;
     win_cmd.z_index = 0;
     win_cmd.paint = cmd_paint;
     win_cmd.handle_key = cmd_key;
-    win_cmd.handle_click = NULL;
+    win_cmd.handle_click = cmd_handle_click;
     win_cmd.handle_right_click = NULL;
+    win_cmd.handle_resize = cmd_handle_resize;
+    win_cmd.resizable = true;
     
     // Initialize cmd state (per-window context)
     CmdState *state = (CmdState*)kmalloc(sizeof(CmdState));

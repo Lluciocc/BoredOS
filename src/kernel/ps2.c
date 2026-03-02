@@ -107,7 +107,8 @@ uint64_t keyboard_handler(registers_t *regs) {
 
 // --- Mouse ---
 static uint8_t mouse_cycle = 0;
-static int8_t mouse_byte[3];
+static int8_t mouse_byte[4];
+static bool mouse_has_wheel = false;
 
 void mouse_wait(uint8_t type) {
     uint32_t timeout = 100000;
@@ -154,6 +155,16 @@ void mouse_init(void) {
     // Set Defaults
     mouse_write(0xF6);
     mouse_read();
+
+    // Enable Wheel - Magic Sequence
+    mouse_write(0xF3); mouse_read(); mouse_write(200); mouse_read();
+    mouse_write(0xF3); mouse_read(); mouse_write(100); mouse_read();
+    mouse_write(0xF3); mouse_read(); mouse_write(80); mouse_read();
+    
+    mouse_write(0xF2);
+    mouse_read();
+    uint8_t id = mouse_read();
+    if (id == 3) mouse_has_wheel = true;
     
     // Enable Streaming
     mouse_write(0xF4);
@@ -171,29 +182,36 @@ uint64_t mouse_handler(registers_t *regs) {
     uint8_t b = inb(0x60);
     
     if (mouse_cycle == 0) {
-        if ((b & 0x08) == 0) { // Sync check
-             // Skip
+        if ((b & 0x08) == 0) {
+            // Out of sync
         } else {
-             mouse_byte[0] = b;
-             mouse_cycle++;
+            mouse_byte[0] = b;
+            mouse_cycle++;
         }
     } else if (mouse_cycle == 1) {
         mouse_byte[1] = b;
         mouse_cycle++;
-    } else {
+    } else if (mouse_cycle == 2) {
         mouse_byte[2] = b;
+        if (mouse_has_wheel) {
+            mouse_cycle++;
+        } else {
+            mouse_cycle = 0;
+            int8_t dx = mouse_byte[1];
+            int8_t dy = mouse_byte[2];
+            wm_handle_mouse(dx, -dy, mouse_byte[0] & 0x07, 0);
+        }
+    } else if (mouse_cycle == 3) {
+        mouse_byte[3] = b;
         mouse_cycle = 0;
-        
-        // Packet Full
         int8_t dx = mouse_byte[1];
-        int8_t dy = mouse_byte[2]; 
-        
-        // Send to WM
-        wm_handle_mouse(dx, -dy, mouse_byte[0] & 0x07);
+        int8_t dy = mouse_byte[2];
+        int8_t dz = mouse_byte[3];
+        wm_handle_mouse(dx, -dy, mouse_byte[0] & 0x07, -dz);
     }
 
     outb(0x20, 0x20);
-    outb(0xA0, 0x20); // Slave EOI
+    outb(0xA0, 0x20);
     return (uint64_t)regs;
 }
 

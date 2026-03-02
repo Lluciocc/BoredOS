@@ -57,6 +57,9 @@ void (*wm_custom_paint_hook)(void) = NULL;
 
 // Dragging State
 static bool is_dragging = false;
+static bool is_resizing = false;
+static int drag_start_w = 0;
+static int drag_start_h = 0;
 static Window *drag_window = NULL;
 static int drag_offset_x = 0;
 static int drag_offset_y = 0;
@@ -855,6 +858,18 @@ static void draw_dock_settings(int x, int y) {
     draw_filled_circle(cx, cy, 4, 0xFF3A3A3A);
 }
 
+static long long isqrt(long long n) {
+    if (n < 0) return -1;
+    if (n == 0) return 0;
+    long long x = n;
+    long long y = 1;
+    while (x > y) {
+        x = (x + y) / 2;
+        y = n / x;
+    }
+    return x;
+}
+
 static void draw_dock_notepad(int x, int y) {
     draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFFCC9A00);
     draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFFFFD700);
@@ -959,6 +974,28 @@ static void draw_dock_paint(int x, int y) {
     draw_rounded_rect_filled(x + 30, y + 22, 3, 7, 1, 0xFF1A1A1A);
 }
 
+static void draw_dock_browser(int x, int y) {
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF0D47A1);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF1976D2);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF1565C0);
+    
+    int cx = x + 24, cy = y + 24;
+    draw_filled_circle(cx, cy, 18, 0xFF64B5F6);
+    draw_filled_circle(cx, cy, 16, 0xFF2196F3);
+    
+    // Simple globe lines
+    draw_rect(cx - 16, cy, 32, 1, 0xFFBBDEFB);
+    draw_rect(cx, cy - 16, 1, 32, 0xFFBBDEFB);
+    
+    for(int i=0; i<32; i++) {
+        int r = (i-16);
+        if (r*r > 16*16) continue;
+        int w = isqrt(16*16 - r*r);
+        put_pixel(cx - w, cy + r, 0xFFBBDEFB);
+        put_pixel(cx + w, cy + r, 0xFFBBDEFB);
+    }
+}
+
 static void draw_dock_clock(int x, int y) {
     draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF4A4A4A);
     draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF6E6E6E);
@@ -1026,6 +1063,18 @@ void draw_window(Window *win) {
     
     if (win->paint) {
         win->paint(win);
+    }
+    
+    // Draw Resize Handle for resizable windows (MacOS 9 style)
+    if (win->resizable) {
+        int hx = win->x + win->w - 16;
+        int hy = win->y + win->h - 16;
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j <= i; j++) {
+                // Draw a small 2x2 "dot" for the knurling
+                draw_rect(hx + 12 - i*4 + j*4, hy + 12 - j*4, 2, 2, 0xFF888888);
+            }
+        }
     }
 }
 
@@ -1216,7 +1265,7 @@ void wm_paint(void) {
     int dock_y = sh - dock_h - 6;   
     int dock_item_size = 48;
     int dock_spacing = 10;
-    int total_dock_width = 8 * (dock_item_size + dock_spacing);
+    int total_dock_width = 9 * (dock_item_size + dock_spacing);
     int dock_bg_x = (sw - total_dock_width) / 2 - 12;   
     int dock_bg_w = total_dock_width + 24;
     draw_rounded_rect_filled(dock_bg_x, dock_y, dock_bg_w, dock_h, 18, COLOR_DOCK_BG);
@@ -1237,6 +1286,8 @@ void wm_paint(void) {
     draw_dock_minesweeper(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
     draw_dock_paint(dock_x, dock_item_y);
+    dock_x += dock_item_size + dock_spacing;
+    draw_dock_browser(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
     draw_dock_clock(dock_x, dock_item_y);
     // Editor removed from dock
@@ -1632,6 +1683,14 @@ void wm_handle_click(int x, int y) {
             if (topmost == &win_explorer) {
                 explorer_reset();
             }
+        } else if (topmost->resizable && x >= topmost->x + topmost->w - 20 && y >= topmost->y + topmost->h - 20) {
+            // Dragging the resize handle
+            is_resizing = true;
+            drag_window = topmost;
+            drag_offset_x = x - topmost->x;
+            drag_offset_y = y - topmost->y;
+            drag_start_w = topmost->w;
+            drag_start_h = topmost->h;
         } else if (y < topmost->y + 30) {
             // Dragging the title bar
             is_dragging = true;
@@ -1715,7 +1774,7 @@ void wm_handle_right_click(int x, int y) {
     }
     
     force_redraw = true;
-}void wm_handle_mouse(int dx, int dy, uint8_t buttons) {
+}void wm_handle_mouse(int dx, int dy, uint8_t buttons, int dz) {
     int sw = get_screen_width();
     int sh = get_screen_height();
     
@@ -1739,6 +1798,24 @@ void wm_handle_right_click(int x, int y) {
     if (mx >= sw) mx = sw - 1;
     if (my >= sh) my = sh - 1;
     
+    if (dz != 0) {
+        // Find focused window and send wheel event
+        for (int w = 0; w < window_count; w++) {
+            Window *win = all_windows[w];
+            if (win->focused && win->visible) {
+                 // Map to userland process
+                 process_t* proc = process_get_by_ui_window(win);
+                 if (proc) {
+                     gui_event_t ev;
+                     ev.type = 9; // GUI_EVENT_MOUSE_WHEEL
+                     ev.arg1 = dz;
+                     process_push_gui_event(proc, &ev);
+                 }
+                 break;
+            }
+        }
+    }
+    
     static bool prev_left = false;
     static bool prev_right = false;
     bool left = buttons & 0x01;
@@ -1751,7 +1828,7 @@ void wm_handle_right_click(int x, int y) {
         int dock_y = sh - dock_h - 6;  
         int dock_item_size = 48;
         int dock_spacing = 10;
-        int total_dock_width = 8 * (dock_item_size + dock_spacing);
+        int total_dock_width = 9 * (dock_item_size + dock_spacing);
         int dock_bg_x = (sw - total_dock_width) / 2 - 12;
         int dock_bg_w = total_dock_width + 24;
         
@@ -1769,7 +1846,8 @@ void wm_handle_right_click(int x, int y) {
                 else if (item == 4) start_menu_pending_app = "Terminal";
                 else if (item == 5) start_menu_pending_app = "Minesweeper";
                 else if (item == 6) start_menu_pending_app = "Paint";
-                else if (item == 7) start_menu_pending_app = "Clock";
+                else if (item == 7) start_menu_pending_app = "Browser";
+                else if (item == 8) start_menu_pending_app = "Clock";
             }
         } else {
             wm_handle_click(mx, my);
@@ -1781,7 +1859,22 @@ void wm_handle_right_click(int x, int y) {
         drag_window->y = my - drag_offset_y;
         // Mark for full redraw since window moved
         force_redraw = true;
-    } else if (left && !is_dragging && !is_dragging_file && (dx != 0 || dy != 0)) {
+    } else if (left && is_resizing && drag_window) {
+        int new_w = mx - drag_window->x + (drag_start_w - drag_offset_x);
+        int new_h = my - drag_window->y + (drag_start_h - drag_offset_y);
+        
+        if (new_w < 150) new_w = 150;
+        if (new_h < 100) new_h = 100;
+        
+        if (new_w != drag_window->w || new_h != drag_window->h) {
+            drag_window->w = new_w;
+            drag_window->h = new_h;
+            if (drag_window->handle_resize) {
+                drag_window->handle_resize(drag_window, new_w, new_h);
+            }
+            force_redraw = true;
+        }
+    } else if (left && !is_dragging && !is_resizing && !is_dragging_file && (dx != 0 || dy != 0)) {
         // Check deadzone
         int dist_x = mx - drag_start_x;
         int dist_y = my - drag_start_y;
@@ -1842,8 +1935,9 @@ void wm_handle_right_click(int x, int y) {
         }
         
     } else if (!left) {
-        if (is_dragging) {
+        if (is_dragging || is_resizing) {
             is_dragging = false;
+            is_resizing = false;
             drag_window = NULL;
             force_redraw = true;
         }
@@ -1889,6 +1983,10 @@ void wm_handle_right_click(int x, int y) {
                 Window *existing = wm_find_window_by_title("Clock");
                 if (existing) wm_bring_to_front(existing);
                 else process_create_elf("/bin/clock.elf", NULL);
+            } else if (str_starts_with(start_menu_pending_app, "Browser")) {
+                Window *existing = wm_find_window_by_title("Web Browser");
+                if (existing) wm_bring_to_front(existing);
+                else process_create_elf("/bin/browser.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "About")) {
                 process_create_elf("/bin/about.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Shutdown")) {

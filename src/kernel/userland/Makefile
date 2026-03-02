@@ -39,6 +39,9 @@ $(BIN_DIR)/viewer.elf: $(LIBC_OBJS) $(BIN_DIR)/viewer.o $(BIN_DIR)/nanojpeg.o
 $(BIN_DIR)/settings.elf: $(LIBC_OBJS) $(BIN_DIR)/settings.o $(BIN_DIR)/nanojpeg.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
+$(BIN_DIR)/browser.elf: $(LIBC_OBJS) $(BIN_DIR)/browser.o $(BIN_DIR)/nanojpeg.o
+	$(LD) $(LDFLAGS) $^ -o $@
+
 $(BIN_DIR)/%.elf: $(LIBC_OBJS) $(BIN_DIR)/%.o
 	$(LD) $(LDFLAGS) $^ -o $@
 

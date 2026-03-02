@@ -59,10 +59,12 @@ struct Window {
     void (*handle_click)(Window *win, int x, int y);
     void (*handle_right_click)(Window *win, int x, int y);
     void (*handle_close)(Window *win);
+    void (*handle_resize)(Window *win, int w, int h);
+    bool resizable;
 };
 
 void wm_init(void);
-void wm_handle_mouse(int dx, int dy, uint8_t buttons);
+void wm_handle_mouse(int dx, int dy, uint8_t buttons, int dz);
 void wm_handle_key(char c);
 void wm_handle_click(int x, int y);
 void wm_handle_right_click(int x, int y);
