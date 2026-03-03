@@ -85,6 +85,9 @@ typedef struct {
     bool bold;
     uint32_t *img_pixels;
     int img_w, img_h;
+    char form_action[256];
+    char input_name[64];
+    int form_id;
 } RenderElement;
 
 #define MAX_ELEMENTS 8192
@@ -95,8 +98,7 @@ static char url_input_buffer[512] = "http://frogfind.com";
 static int url_cursor = 19;
 static char current_host[256] = "frogfind.com";
 static int current_port = 80;
-static char current_form_action[256] = "";
-static char current_input_name[64] = "q";
+static int next_form_id = 1;
 
 static ui_window_t win_browser;
 static int scroll_y = 0;
@@ -321,9 +323,11 @@ static void flush_line(bool centered) {
 
 static void parse_html(const char *html) {
     browser_clear();
-    cur_line_y = 10; cur_line_x = 10; line_element_count = 0;
+    cur_line_y = 10; cur_line_y = 10; cur_line_x = 10; line_element_count = 0;
     int i = 0; bool is_centered = false; bool is_bold = false; uint32_t current_color = COLOR_TEXT; char current_link[256] = "";
+    char current_form_action[256] = ""; int current_form_id = 0;
     bool skip_content = false;
+    next_form_id = 1;
 
     while (html[i] && element_count < MAX_ELEMENTS) {
         if (html[i] == '<') {
@@ -347,10 +351,14 @@ static void parse_html(const char *html) {
             if (tag_name[0] == '/') {
                 if (str_istarts_with(tag_name+1, "center")) { flush_line(is_centered); is_centered = false; }
                 else if (tag_name[1] == 'h' && tag_name[2] >= '1' && tag_name[2] <= '6') { flush_line(is_centered); cur_line_y += 10; is_bold = false; }
+                else if (str_istarts_with(tag_name+1, "form")) {
+                    flush_line(is_centered);
+                    current_form_id = 0; current_form_action[0] = 0;
+                }
                 else if (str_istarts_with(tag_name+1, "a")) current_link[0] = 0;
-                else if (str_istarts_with(tag_name+1, "p") || str_istarts_with(tag_name+1, "li") || str_istarts_with(tag_name+1, "ol") || str_istarts_with(tag_name+1, "form") || str_istarts_with(tag_name+1, "div")) flush_line(is_centered);
+                else if (str_istarts_with(tag_name+1, "p") || str_istarts_with(tag_name+1, "li") || str_istarts_with(tag_name+1, "ol") || str_istarts_with(tag_name+1, "div")) flush_line(is_centered);
                 else if (str_istarts_with(tag_name+1, "font")) current_color = COLOR_TEXT;
-                else if (str_istarts_with(tag_name+1, "head") || (tag_name[1] == 's' && tag_name[2] == 'c') || (tag_name[1] == 's' && tag_name[2] == 't') || str_istarts_with(tag_name+1, "title") || str_istarts_with(tag_name+1, "noscript") || str_istarts_with(tag_name+1, "style")) skip_content = false;
+                else if (str_istarts_with(tag_name+1, "head") || (tag_name[1] == 's' && tag_name[2] == 'c') || (tag_name[1] == 's' && tag_name[2] == 'i') || (tag_name[1] == 's' && tag_name[2] == 't') || str_istarts_with(tag_name+1, "title") || str_istarts_with(tag_name+1, "noscript") || str_istarts_with(tag_name+1, "style")) skip_content = false;
             } else {
                 if (str_istarts_with(tag_name, "center")) { flush_line(is_centered); is_centered = true; }
                 else if (tag_name[0] == 'h' && tag_name[1] >= '1' && tag_name[1] <= '6') { flush_line(is_centered); cur_line_y += 10; is_bold = true; }
@@ -358,6 +366,7 @@ static void parse_html(const char *html) {
                 else if (str_istarts_with(tag_name, "h") || str_istarts_with(tag_name, "p") || str_istarts_with(tag_name, "hr") || str_istarts_with(tag_name, "li") || str_istarts_with(tag_name, "ol") || str_istarts_with(tag_name, "div")) flush_line(is_centered);
                 else if (str_istarts_with(tag_name, "form")) {
                     flush_line(is_centered);
+                    current_form_id = next_form_id++;
                     char *action = str_istrstr(attr_buf, "action=\"");
                     if (action) {
                         action += 8; int l = 0;
@@ -398,11 +407,19 @@ static void parse_html(const char *html) {
                     char *ph = str_istrstr(attr_buf, "placeholder=\"");
                     char *type = str_istrstr(attr_buf, "type=\"");
                     char *name = str_istrstr(attr_buf, "name=\"");
+                    
+                    el->form_id = current_form_id;
+                    int l;
+                    l = 0; while(current_form_action[l]) { el->form_action[l] = current_form_action[l]; l++; } el->form_action[l] = 0;
+                    
                     if (name) {
-                        name += 6; int l = 0;
-                        while(name[l] && name[l] != '\"' && l < 63) { current_input_name[l] = name[l]; l++; }
-                        current_input_name[l] = 0;
+                        name += 6; l = 0;
+                        while(name[l] && name[l] != '\"' && l < 63) { el->input_name[l] = name[l]; l++; }
+                        el->input_name[l] = 0;
+                    } else {
+                        l = 0; const char *dn = "q"; while(dn[l]) { el->input_name[l] = dn[l]; l++; } el->input_name[l] = 0;
                     }
+                    
                     if (type && str_istarts_with(type+6, "submit")) el->tag = TAG_BUTTON;
                     
                     if (val) {
@@ -555,13 +572,14 @@ int main(int argc, char **argv) {
                             focused_element = i; found = true; browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H); break;
                         }
                         if (el->tag == TAG_BUTTON) {
+                            int fid = el->form_id;
                             int search_idx = -1;
-                            for (int k=0; k<element_count; k++) if (elements[k].tag == TAG_INPUT) { search_idx = k; break; }
+                            for (int k=0; k<element_count; k++) if (elements[k].tag == TAG_INPUT && elements[k].form_id == fid) { search_idx = k; break; }
                             if (search_idx >= 0) {
                                 char search_url[1024];
                                 char *u = search_url;
                                 const char *s;
-                                if (current_form_action[0] == '/') {
+                                if (el->form_action[0] == '/') {
                                     s = "http://"; while(*s) *u++ = *s++;
                                     s = current_host; while(*s) *u++ = *s++;
                                     if (current_port != 80) {
@@ -569,9 +587,9 @@ int main(int argc, char **argv) {
                                         char pbuf[10]; itoa(current_port, pbuf);
                                         const char* ps = pbuf; while(*ps) *u++ = *ps++;
                                     }
-                                    s = current_form_action; while(*s) *u++ = *s++;
-                                } else if (str_istarts_with(current_form_action, "http")) {
-                                    s = current_form_action; while(*s) *u++ = *s++;
+                                    s = el->form_action; while(*s) *u++ = *s++;
+                                } else if (str_istarts_with(el->form_action, "http")) {
+                                    s = el->form_action; while(*s) *u++ = *s++;
                                 } else {
                                     s = "http://"; while(*s) *u++ = *s++;
                                     s = current_host; while(*s) *u++ = *s++;
@@ -581,12 +599,12 @@ int main(int argc, char **argv) {
                                         const char* ps = pbuf; while(*ps) *u++ = *ps++;
                                     }
                                     if (current_host[0] && current_host[0] != '/') *u++ = '/';
-                                    if (current_form_action[0]) { s = current_form_action; while(*s) *u++ = *s++; }
+                                    if (el->form_action[0]) { s = el->form_action; while(*s) *u++ = *s++; }
                                 }
                                 
                                 s = (strstr(search_url, "?") ? "&" : "?");
                                 while(*s) *u++ = *s++;
-                                s = current_input_name; while(*s) *u++ = *s++;
+                                s = elements[search_idx].input_name; while(*s) *u++ = *s++;
                                 *u++ = '=';
                                 
                                 for (int m=0; elements[search_idx].attr_value[m] && (u - search_url) < 1020; m++) {
@@ -646,7 +664,7 @@ int main(int argc, char **argv) {
                         char search_url[1024];
                         char *u = search_url;
                         const char *s;
-                        if (current_form_action[0] == '/') {
+                        if (el->form_action[0] == '/') {
                             s = "http://"; while(*s) *u++ = *s++;
                             s = current_host; while(*s) *u++ = *s++;
                             if (current_port != 80) {
@@ -654,9 +672,9 @@ int main(int argc, char **argv) {
                                 char pbuf[10]; itoa(current_port, pbuf);
                                 const char* ps = pbuf; while(*ps) *u++ = *ps++;
                             }
-                            s = current_form_action; while(*s) *u++ = *s++;
-                        } else if (str_istarts_with(current_form_action, "http")) {
-                            s = current_form_action; while(*s) *u++ = *s++;
+                            s = el->form_action; while(*s) *u++ = *s++;
+                        } else if (str_istarts_with(el->form_action, "http")) {
+                            s = el->form_action; while(*s) *u++ = *s++;
                         } else {
                             s = "http://"; while(*s) *u++ = *s++;
                             s = current_host; while(*s) *u++ = *s++;
@@ -666,12 +684,12 @@ int main(int argc, char **argv) {
                                 const char* ps = pbuf; while(*ps) *u++ = *ps++;
                             }
                             if (current_host[0] && current_host[0] != '/') *u++ = '/';
-                            if (current_form_action[0]) { s = current_form_action; while(*s) *u++ = *s++; }
+                            if (el->form_action[0]) { s = el->form_action; while(*s) *u++ = *s++; }
                         }
                         
                         s = (strstr(search_url, "?") ? "&" : "?");
                         while(*s) *u++ = *s++;
-                        s = current_input_name; while(*s) *u++ = *s++;
+                        s = el->input_name; while(*s) *u++ = *s++;
                         *u++ = '=';
                         
                         for (int m=0; el->attr_value[m] && (u - search_url) < 1020; m++) {
