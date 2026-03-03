@@ -101,9 +101,9 @@ typedef struct {
 static RenderElement elements[MAX_ELEMENTS];
 static int element_count = 0;
 
-static char url_input_buffer[512] = "http://frogfind.com";
-static int url_cursor = 19;
-static char current_host[256] = "frogfind.com";
+static char url_input_buffer[512] = "http://find.boreddev.nl";
+static int url_cursor = 22;
+static char current_host[256] = "find.boreddev.nl";
 static int current_port = 80;
 static int next_form_id = 1;
 
@@ -321,12 +321,13 @@ static int line_elements[512];
 static int line_element_count = 0;
 static int cur_line_y = 10;
 static int cur_line_x = 10;
+static int list_depth = 0;
 
 static void flush_line(bool centered) {
     if (line_element_count == 0) return;
     int line_w = 0;
     for (int i = 0; i < line_element_count; i++) line_w += elements[line_elements[i]].w;
-    int offset_x = centered ? (WIN_W - SCROLL_BAR_W - line_w) / 2 : 10;
+    int offset_x = centered ? (WIN_W - SCROLL_BAR_W - line_w) / 2 : 10 + (list_depth * 20);
     if (offset_x < 10) offset_x = 10;
 
     int max_h = 16;
@@ -361,7 +362,7 @@ static void flush_line(bool centered) {
     }
     
     cur_line_y += max_h;
-    cur_line_x = 10;
+    cur_line_x = centered ? 10 : 10 + (list_depth * 20);
     line_element_count = 0;
     total_content_height = cur_line_y + 50;
 }
@@ -386,10 +387,58 @@ static uint32_t parse_html_color(const char *str) {
     return COLOR_TEXT;
 }
 
+static void decode_html_entities(char *str) {
+    if (!str) return;
+    char *src = str;
+    char *dst = str;
+    while (*src) {
+        if (*src == '&') {
+            if (str_istarts_with(src, "&quot;")) { *dst++ = '\"'; src += 6; continue; }
+            if (str_istarts_with(src, "&amp;")) { *dst++ = '&'; src += 5; continue; }
+            if (str_istarts_with(src, "&lt;")) { *dst++ = '<'; src += 4; continue; }
+            if (str_istarts_with(src, "&gt;")) { *dst++ = '>'; src += 4; continue; }
+            if (str_istarts_with(src, "&apos;")) { *dst++ = '\''; src += 6; continue; }
+            if (str_istarts_with(src, "&nbsp;")) { *dst++ = ' '; src += 6; continue; }
+            if (str_istarts_with(src, "&mdash;")) { *dst++ = '-'; src += 7; continue; }
+            if (str_istarts_with(src, "&ndash;")) { *dst++ = '-'; src += 7; continue; }
+            if (str_istarts_with(src, "&lsquo;")) { *dst++ = '\''; src += 7; continue; }
+            if (str_istarts_with(src, "&rsquo;")) { *dst++ = '\''; src += 7; continue; }
+            if (str_istarts_with(src, "&ldquo;")) { *dst++ = '\"'; src += 7; continue; }
+            if (str_istarts_with(src, "&rdquo;")) { *dst++ = '\"'; src += 7; continue; }
+
+            if (src[1] == '#') {
+                int val = 0;
+                char *end = NULL;
+                if (src[2] == 'x' || src[2] == 'X') {
+                    val = strtol(src + 3, &end, 16);
+                } else {
+                    val = strtol(src + 2, &end, 10);
+                }
+                if (end && *end == ';' && end > src + 2) {
+                    if (val == 8216 || val == 8217) val = '\'';
+                    else if (val == 8220 || val == 8221) val = '\"';
+                    else if (val == 8211 || val == 8212) val = '-';
+                    else if (val == 160) val = ' ';
+                    
+                    if (val > 0 && val < 256) {
+                        *dst++ = (char)val;
+                        src = end + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        *dst++ = *src++;
+    }
+    *dst = 0;
+}
+
 static void parse_html(const char *html) {
     browser_clear();
-    cur_line_y = 10; cur_line_y = 10; cur_line_x = 10; line_element_count = 0;
-    int i = 0; bool is_centered = false; bool is_bold = false; uint32_t current_color = COLOR_TEXT; char current_link[256] = "";
+    list_depth = 0;
+    cur_line_y = 10; cur_line_x = 10; line_element_count = 0;
+    int i = 0; int center_depth = 0; int table_depth = 0; bool is_bold = false; uint32_t current_color = COLOR_TEXT; char current_link[256] = "";
+    #define EFF_CENTER ((center_depth > 0) && (table_depth == 0))
     float current_scale = 15.0f; float base_scale = 15.0f;
     bool is_space_pending = false;
     char current_form_action[256] = ""; int current_form_id = 0;
@@ -414,22 +463,27 @@ static void parse_html(const char *html) {
                 attr_buf[a_idx] = 0;
             }
             if (html[i] == '>') i++;
+            decode_html_entities(attr_buf);
 
             if (tag_name[0] == '/') {
-                if (str_istarts_with(tag_name+1, "center")) { flush_line(is_centered); is_centered = false; }
-                else if (tag_name[1] == 'h' && tag_name[2] >= '1' && tag_name[2] <= '6') { flush_line(is_centered); cur_line_y += 10; is_bold = false; base_scale = 15.0f; current_scale = 15.0f; }
+                if (str_istarts_with(tag_name+1, "center")) { flush_line(EFF_CENTER); if (center_depth > 0) center_depth--; }
+                else if (str_istarts_with(tag_name+1, "table")) { flush_line(EFF_CENTER); if (table_depth > 0) table_depth--; }
+                else if (str_istarts_with(tag_name+1, "ul") || str_istarts_with(tag_name+1, "ol")) { flush_line(EFF_CENTER); if (list_depth > 0) list_depth--; }
+                else if (tag_name[1] == 'h' && tag_name[2] >= '1' && tag_name[2] <= '6') { flush_line(EFF_CENTER); cur_line_y += 10; is_bold = false; base_scale = 15.0f; current_scale = 15.0f; }
                 else if (str_istarts_with(tag_name+1, "form")) {
-                    flush_line(is_centered);
+                    flush_line(EFF_CENTER);
                     current_form_id = 0; current_form_action[0] = 0;
                 }
                 else if (str_istarts_with(tag_name+1, "a")) current_link[0] = 0;
-                else if (str_istarts_with(tag_name+1, "p") || str_istarts_with(tag_name+1, "li") || str_istarts_with(tag_name+1, "ol") || str_istarts_with(tag_name+1, "div")) flush_line(is_centered);
+                else if (str_istarts_with(tag_name+1, "p") || str_istarts_with(tag_name+1, "li") || str_istarts_with(tag_name+1, "div")) flush_line(EFF_CENTER);
                 else if (str_istarts_with(tag_name+1, "font")) { current_color = COLOR_TEXT; current_scale = base_scale; }
                 else if (str_istarts_with(tag_name+1, "head") || (tag_name[1] == 's' && tag_name[2] == 'c') || (tag_name[1] == 's' && tag_name[2] == 'i') || (tag_name[1] == 's' && tag_name[2] == 't') || str_istarts_with(tag_name+1, "title") || str_istarts_with(tag_name+1, "noscript") || str_istarts_with(tag_name+1, "style")) skip_content = false;
             } else {
-                if (str_istarts_with(tag_name, "center")) { flush_line(is_centered); is_centered = true; }
+                if (str_istarts_with(tag_name, "center")) { flush_line(EFF_CENTER); center_depth++; }
+                else if (str_istarts_with(tag_name, "table")) { flush_line(EFF_CENTER); table_depth++; }
+                else if (str_istarts_with(tag_name, "ul") || str_istarts_with(tag_name, "ol")) { flush_line(EFF_CENTER); list_depth++; }
                 else if (tag_name[0] == 'h' && tag_name[1] >= '1' && tag_name[1] <= '6') { 
-                    flush_line(is_centered); cur_line_y += 10; is_bold = true; 
+                    flush_line(EFF_CENTER); cur_line_y += 10; is_bold = true; 
                     if (tag_name[1] == '1') base_scale = 32.0f;
                     else if (tag_name[1] == '2') base_scale = 24.0f;
                     else if (tag_name[1] == '3') base_scale = 20.0f;
@@ -477,10 +531,25 @@ static void parse_html(const char *html) {
                         else if (s_char >= '7' && s_char <= '9') current_scale = 48.0f;
                     }
                 }
-                else if (str_istarts_with(tag_name, "br")) flush_line(is_centered);
-                else if (str_istarts_with(tag_name, "p") || str_istarts_with(tag_name, "li") || str_istarts_with(tag_name, "ol") || str_istarts_with(tag_name, "div")) flush_line(is_centered);
+                else if (str_istarts_with(tag_name, "br")) flush_line(EFF_CENTER);
+                else if (str_istarts_with(tag_name, "p") || str_istarts_with(tag_name, "div")) flush_line(EFF_CENTER);
+                else if (str_istarts_with(tag_name, "li")) {
+                    flush_line(EFF_CENTER);
+                    RenderElement *el = &elements[element_count++];
+                    for (int k=0; k<(int)sizeof(RenderElement); k++) ((char*)el)[k] = 0;
+                    el->tag = TAG_NONE;
+                    el->content[0] = '-'; el->content[1] = ' '; el->content[2] = 0;
+                    el->w = ui_get_string_width_scaled("- ", current_scale);
+                    el->h = ui_get_font_height_scaled(current_scale);
+                    el->color = current_color;
+                    el->centered = EFF_CENTER;
+                    el->bold = is_bold;
+                    el->scale = current_scale;
+                    line_elements[line_element_count++] = element_count - 1;
+                    cur_line_x += el->w;
+                }
                 else if (str_istarts_with(tag_name, "form")) {
-                    flush_line(is_centered);
+                    flush_line(EFF_CENTER);
                     current_form_id = next_form_id++;
                     char *action = str_istrstr(attr_buf, "action=\"");
                     if (action) {
@@ -499,7 +568,7 @@ static void parse_html(const char *html) {
                         current_link[l] = 0;
                     }
                 } else if (str_istarts_with(tag_name, "hr")) {
-                    flush_line(is_centered);
+                    flush_line(EFF_CENTER);
                     RenderElement *el = &elements[element_count++];
                     for (int k=0; k<(int)sizeof(RenderElement); k++) ((char*)el)[k] = 0;
                     el->tag = TAG_HR; 
@@ -507,12 +576,11 @@ static void parse_html(const char *html) {
                     el->h = 10; // Extra padding
                     el->centered = true;
                     line_elements[line_element_count++] = element_count - 1;
-                    flush_line(is_centered);
+                    flush_line(EFF_CENTER);
                 } else if (str_istarts_with(tag_name, "img")) {
                     RenderElement *el = &elements[element_count++];
-                    int idx = element_count - 1;
                     for (int k=0; k<(int)sizeof(RenderElement); k++) ((char*)el)[k] = 0;
-                    el->tag = TAG_IMG; el->w = 100; el->h = 80; el->centered = is_centered;
+                    el->tag = TAG_IMG; el->w = 100; el->h = 80; el->centered = EFF_CENTER;
                     char *src = str_istrstr(attr_buf, "src=\"");
                     if (src) {
                         src += 5; int l = 0;
@@ -521,13 +589,12 @@ static void parse_html(const char *html) {
                     }
                     if (el->img_pixels) { el->w = el->img_w; el->h = el->img_h; }
                     line_elements[line_element_count++] = element_count - 1;
-                    if (is_centered || cur_line_x + el->w > WIN_W - SCROLL_BAR_W - 20) flush_line(is_centered);
+                    if (EFF_CENTER || cur_line_x + el->w > WIN_W - SCROLL_BAR_W - 20) flush_line(EFF_CENTER);
                     else cur_line_x += el->w;
                 } else if (str_istarts_with(tag_name, "input")) {
                     RenderElement *el = &elements[element_count++];
-                    int idx = element_count - 1;
                     for (int k=0; k<(int)sizeof(RenderElement); k++) ((char*)el)[k] = 0;
-                    el->tag = TAG_INPUT; el->w = 160; el->h = 20; el->centered = is_centered;
+                    el->tag = TAG_INPUT; el->w = 160; el->h = 20; el->centered = EFF_CENTER;
                     char *val = str_istrstr(attr_buf, "value=\"");
                     char *ph = str_istrstr(attr_buf, "placeholder=\"");
                     char *type = str_istrstr(attr_buf, "type=\"");
@@ -560,7 +627,7 @@ static void parse_html(const char *html) {
                     } else el->attr_value[0] = 0;
                     if (el->tag == TAG_BUTTON) el->w = ui_get_string_width(el->attr_value) + 20;
                     line_elements[line_element_count++] = element_count - 1;
-                    if (is_centered || cur_line_x + el->w > WIN_W - SCROLL_BAR_W - 20) flush_line(is_centered);
+                    if (EFF_CENTER || cur_line_x + el->w > WIN_W - SCROLL_BAR_W - 20) flush_line(EFF_CENTER);
                     else cur_line_x += el->w;
                 }
             }
@@ -588,11 +655,13 @@ static void parse_html(const char *html) {
                     }
                     
                     word[w_idx] = 0;
+                    decode_html_entities(word);
+                    w_idx = 0; while (word[w_idx]) w_idx++;
                     if (w_idx > 0) {
                         if (element_count >= MAX_ELEMENTS) break;
                         int word_w = ui_get_string_width_scaled(word, current_scale);
                         if (cur_line_x + word_w > WIN_W - SCROLL_BAR_W - 20) {
-                            flush_line(is_centered);
+                            flush_line(EFF_CENTER);
                             if (word[0] == ' ') {
                                 for (int k=0; k<w_idx; k++) word[k] = word[k+1];
                                 word_w = ui_get_string_width_scaled(word, current_scale);
@@ -607,7 +676,7 @@ static void parse_html(const char *html) {
                         el->w = word_w;
                         el->h = ui_get_font_height_scaled(current_scale);
                         el->tag = TAG_NONE; el->color = current_link[0] ? COLOR_LINK : current_color;
-                        el->centered = is_centered; el->bold = is_bold;
+                        el->centered = EFF_CENTER; el->bold = is_bold;
                         el->scale = current_scale;
                         if (current_link[0]) { int k=0; while(current_link[k]) { el->link_url[k] = current_link[k]; k++; } el->link_url[k] = 0; }
                         
@@ -620,7 +689,7 @@ static void parse_html(const char *html) {
             }
         }
     }
-    flush_line(is_centered);
+    flush_line(EFF_CENTER);
 }
 
 static void browser_paint(void) {
@@ -725,26 +794,33 @@ int main(int argc, char **argv) {
     navigate(url_input_buffer);
     browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H);
     gui_event_t ev;
+    bool needs_repaint = false;
     while (1) {
-        if (ui_get_event(win_browser, &ev)) {
-            if (ev.type == GUI_EVENT_PAINT) { browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H); }
+        while (ui_get_event(win_browser, &ev)) {
+            if (ev.type == GUI_EVENT_PAINT) { needs_repaint = true; }
             else if (ev.type == GUI_EVENT_CLICK) {
                 int mx = ev.arg1;
                 if (mx >= WIN_W - SCROLL_BAR_W) {
                     if (ev.arg2 < URL_BAR_H + (WIN_H - URL_BAR_H)/2) scroll_y -= 100;
                     else scroll_y += 100;
                     if (scroll_y < 0) scroll_y = 0;
-                    browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H);
+                    needs_repaint = true;
                     continue;
                 }
-                if (ev.arg2 < URL_BAR_H) { focused_element = -1; browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H); continue; }
+                if (ev.arg2 < URL_BAR_H) { focused_element = -1; needs_repaint = true; continue; }
                 int my = ev.arg2 - URL_BAR_H + scroll_y;
                 bool found = false;
                 for (int i = 0; i < element_count; i++) {
                     RenderElement *el = &elements[i];
                     if (mx >= el->x && mx < el->x + el->w && my >= el->y && my < el->y + el->h) {
                         if (el->tag == TAG_INPUT) {
-                            focused_element = i; found = true; browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H); break;
+                            focused_element = i;
+                            int len = 0; while(el->attr_value[len]) len++;
+                            el->input_cursor = len;
+                            int max_v = (el->w - 10) / 8;
+                            if (el->input_cursor < el->input_scroll) el->input_scroll = el->input_cursor;
+                            if (el->input_cursor >= el->input_scroll + max_v) el->input_scroll = el->input_cursor - max_v + 1;
+                            found = true; needs_repaint = true; break;
                         }
                         if (el->tag == TAG_BUTTON) {
                             int fid = el->form_id;
@@ -790,7 +866,7 @@ int main(int argc, char **argv) {
                                 *u = 0;
                                 int j=0; while(search_url[j]) { url_input_buffer[j] = search_url[j]; j++; } url_input_buffer[j] = 0; url_cursor = j;
                                 navigate(url_input_buffer); scroll_y = 0; focused_element = -1;
-                                browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H);
+                                needs_repaint = true;
                                 found = true; break;
                             }
                         }
@@ -820,12 +896,12 @@ int main(int argc, char **argv) {
                             }
                             int j=0; while(new_url[j]) { url_input_buffer[j] = new_url[j]; j++; } url_input_buffer[j] = 0; url_cursor = j;
                             navigate(url_input_buffer); scroll_y = 0; focused_element = -1;
-                            browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H);
+                            needs_repaint = true;
                             found = true; break;
                         }
                     }
                 }
-                if (!found) { focused_element = -1; browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H); }
+                if (!found) { focused_element = -1; needs_repaint = true; }
             } else if (ev.type == GUI_EVENT_KEY) {
                 char c = (char)ev.arg1;
                 if (focused_element == -1) {
@@ -887,6 +963,7 @@ int main(int argc, char **argv) {
                         *u = 0;
                         int j=0; while(search_url[j]) { url_input_buffer[j] = search_url[j]; j++; } url_input_buffer[j] = 0; url_cursor = j;
                         navigate(url_input_buffer); scroll_y = 0; focused_element = -1;
+                        needs_repaint = true;
                     }
                     else if (c == 19) { if (el->input_cursor > 0) el->input_cursor--; }
                     else if (c == 20) { if (el->input_cursor < len) el->input_cursor++; }
@@ -916,16 +993,21 @@ int main(int argc, char **argv) {
                 if (scroll_y > max_scroll) scroll_y = max_scroll;
                 if (scroll_y < 0) scroll_y = 0;
 
-                browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H);
+                needs_repaint = true;
             } else if (ev.type == 9) { // GUI_EVENT_MOUSE_WHEEL
                 scroll_y += ev.arg1 * 20;
                 int max_scroll = total_content_height - (WIN_H - URL_BAR_H);
                 if (max_scroll < 0) max_scroll = 0;
                 if (scroll_y > max_scroll) scroll_y = max_scroll;
                 if (scroll_y < 0) scroll_y = 0;
-                browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H);
+                needs_repaint = true;
             } else if (ev.type == GUI_EVENT_CLOSE) sys_exit(0);
-        } else { for(volatile int x=0; x<10000; x++); }
+        }
+        if (needs_repaint) {
+            browser_paint(); ui_mark_dirty(win_browser, 0, 0, WIN_W, WIN_H);
+            needs_repaint = false;
+        }
+        for(volatile int x=0; x<10000; x++);
     }
     return 0;
 }

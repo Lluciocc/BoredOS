@@ -59,6 +59,16 @@ static inline uint32_t alpha_blend(uint32_t bg, uint32_t fg, uint8_t alpha) {
 
 static ttf_font_t *default_font = NULL;
 
+#define FONT_CACHE_SIZE 2048
+typedef struct {
+    char c;
+    float pixel_height;
+    int w, h, xoff, yoff;
+    unsigned char *bitmap;
+} font_cache_entry_t;
+
+static font_cache_entry_t g_font_cache[FONT_CACHE_SIZE];
+
 bool font_manager_init(void) {
     // We'll load a default font later if available
     return true;
@@ -130,9 +140,35 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uin
     if (!font) return;
 
     stbtt_fontinfo *info = (stbtt_fontinfo *)font->info;
+    
+    int cache_idx = ((unsigned char)c * 31 + (int)(scale * 17.0f)) % FONT_CACHE_SIZE;
+    font_cache_entry_t *entry = &g_font_cache[cache_idx];
+    
+    unsigned char *bitmap = NULL;
     int w, h, xoff, yoff;
-    float real_scale = stbtt_ScaleForPixelHeight(info, scale); // Convert pixel size back to stbtt scale
-    unsigned char *bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, c, &w, &h, &xoff, &yoff);
+    
+    if (entry->bitmap && entry->c == c && entry->pixel_height == scale) {
+        bitmap = entry->bitmap;
+        w = entry->w;
+        h = entry->h;
+        xoff = entry->xoff;
+        yoff = entry->yoff;
+    } else {
+        float real_scale = stbtt_ScaleForPixelHeight(info, scale); // Convert pixel size back to stbtt scale
+        bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, c, &w, &h, &xoff, &yoff);
+        
+        if (entry->bitmap) {
+            stbtt_FreeBitmap(entry->bitmap, NULL);
+        }
+        
+        entry->c = c;
+        entry->pixel_height = scale;
+        entry->w = w;
+        entry->h = h;
+        entry->xoff = xoff;
+        entry->yoff = yoff;
+        entry->bitmap = bitmap;
+    }
 
     if (bitmap) {
         for (int row = 0; row < h; row++) {
@@ -146,7 +182,6 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uin
                 }
             }
         }
-        stbtt_FreeBitmap(bitmap, NULL);
     }
 }
 
