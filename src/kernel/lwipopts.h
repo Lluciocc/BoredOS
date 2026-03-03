@@ -21,11 +21,11 @@
 #define LWIP_NETIF_LINK_CALLBACK   1
 
 #define TCP_MSS                    1460
-#define TCP_WND                    (4 * TCP_MSS)
-#define TCP_SND_BUF                (4 * TCP_MSS)
+#define TCP_WND                    (32 * TCP_MSS)
+#define TCP_SND_BUF                (32 * TCP_MSS)
+#define TCP_SND_QUEUELEN           (4 * (TCP_SND_BUF/TCP_MSS))
 
 #define MEM_ALIGNMENT              8
-#define MEM_SIZE                   (256 * 1024)
 
 #define LWIP_CHKSUM_ALGORITHM      3
 
@@ -34,6 +34,9 @@
 // Memory management
 #define MEMP_MEM_MALLOC            0
 #define MEM_LIBC_MALLOC            0
-#define MEM_SIZE                   (2 * 1024 * 1024)
+#define MEM_SIZE                   (16 * 1024 * 1024)
+#define PBUF_POOL_SIZE             256
+#define MEMP_NUM_TCP_SEG           128
+#define MEMP_NUM_PBUF              256
 
 #endif /* LWIPOPTS_H */

@@ -260,7 +260,11 @@ int network_tcp_recv(void *buf, size_t max_len) {
     }
     
     // We already have data or we timed out (return 0 handled above)
-    size_t copied = pbuf_copy_partial(tcp_recv_queue, buf, (u16_t)max_len, 0);
+    size_t to_copy = max_len;
+    if (to_copy > tcp_recv_queue->tot_len) to_copy = tcp_recv_queue->tot_len;
+    if (to_copy > 0xFFFF) to_copy = 0xFFFF; // pbuf_copy_partial limit
+
+    size_t copied = pbuf_copy_partial(tcp_recv_queue, buf, (u16_t)to_copy, 0);
     struct pbuf *remainder = pbuf_free_header(tcp_recv_queue, (u16_t)copied);
     if (current_tcp_pcb) tcp_recved(current_tcp_pcb, (u16_t)copied);
     tcp_recv_queue = remainder;

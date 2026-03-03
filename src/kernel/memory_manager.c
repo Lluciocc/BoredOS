@@ -148,6 +148,29 @@ void memory_manager_init_from_memmap(struct limine_memmap_response *memmap) {
     serial_write(" MB\n");
 }
 
+// Internal helper to insert a block at a specific index
+static void insert_block_at(int idx, void* addr, size_t size, bool allocated, uint32_t id) {
+    if (block_count >= MAX_ALLOCATIONS) return;
+    for (int j = block_count; j > idx; j--) {
+        block_list[j] = block_list[j - 1];
+    }
+    block_list[idx].address = addr;
+    block_list[idx].size = size;
+    block_list[idx].allocated = allocated;
+    block_list[idx].allocation_id = id;
+    block_list[idx].timestamp = (allocated) ? get_timestamp() : 0;
+    block_count++;
+}
+
+// Internal helper to remove a block at a specific index
+static void remove_block_at(int idx) {
+    if (idx < 0 || idx >= block_count) return;
+    for (int j = idx; j < block_count - 1; j++) {
+        block_list[j] = block_list[j + 1];
+    }
+    block_count--;
+}
+
 void* kmalloc_aligned(size_t size, size_t alignment) {
     if (!initialized || size == 0) return NULL;
     
@@ -171,51 +194,52 @@ void* kmalloc_aligned(size_t size, size_t alignment) {
         size_t padding = aligned_addr - block_start;
 
         if (block_size >= size + padding) {
-            int needed_slots = 0;
-            if (padding > 0) needed_slots++;
+            // Check if we have enough slots for potential splits
+            int extra_needed = 0;
+            if (padding > 0) extra_needed++;
             size_t remaining_size = block_size - (size + padding);
-            if (remaining_size > 0) {
-                needed_slots++;
-            } else {
-                // The current slot will be reused for the allocation.
-            }
-
-            if (block_count + needed_slots > MAX_ALLOCATIONS) {
-                continue; // Cannot fit metadata for this split
+            if (remaining_size > 0) extra_needed++;
+            
+            if (block_count + extra_needed > MAX_ALLOCATIONS) {
+                continue; 
             }
 
             void* ptr = (void*)aligned_addr;
+            uint32_t alloc_id = ++allocation_counter;
+
+            // We are splitting block_list[i].
+            // Possible outcomes:
+            // 1. [Padding (Free)] [Allocated] [Remaining (Free)]
+            // 2. [Padding (Free)] [Allocated]
+            // 3. [Allocated] [Remaining (Free)]
+            // 4. [Allocated]
+
+            // We'll modify block_list[i] and insert others as needed.
+            // To keep things simple and maintain sorted order, we update from right to left or carefully.
             
-            // Perform the split
-            if (remaining_size > 0) {
-
-                block_list[block_count].address = ptr;
-                block_list[block_count].size = size;
-                block_list[block_count].allocated = true;
-                block_list[block_count].allocation_id = ++allocation_counter;
-                block_list[block_count].timestamp = get_timestamp();
-                block_count++;
-
-                block_list[i].address = (void*)(aligned_addr + size);
-                block_list[i].size = remaining_size;
-                block_list[i].allocated = false;
-            } else {
+            if (padding > 0 && remaining_size > 0) {
+                // Case 1: Split into 3
+                block_list[i].size = padding; // Padding stays at i
+                insert_block_at(i + 1, ptr, size, true, alloc_id);
+                insert_block_at(i + 2, (void*)(aligned_addr + size), remaining_size, false, 0);
+            } else if (padding > 0) {
+                // Case 2: Split into 2
+                block_list[i].size = padding;
+                insert_block_at(i + 1, ptr, size, true, alloc_id);
+            } else if (remaining_size > 0) {
+                // Case 3: Split into 2
                 block_list[i].address = ptr;
                 block_list[i].size = size;
                 block_list[i].allocated = true;
-                block_list[i].allocation_id = ++allocation_counter;
+                block_list[i].allocation_id = alloc_id;
+                block_list[i].timestamp = get_timestamp();
+                insert_block_at(i + 1, (void*)(aligned_addr + size), remaining_size, false, 0);
+            } else {
+                // Case 4: Perfect fit
+                block_list[i].allocated = true;
+                block_list[i].allocation_id = alloc_id;
                 block_list[i].timestamp = get_timestamp();
             }
-
-            if (padding > 0) {
-                block_list[block_count].address = (void*)block_start;
-                block_list[block_count].size = padding;
-                block_list[block_count].allocated = false;
-                block_list[block_count].allocation_id = 0;
-                block_count++;
-            }
-            
-            sort_block_list();
 
             total_allocated += size;
             if (total_allocated > peak_allocated) peak_allocated = total_allocated;
@@ -257,25 +281,13 @@ void kfree(void *ptr) {
     block_list[block_idx].allocated = false;
     block_list[block_idx].allocation_id = 0;
 
-    // Merge adjacent blocks. We sort first to make adjacency checking trivial.
-    sort_block_list();
-
-    // Re-find the block (it might have moved during sort)
-    for (int i = 0; i < block_count; i++) {
-        if (block_list[i].address == ptr) {
-            block_idx = i;
-            break;
-        }
-    }
-
     // Merge with next block if possible
     if (block_idx + 1 < block_count && !block_list[block_idx + 1].allocated) {
         uintptr_t current_end = (uintptr_t)block_list[block_idx].address + block_list[block_idx].size;
         uintptr_t next_start = (uintptr_t)block_list[block_idx + 1].address;
         if (current_end == next_start) {
             block_list[block_idx].size += block_list[block_idx + 1].size;
-            for (int i = block_idx + 1; i < block_count - 1; i++) block_list[i] = block_list[i + 1];
-            block_count--;
+            remove_block_at(block_idx + 1);
         }
     }
 
@@ -285,8 +297,7 @@ void kfree(void *ptr) {
         uintptr_t current_start = (uintptr_t)block_list[block_idx].address;
         if (prev_end == current_start) {
             block_list[block_idx - 1].size += block_list[block_idx].size;
-            for (int i = block_idx; i < block_count - 1; i++) block_list[i] = block_list[i + 1];
-            block_count--;
+            remove_block_at(block_idx);
         }
     }
 

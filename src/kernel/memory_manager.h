@@ -11,7 +11,7 @@
 
 // Memory Manager Configuration
 #define DEFAULT_POOL_SIZE (128 * 1024 * 1024)  // 128MB default
-#define MAX_ALLOCATIONS 16384  // Increased for larger pools
+#define MAX_ALLOCATIONS 262144  // Increased for larger pools
 #define MAX_FRAGMENTATION_SLOTS 2048
 
 // Allocation block metadata

@@ -80,47 +80,38 @@ uint64_t elf_load(const char *path, uint64_t user_pml4) {
             
             if (p_memsz == 0) continue;
 
-            // Calculate page-aligned boundaries
-            uint64_t align_offset = p_vaddr & 0xFFF;
-            uint64_t start_page = p_vaddr & ~0xFFF;
-            uint64_t num_pages = (p_memsz + align_offset + 0xFFF) / 4096;
+            // Calculate boundaries for bulk allocation
+            uintptr_t align_offset = p_vaddr & 0xFFF;
+            uintptr_t start_page = p_vaddr & ~0xFFFFFFFFFFFFF000ULL; // Wait, mask should be ~0xFFF
+            start_page = p_vaddr & ~0xFFFULL;
+            size_t total_needed = (p_memsz + align_offset + 4095) & ~4095ULL;
+            size_t num_pages = total_needed / 4096;
 
-            // Allocate and Map Pages
+            // Bulk allocate physical memory for the entire segment
+            // Note: We allocate page by page but map them sequentially.
+            // A better way is to allocate a large contiguous block if possible, 
+            // but our kmalloc_aligned handles arbitrary sizes.
+            void* bulk_phys = kmalloc_aligned(total_needed, 4096);
+            if (!bulk_phys) {
+                serial_write("[ELF] Error: Out of memory bulk allocating segment\n");
+                fat32_close(file);
+                return 0;
+            }
+
+            // Zero out entire segment (BSS and padding) in one go
+            mem_memset(bulk_phys, 0, total_needed);
+
+            // Bulk read from disk for the entire filesz part
+            if (p_filesz > 0) {
+                fat32_seek(file, p_offset, 0);
+                fat32_read(file, (uint8_t*)bulk_phys + align_offset, (uint32_t)p_filesz);
+            }
+
+            // Map all pages
             for (uint64_t p = 0; p < num_pages; p++) {
                 uint64_t vaddr = start_page + (p * 4096);
-                void* phys = kmalloc_aligned(4096, 4096);
-                if (!phys) {
-                    serial_write("[ELF] Error: Out of memory mapping PT_LOAD\n");
-                    fat32_close(file);
-                    return 0;
-                }
-                
-                // Map page to user space (Present, RW, User)
-                paging_map_page(user_pml4, vaddr, v2p((uint64_t)phys), 0x07);
-
-                // Zero out the entire page (handles BSS and padding)
-                uint8_t* dest = (uint8_t*)phys;
-                for (int j=0; j<4096; j++) dest[j] = 0;
-
-                // Copy data from file if available for this page
-                uint64_t page_vaddr_start = vaddr;
-                uint64_t page_vaddr_end = vaddr + 4096;
-
-                // What part of the segment (p_vaddr to p_vaddr + p_filesz) overlaps this page?
-                uint64_t overlap_vaddr_start = p_vaddr;
-                if (page_vaddr_start > overlap_vaddr_start) overlap_vaddr_start = page_vaddr_start;
-                
-                uint64_t overlap_vaddr_end = p_vaddr + p_filesz;
-                if (page_vaddr_end < overlap_vaddr_end) overlap_vaddr_end = page_vaddr_end;
-
-                if (overlap_vaddr_start < overlap_vaddr_end) {
-                    uint64_t copy_size = overlap_vaddr_end - overlap_vaddr_start;
-                    uint64_t dest_offset = overlap_vaddr_start - page_vaddr_start;
-                    uint64_t file_offset = p_offset + (overlap_vaddr_start - p_vaddr);
-
-                    fat32_seek(file, file_offset, 0);
-                    fat32_read(file, dest + dest_offset, (uint32_t)copy_size);
-                }
+                uint64_t phys_addr = v2p((uint64_t)bulk_phys + (p * 4096));
+                paging_map_page(user_pml4, vaddr, phys_addr, 0x07);
             }
         }
     }

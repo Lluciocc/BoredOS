@@ -12,7 +12,7 @@
 #define WIN_H 960
 #define URL_BAR_H 30
 #define SCROLL_BAR_W 16
-#define RESP_BUF_SIZE (1024 * 1024)
+#define RESP_BUF_SIZE (32 * 1024 * 1024)
 
 #define COLOR_URL_BAR    0xFF303030
 #define COLOR_URL_TEXT   0xFFF0F0F0
@@ -88,9 +88,11 @@ typedef struct {
     char form_action[256];
     char input_name[64];
     int form_id;
+    int input_cursor;
+    int input_scroll;
 } RenderElement;
 
-#define MAX_ELEMENTS 8192
+#define MAX_ELEMENTS 65536
 static RenderElement elements[MAX_ELEMENTS];
 static int element_count = 0;
 
@@ -103,7 +105,10 @@ static int next_form_id = 1;
 static ui_window_t win_browser;
 static int scroll_y = 0;
 static int total_content_height = 0;
-static int focused_element = -1; // -1 for URL bar, >= 0 for page elements
+static int focused_element = -1; 
+
+static void parse_html(const char *html);
+static void browser_paint(void);
 
 static void browser_clear(void) {
     for (int i = 0; i < element_count; i++) {
@@ -146,7 +151,7 @@ static int parse_ip(const char* str, net_ipv4_address_t* ip) {
     return 0;
 }
 
-static int fetch_content(const char *url, char *dest_buf, int max_len) {
+static int fetch_content(const char *url, char *dest_buf, int max_len, bool progressive) {
     const char* host_start = url;
     if (url[0] == 'h' && url[1] == 't' && url[2] == 't' && url[3] == 'p') {
         if (url[4] == 's' && url[5] == ':') host_start = url + 8;
@@ -205,11 +210,25 @@ static int fetch_content(const char *url, char *dest_buf, int max_len) {
     sys_tcp_send(request, r - request);
     
     int total = 0;
+    int last_render = 0;
     while (1) {
         int len = sys_tcp_recv(dest_buf + total, max_len - 1 - total);
         if (len <= 0) break;
         total += len;
         if (total >= max_len - 1) break;
+
+        if (progressive && total - last_render > 16384) {
+            dest_buf[total] = 0;
+            char *body = strstr(dest_buf, "\r\n\r\n");
+            if (body) {
+                body += 4;
+                if (!strstr(dest_buf, "Transfer-Encoding: chunked")) {
+                    parse_html(body);
+                    browser_paint();
+                    last_render = total;
+                }
+            }
+        }
     }
     dest_buf[total] = 0;
     sys_tcp_close();
@@ -280,7 +299,7 @@ static void load_image(RenderElement *el) {
         *u = 0;
     }
     static char img_resp[RESP_BUF_SIZE];
-    int resp_len = fetch_content(url, img_resp, sizeof(img_resp));
+    int resp_len = fetch_content(url, img_resp, sizeof(img_resp), false);
     char *body = strstr(img_resp, "\r\n\r\n");
     if (body) {
         body += 4;
@@ -312,7 +331,7 @@ static void flush_line(bool centered) {
         el->y = cur_line_y;
         offset_x += el->w;
         if (el->tag == TAG_IMG && el->img_h + 10 > max_h) max_h = el->img_h + 10;
-        if ((el->tag == TAG_INPUT || el->tag == TAG_BUTTON) && 24 + 10 > max_h) max_h = 24 + 10;
+        if ((el->tag == TAG_INPUT || el->tag == TAG_BUTTON) && 20 + 10 > max_h) max_h = 20 + 10;
     }
     cur_line_y += max_h;
     cur_line_x = 10;
@@ -402,13 +421,15 @@ static void parse_html(const char *html) {
                     RenderElement *el = &elements[element_count++];
                     int idx = element_count - 1;
                     for (int k=0; k<(int)sizeof(RenderElement); k++) ((char*)el)[k] = 0;
-                    el->tag = TAG_INPUT; el->w = 160; el->h = 24; el->centered = is_centered;
+                    el->tag = TAG_INPUT; el->w = 160; el->h = 20; el->centered = is_centered;
                     char *val = str_istrstr(attr_buf, "value=\"");
                     char *ph = str_istrstr(attr_buf, "placeholder=\"");
                     char *type = str_istrstr(attr_buf, "type=\"");
                     char *name = str_istrstr(attr_buf, "name=\"");
                     
                     el->form_id = current_form_id;
+                    el->input_cursor = 0;
+                    el->input_scroll = 0;
                     int l;
                     l = 0; while(current_form_action[l]) { el->form_action[l] = current_form_action[l]; l++; } el->form_action[l] = 0;
                     
@@ -476,23 +497,11 @@ static void parse_html(const char *html) {
 
 static void browser_paint(void) {
     ui_draw_rect(win_browser, 0, 0, WIN_W, WIN_H, COLOR_BG);
-    ui_draw_rect(win_browser, 0, 0, WIN_W, URL_BAR_H, COLOR_URL_BAR);
-    ui_draw_string(win_browser, 10, 8, url_input_buffer, COLOR_URL_TEXT);
-    if (focused_element == -1) {
-        ui_draw_rect(win_browser, 10 + url_cursor * 8, 22, 8, 2, COLOR_URL_TEXT);
-    }
     
-    // Scroll bar
-    ui_draw_rect(win_browser, WIN_W - SCROLL_BAR_W, URL_BAR_H, SCROLL_BAR_W, WIN_H - URL_BAR_H, COLOR_SCROLL_BG);
-    int thumb_h = (WIN_H - URL_BAR_H) * (WIN_H - URL_BAR_H) / (total_content_height > WIN_H ? total_content_height : WIN_H);
-    if (thumb_h < 20) thumb_h = 20;
-    int thumb_y = URL_BAR_H + (scroll_y * (WIN_H - URL_BAR_H - thumb_h)) / (total_content_height > WIN_H - URL_BAR_H ? total_content_height - (WIN_H - URL_BAR_H) : 1);
-    ui_draw_rect(win_browser, WIN_W - SCROLL_BAR_W + 2, thumb_y, SCROLL_BAR_W - 4, thumb_h, COLOR_SCROLL_BTN);
-
     for (int i = 0; i < element_count; i++) {
         RenderElement *el = &elements[i];
         int draw_y = el->y - scroll_y + URL_BAR_H;
-        if (draw_y < URL_BAR_H - 1000 || draw_y > WIN_H) continue;
+        if (draw_y < URL_BAR_H - 400 || draw_y > WIN_H) continue;
         if (el->tag == TAG_IMG) {
             if (el->img_pixels) ui_draw_image(win_browser, el->x, draw_y, el->img_w, el->img_h, el->img_pixels);
             else ui_draw_rect(win_browser, el->x, draw_y, 100, 80, 0xFFCCCCCC);
@@ -503,10 +512,22 @@ static void browser_paint(void) {
             ui_draw_rect(win_browser, el->x, draw_y + el->h - 1, el->w, 1, border);
             ui_draw_rect(win_browser, el->x, draw_y, 1, el->h, border);
             ui_draw_rect(win_browser, el->x + el->w - 1, draw_y, 1, el->h, border);
-            ui_draw_string(win_browser, el->x + 5, draw_y + 4, el->attr_value, (focused_element == i) ? 0xFF000000 : 0xFF808080);
+            
+            char visible[64];
+            int v_len = 0;
+            int max_v = (el->w - 10) / 8;
+            if (max_v > 63) max_v = 63;
+            for (int k = el->input_scroll; el->attr_value[k] && v_len < max_v; k++) {
+                visible[v_len++] = el->attr_value[k];
+            }
+            visible[v_len] = 0;
+            ui_draw_string(win_browser, el->x + 5, draw_y + 2, visible, (focused_element == i) ? 0xFF000000 : 0xFF808080);
+            
             if (focused_element == i) {
-                int ilen = 0; while(el->attr_value[ilen]) ilen++;
-                ui_draw_rect(win_browser, el->x + 5 + ilen * 8, draw_y + 18, 8, 2, 0xFF000000);
+                int cursor_pos = el->input_cursor - el->input_scroll;
+                if (cursor_pos >= 0 && cursor_pos < max_v) {
+                    ui_draw_rect(win_browser, el->x + 5 + cursor_pos * 8, draw_y + 16, 8, 2, 0xFF000000);
+                }
             }
         } else if (el->tag == TAG_BUTTON) {
             ui_draw_rect(win_browser, el->x, draw_y, el->w, el->h, 0xFFDDDDDD);
@@ -520,11 +541,24 @@ static void browser_paint(void) {
             if (el->bold) ui_draw_string(win_browser, el->x + 1, draw_y, el->content, el->color);
         }
     }
+
+    ui_draw_rect(win_browser, 0, 0, WIN_W, URL_BAR_H, COLOR_URL_BAR);
+    ui_draw_string(win_browser, 10, 8, url_input_buffer, COLOR_URL_TEXT);
+    if (focused_element == -1) {
+        ui_draw_rect(win_browser, 10 + url_cursor * 8, 22, 8, 2, COLOR_URL_TEXT);
+    }
+    
+    // Scroll bar
+    ui_draw_rect(win_browser, WIN_W - SCROLL_BAR_W, URL_BAR_H, SCROLL_BAR_W, WIN_H - URL_BAR_H, COLOR_SCROLL_BG);
+    int thumb_h = (WIN_H - URL_BAR_H) * (WIN_H - URL_BAR_H) / (total_content_height > WIN_H ? total_content_height : WIN_H);
+    if (thumb_h < 20) thumb_h = 20;
+    int thumb_y = URL_BAR_H + (scroll_y * (WIN_H - URL_BAR_H - thumb_h)) / (total_content_height > WIN_H - URL_BAR_H ? total_content_height - (WIN_H - URL_BAR_H) : 1);
+    ui_draw_rect(win_browser, WIN_W - SCROLL_BAR_W + 2, thumb_y, SCROLL_BAR_W - 4, thumb_h, COLOR_SCROLL_BTN);
 }
 
 static void navigate(const char *url) {
     static char main_resp[RESP_BUF_SIZE];
-    int resp_len = fetch_content(url, main_resp, sizeof(main_resp));
+    int resp_len = fetch_content(url, main_resp, sizeof(main_resp), true);
     if (resp_len <= 0) return;
     char *body = strstr(main_resp, "\r\n\r\n");
     if (body) {
@@ -544,7 +578,7 @@ static void net_init_if_needed(void) {
 }
 
 int main(int argc, char **argv) {
-    win_browser = ui_window_create("Boredweb", 50, 50, WIN_W, WIN_H);
+    win_browser = ui_window_create("Bored Web", 50, 50, WIN_W, WIN_H);
     net_init_if_needed();
     if (argc > 1) { int k=0; while(argv[1][k]) { url_input_buffer[k] = argv[1][k]; k++; } url_input_buffer[k] = 0; url_cursor = k; }
     navigate(url_input_buffer);
@@ -655,8 +689,20 @@ int main(int argc, char **argv) {
                 char c = (char)ev.arg1;
                 if (focused_element == -1) {
                     if (c == 13 || c == 10) { navigate(url_input_buffer); scroll_y = 0; }
-                    else if (c == 127 || c == 8) { if (url_cursor > 0) url_input_buffer[--url_cursor] = 0; }
-                    else if (c >= 32 && c <= 126 && url_cursor < 511) { url_input_buffer[url_cursor++] = c; url_input_buffer[url_cursor] = 0; }
+                    else if (c == 19) { if (url_cursor > 0) url_cursor--; }
+                    else if (c == 20) { int len = 0; while(url_input_buffer[len]) len++; if (url_cursor < len) url_cursor++; }
+                    else if (c == 127 || c == 8) { 
+                        if (url_cursor > 0) {
+                            int len = 0; while(url_input_buffer[len]) len++;
+                            for (int k=url_cursor-1; k<len; k++) url_input_buffer[k] = url_input_buffer[k+1];
+                            url_cursor--;
+                        }
+                    }
+                    else if (c >= 32 && c <= 126 && url_cursor < 511) { 
+                        int len = 0; while(url_input_buffer[len]) len++;
+                        for (int k=len; k>=url_cursor; k--) url_input_buffer[k+1] = url_input_buffer[k];
+                        url_input_buffer[url_cursor++] = c;
+                    }
                 } else {
                     RenderElement *el = &elements[focused_element];
                     int len = 0; while(el->attr_value[len]) len++;
@@ -701,8 +747,22 @@ int main(int argc, char **argv) {
                         int j=0; while(search_url[j]) { url_input_buffer[j] = search_url[j]; j++; } url_input_buffer[j] = 0; url_cursor = j;
                         navigate(url_input_buffer); scroll_y = 0; focused_element = -1;
                     }
-                    else if (c == 127 || c == 8) { if (len > 0) el->attr_value[--len] = 0; }
-                    else if (c >= 32 && c <= 126 && len < 255) { el->attr_value[len++] = c; el->attr_value[len] = 0; }
+                    else if (c == 19) { if (el->input_cursor > 0) el->input_cursor--; }
+                    else if (c == 20) { if (el->input_cursor < len) el->input_cursor++; }
+                    else if (c == 127 || c == 8) { 
+                        if (el->input_cursor > 0) {
+                            for (int k=el->input_cursor-1; k<len; k++) el->attr_value[k] = el->attr_value[k+1];
+                            el->input_cursor--;
+                        }
+                    }
+                    else if (c >= 32 && c <= 126 && len < 255) { 
+                        for (int k=len; k>=el->input_cursor; k--) el->attr_value[k+1] = el->attr_value[k];
+                        el->attr_value[el->input_cursor++] = c;
+                    }
+
+                    int max_v = (el->w - 10) / 8;
+                    if (el->input_cursor < el->input_scroll) el->input_scroll = el->input_cursor;
+                    if (el->input_cursor >= el->input_scroll + max_v) el->input_scroll = el->input_cursor - max_v + 1;
                 }
                 
                 if (c == 17) { scroll_y -= 40; }
