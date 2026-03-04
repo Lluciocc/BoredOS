@@ -1,85 +1,106 @@
 #include "stdlib.h"
 #include "syscall.h"
 
-// Simple block allocator over sys_sbrk
+// Block allocator over sys_sbrk with coalescing and splitting
 typedef struct BlockMeta {
     size_t size;
     int free;
     struct BlockMeta *next;
+    struct BlockMeta *prev;
 } BlockMeta;
 
 #define META_SIZE sizeof(BlockMeta)
+#define MIN_SPLIT_SIZE 64
+#define ALIGN8(x) (((x) + 7) & ~(size_t)7)
 
-static void *global_base = NULL;
+static BlockMeta *heap_head = NULL;
+static BlockMeta *heap_tail = NULL;
 
-static BlockMeta *find_free_block(BlockMeta **last, size_t size) {
-    BlockMeta *current = global_base;
-    while (current && !(current->free && current->size >= size)) {
-        *last = current;
-        current = current->next;
-    }
-    return current;
-}
-
-static BlockMeta *request_space(BlockMeta* last, size_t size) {
-    BlockMeta *block;
-    block = (BlockMeta *)sys_sbrk(0);
-    size_t align = 8;
-    if (size % align != 0) {
-        size += align - (size % align);
-    }
-    
+static BlockMeta *request_space(size_t size) {
+    BlockMeta *block = (BlockMeta *)sys_sbrk(0);
     void *request = sys_sbrk(size + META_SIZE);
-    if (request == (void*)-1) {
-        return NULL; // sbrk failed
-    }
+    if (request == (void*)-1) return NULL;
 
-    if (last) { // NULL on first request
-        last->next = block;
-    }
     block->size = size;
-    block->next = NULL;
     block->free = 0;
+    block->next = NULL;
+    block->prev = heap_tail;
+
+    if (heap_tail) heap_tail->next = block;
+    else heap_head = block;
+    heap_tail = block;
+
     return block;
 }
 
+// Split a block if remainder is large enough
+static void split_block(BlockMeta *block, size_t size) {
+    size_t remain = block->size - size - META_SIZE;
+    if (block->size < size + META_SIZE + MIN_SPLIT_SIZE) return;
+
+    BlockMeta *new_block = (BlockMeta *)((char *)(block + 1) + size);
+    new_block->size = remain;
+    new_block->free = 1;
+    new_block->next = block->next;
+    new_block->prev = block;
+
+    if (block->next) block->next->prev = new_block;
+    else heap_tail = new_block;
+    block->next = new_block;
+    block->size = size;
+}
+
 void *malloc(size_t size) {
-    BlockMeta *block;
-    if (size <= 0) {
-        return NULL;
-    }
+    if (size == 0) return NULL;
 
-    // Align size to 8 bytes for safety
-    size_t align = 8;
-    if (size % align != 0) {
-        size += align - (size % align);
-    }
+    size = ALIGN8(size);
 
-    if (!global_base) { // First call
-        block = request_space(NULL, size);
-        if (!block) return NULL;
-        global_base = block;
-    } else {
-        BlockMeta *last = global_base;
-        block = find_free_block(&last, size);
-        if (!block) { // Failed to find free block
-            block = request_space(last, size);
-            if (!block) return NULL;
-        } else { // Found free block
-            block->free = 0;
+    // Best-fit search
+    BlockMeta *best = NULL;
+    BlockMeta *current = heap_head;
+    while (current) {
+        if (current->free && current->size >= size) {
+            if (!best || current->size < best->size) {
+                best = current;
+                if (best->size == size) break; // Perfect fit
+            }
         }
+        current = current->next;
     }
 
+    if (best) {
+        split_block(best, size);
+        best->free = 0;
+        return (best + 1);
+    }
+
+    // No suitable block found, request more space
+    BlockMeta *block = request_space(size);
+    if (!block) return NULL;
     return (block + 1);
 }
 
 void free(void *ptr) {
-    if (!ptr) {
-        return;
+    if (!ptr) return;
+
+    BlockMeta *block = (BlockMeta *)ptr - 1;
+    block->free = 1;
+
+    // Coalesce with next block
+    if (block->next && block->next->free) {
+        block->size += META_SIZE + block->next->size;
+        block->next = block->next->next;
+        if (block->next) block->next->prev = block;
+        else heap_tail = block;
     }
 
-    BlockMeta *block = (BlockMeta*)ptr - 1;
-    block->free = 1;
+    // Coalesce with previous block
+    if (block->prev && block->prev->free) {
+        block->prev->size += META_SIZE + block->size;
+        block->prev->next = block->next;
+        if (block->next) block->next->prev = block->prev;
+        else heap_tail = block->prev;
+    }
 }
 
 void *calloc(size_t nelem, size_t elsize) {

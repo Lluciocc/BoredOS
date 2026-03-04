@@ -38,5 +38,6 @@
 #define PBUF_POOL_SIZE             256
 #define MEMP_NUM_TCP_SEG           128
 #define MEMP_NUM_PBUF              256
+#define MEMP_NUM_TCP_PCB           16
 
 #endif /* LWIPOPTS_H */

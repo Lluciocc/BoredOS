@@ -273,14 +273,25 @@ int network_tcp_recv(void *buf, size_t max_len) {
 }
 
 int network_tcp_close(void) {
-    if (!current_tcp_pcb || network_processing) return 0;
+    if (network_processing) return 0;
     network_processing = 1;
-    tcp_close(current_tcp_pcb);
-    current_tcp_pcb = NULL;
+
+    // Free any pending receive buffers first
     if (tcp_recv_queue) {
         pbuf_free(tcp_recv_queue);
         tcp_recv_queue = NULL;
     }
+
+    if (current_tcp_pcb) {
+        // Use tcp_abort for immediate cleanup — tcp_close leaves PCBs in TIME_WAIT
+        // which pile up since sys_check_timeouts isn't called between page loads
+        tcp_abort(current_tcp_pcb);
+        current_tcp_pcb = NULL;
+    }
+
+    tcp_closed = 0;
+    tcp_connect_done = 0;
+    tcp_connect_error = 0;
     network_processing = 0;
     return 0;
 }
