@@ -27,3 +27,6 @@ src/kernel/userland/bin/
 boredos.iso
 disk.img
 limine
+.DS_Store
+src/.DS_Store
+limine
