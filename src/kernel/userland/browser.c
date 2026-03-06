@@ -264,6 +264,15 @@ static int fetch_content(const char *url, char *dest_buf, int max_len, bool prog
                     int body_len = total - (body - dest_buf);
                     int safe_len = body_len;
                     while (safe_len > 0 && body[safe_len - 1] != '>') safe_len--;
+                    // Avoid splitting an HTML entity (&...;)
+                    int check_amp = total - (body - dest_buf) - 1;
+                    if (check_amp >= safe_len) check_amp = safe_len - 1;
+                    int amp_pos = -1;
+                    for (int k = 0; k < 15 && check_amp - k >= 0; k++) {
+                        if (body[check_amp - k] == ';') break; // Complete entity
+                        if (body[check_amp - k] == '&') { amp_pos = check_amp - k; break; }
+                    }
+                    if (amp_pos != -1) safe_len = amp_pos;
                     if (safe_len > inc_parse_offset) {
                         parse_html_incremental(body, safe_len);
                         browser_paint();
@@ -506,8 +515,17 @@ static void decode_html_entities(char *str) {
             if (str_istarts_with(src, "&gt;")) { *dst++ = '>'; src += 4; continue; }
             if (str_istarts_with(src, "&apos;")) { *dst++ = '\''; src += 6; continue; }
             if (str_istarts_with(src, "&nbsp;")) { *dst++ = ' '; src += 6; continue; }
-            if (str_istarts_with(src, "&mdash;")) { *dst++ = '-'; *dst++ = '-'; src += 7; continue; }
-            if (str_istarts_with(src, "&ndash;")) { *dst++ = '-'; src += 7; continue; }
+            if (str_istarts_with(src, "&mdash;")) { *dst++ = (char)128; src += 7; continue; }
+            if (str_istarts_with(src, "&mdash"))  { *dst++ = (char)128; src += 6; continue; } // Fallback
+            if (str_istarts_with(src, "&ndash;")) { *dst++ = (char)129; src += 7; continue; }
+            if (str_istarts_with(src, "&ndash"))  { *dst++ = (char)129; src += 6; continue; }
+            if (str_istarts_with(src, "&bull;"))  { *dst++ = (char)130; src += 6; continue; }
+            if (str_istarts_with(src, "&bull"))   { *dst++ = (char)130; src += 5; continue; }
+            if (str_istarts_with(src, "&hellip;")){ *dst++ = (char)131; src += 8; continue; }
+            if (str_istarts_with(src, "&hellip")){ *dst++ = (char)131; src += 7; continue; }
+            if (str_istarts_with(src, "&trade;")) { *dst++ = (char)132; src += 7; continue; }
+            if (str_istarts_with(src, "&euro;"))  { *dst++ = (char)133; src += 6; continue; }
+            if (str_istarts_with(src, "&middot;")){ *dst++ = (char)134; src += 8; continue; }
             if (str_istarts_with(src, "&lsquo;")) { *dst++ = '\''; src += 7; continue; }
             if (str_istarts_with(src, "&rsquo;")) { *dst++ = '\''; src += 7; continue; }
             if (str_istarts_with(src, "&ldquo;")) { *dst++ = '\"'; src += 7; continue; }
@@ -543,9 +561,15 @@ static void decode_html_entities(char *str) {
                     val = strtol(src + 2, &end, 10);
                 }
                 if (end && *end == ';' && end > src + 2) {
-                    if (val == 8216 || val == 8217) val = '\'';
+                    if (val == 8211) val = 129; // &ndash;
+                    else if (val == 8212) val = 128; // &mdash;
+                    else if (val == 8226) val = 130; // &bull;
+                    else if (val == 8230) val = 131; // &hellip;
+                    else if (val == 8482) val = 132; // &trade;
+                    else if (val == 8364) val = 133; // &euro;
+                    else if (val == 183) val = 134; // &middot;
+                    else if (val == 8216 || val == 8217) val = '\'';
                     else if (val == 8220 || val == 8221) val = '\"';
-                    else if (val == 8211 || val == 8212) val = '-';
                     else if (val == 160) val = ' ';
                     
                     if (val > 0 && val < 256) {

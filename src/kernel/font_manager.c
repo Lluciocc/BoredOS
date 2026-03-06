@@ -148,7 +148,13 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uin
     float real_scale = stbtt_ScaleForPixelHeight(info, scale); // Convert pixel size back to stbtt scale
     
     int codepoint = (unsigned char)c;
-    if (codepoint == 128) codepoint = 0x2014; // Unicode emdash
+    if (codepoint == 128) codepoint = 0x2014; // &mdash; (—)
+    if (codepoint == 129) codepoint = 0x2013; // &ndash; (–)
+    if (codepoint == 130) codepoint = 0x2022; // &bull; (•)
+    if (codepoint == 131) codepoint = 0x2026; // &hellip; (…)
+    if (codepoint == 132) codepoint = 0x2122; // &trade; (™)
+    if (codepoint == 133) codepoint = 0x20AC; // &euro; (€)
+    if (codepoint == 134) codepoint = 0x00B7; // &middot; (·)
     
     bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, codepoint, &w, &h, &xoff, &yoff);
 
@@ -205,7 +211,13 @@ int font_manager_get_string_width_scaled(ttf_font_t *font, const char *s, float 
     while (*s) {
         int advance, lsb;
         int codepoint = (unsigned char)*s;
-        if (codepoint == 128) codepoint = 0x2014; // Unicode emdash
+        if (codepoint == 128) codepoint = 0x2014; // &mdash; (—)
+        if (codepoint == 129) codepoint = 0x2013; // &ndash; (–)
+        if (codepoint == 130) codepoint = 0x2022; // &bull; (•)
+        if (codepoint == 131) codepoint = 0x2026; // &hellip; (…)
+        if (codepoint == 132) codepoint = 0x2122; // &trade; (™)
+        if (codepoint == 133) codepoint = 0x20AC; // &euro; (€)
+        if (codepoint == 134) codepoint = 0x00B7; // &middot; (·)
         stbtt_GetCodepointHMetrics(info, codepoint, &advance, &lsb);
         // Round per-character to match draw_string's accumulation
         width += (int)(advance * real_scale + 0.5f);
