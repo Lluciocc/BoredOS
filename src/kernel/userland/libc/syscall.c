@@ -207,6 +207,10 @@ int sys_tcp_recv(void *buf, size_t max_len) {
     return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_TCP_RECV, (uint64_t)buf, (uint64_t)max_len);
 }
 
+int sys_tcp_recv_nb(void *buf, size_t max_len) {
+    return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_TCP_RECV_NB, (uint64_t)buf, (uint64_t)max_len);
+}
+
 int sys_tcp_close(void) {
     return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_TCP_CLOSE, 0);
 }
@@ -221,5 +225,9 @@ int sys_set_dns_server(const net_ipv4_address_t *ip) {
 
 void sys_network_force_unlock(void) {
     syscall2(SYS_SYSTEM, SYSTEM_CMD_NET_UNLOCK, 0);
+}
+
+void sys_yield(void) {
+    syscall1(SYS_SYSTEM, SYSTEM_CMD_YIELD);
 }
 

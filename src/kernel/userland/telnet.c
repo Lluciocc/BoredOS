@@ -363,7 +363,7 @@ int main(int argc, char **argv) {
         }
         if (!connected) break;
 
-        int len = sys_tcp_recv(recv_buf, sizeof(recv_buf) - 1);
+        int len = sys_tcp_recv_nb(recv_buf, sizeof(recv_buf) - 1);
         if (len < 0) {
             printf("\r\n[Connection error]\r\n");
             connected = 0;
@@ -377,8 +377,7 @@ int main(int argc, char **argv) {
                 connected = 0;
                 break;
             }
-            // Brief spin
-            for (volatile int d = 0; d < 100; d++);
+            sys_yield();
             continue;
         }
 

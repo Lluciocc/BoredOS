@@ -871,10 +871,12 @@ void cmd_screen_clear() {
         for(int c=0; c<terminal_cols; c++) {
             screen_buffer[r * terminal_cols + c].c = ' ';
             screen_buffer[r * terminal_cols + c].color = COLOR_DARK_TEXT;
+            screen_buffer[r * terminal_cols + c].attrs = 0;
         }
     }
     cursor_row = 0;
     cursor_col = 0;
+    wm_mark_dirty(win_cmd.x, win_cmd.y, win_cmd.w, win_cmd.h);
 }
 
 // Public for CLI apps to use - exit/close the terminal window
@@ -1159,8 +1161,6 @@ void cmd_process_finished(void) {
             return;
         }
 
-        extern int cursor_col;
-        void cmd_putchar(char c);
         if (cursor_col > 0) {
             cmd_putchar('\n');
         }
@@ -2000,6 +2000,21 @@ void cmd_handle_click(Window *win, int x, int y) {
     }
 }
 
+static void cmd_handle_close(Window *win) {
+    if (!win) return;
+    
+    extern process_t* process_get_by_ui_window(void *win);
+    extern void process_terminate(process_t *proc);
+    
+    // Find any process associated with this terminal window and terminate it
+    process_t *proc = process_get_by_ui_window(win);
+    if (proc) {
+        process_terminate(proc);
+    }
+    
+    win->visible = false;
+}
+
 void cmd_set_raw_mode(bool enabled) {
     terminal_raw_mode = enabled;
 }
@@ -2470,6 +2485,7 @@ void cmd_init(void) {
     win_cmd.handle_key = cmd_key;
     win_cmd.handle_click = cmd_handle_click;
     win_cmd.handle_right_click = NULL;
+    win_cmd.handle_close = cmd_handle_close;
     win_cmd.handle_resize = cmd_handle_resize;
     win_cmd.resizable = true;
     

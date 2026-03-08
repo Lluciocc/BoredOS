@@ -89,6 +89,13 @@ int network_dhcp_acquire(void);
 int network_get_gateway_ip(ipv4_address_t* ip);
 int network_get_dns_ip(ipv4_address_t *ip);
 int network_icmp_single_ping(ipv4_address_t *dest);
+int network_tcp_connect(const ipv4_address_t *ip, uint16_t port);
+int network_tcp_send(const void *data, size_t len);
+int network_tcp_recv(void *buf, size_t max_len);
+int network_tcp_recv_nb(void *buf, size_t max_len);
+int network_tcp_close(void);
+int network_dns_lookup(const char *name, ipv4_address_t *out_ip);
+int network_set_dns_server(const ipv4_address_t *ip);
 void network_cleanup(void);
 void network_force_unlock(void);
 

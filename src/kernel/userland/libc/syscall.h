@@ -69,6 +69,8 @@
 #define SYSTEM_CMD_SET_DNS 38
 #define SYSTEM_CMD_NET_UNLOCK 39
 #define SYSTEM_CMD_SET_RAW_MODE 41
+#define SYSTEM_CMD_TCP_RECV_NB 42
+#define SYSTEM_CMD_YIELD 43
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);
@@ -133,10 +135,12 @@ void sys_set_text_color(uint32_t color);
 int sys_tcp_connect(const net_ipv4_address_t *ip, uint16_t port);
 int sys_tcp_send(const void *data, size_t len);
 int sys_tcp_recv(void *buf, size_t max_len);
+int sys_tcp_recv_nb(void *buf, size_t max_len);
 int sys_tcp_close(void);
 int sys_dns_lookup(const char *name, net_ipv4_address_t *out_ip);
 int sys_set_dns_server(const net_ipv4_address_t *ip);
 void sys_network_force_unlock(void);
+void sys_yield(void);
 
 
 #endif

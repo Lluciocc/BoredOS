@@ -153,7 +153,14 @@ static void user_window_resize(Window *win, int w, int h) {
 }
 
 
-static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {
+static uint64_t syscall_handler_inner(registers_t *regs) {
+    uint64_t syscall_num = regs->rax;
+    uint64_t arg1 = regs->rdi;
+    uint64_t arg2 = regs->rsi;
+    uint64_t arg3 = regs->rdx;
+    uint64_t arg4 = regs->r10;
+    uint64_t arg5 = regs->r8;
+
     extern void cmd_write(const char *str);
     extern void serial_write(const char *str);
     
@@ -561,7 +568,7 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
         } else if (cmd == GUI_CMD_GET_EVENT) {
             Window *win = (Window *)arg2;
             gui_event_t *ev_out = (gui_event_t *)arg3;
-            if (!win || !ev_out) return 0;
+            if (!ev_out) return 0;
             if (proc->gui_event_head != proc->gui_event_tail) {
                 *ev_out = proc->gui_events[proc->gui_event_head];
                 proc->gui_event_head = (proc->gui_event_head + 1) % MAX_GUI_EVENTS;
@@ -1056,6 +1063,11 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
             extern void cmd_set_raw_mode(bool enabled);
             cmd_set_raw_mode((bool)arg2);
             return 0;
+        } else if (cmd == 42) { // SYSTEM_CMD_TCP_RECV_NB
+            void *buf = (void *)arg2;
+            size_t max_len = (size_t)arg3;
+            extern int network_tcp_recv_nb(void *buf, size_t max_len);
+            return (uint64_t)network_tcp_recv_nb(buf, max_len);
         }
         return -1;
     }
@@ -1071,8 +1083,14 @@ uint64_t syscall_handler_c(registers_t *regs) {
         return process_terminate_current();
     }
     
+    if (syscall_num == 5 && regs->rdi == 43) { // SYSTEM_CMD_YIELD
+        extern uint64_t process_schedule(uint64_t current_rsp);
+        regs->rax = 0;
+        return process_schedule((uint64_t)regs);
+    }
+    
     // Normal syscalls
-    regs->rax = syscall_handler_inner(regs->rax, regs->rdi, regs->rsi, regs->rdx, regs->r10, regs->r8);
+    regs->rax = syscall_handler_inner(regs);
     
     // Return current RSP to assembly wrapper
     return (uint64_t)regs;

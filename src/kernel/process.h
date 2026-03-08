@@ -55,6 +55,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str);
 process_t* process_get_current(void);
 uint64_t process_schedule(uint64_t current_rsp);
 uint64_t process_terminate_current(void);
+void process_terminate(process_t *proc);
 
 void process_push_gui_event(process_t *proc, gui_event_t *ev);
 process_t* process_get_by_ui_window(void* win);

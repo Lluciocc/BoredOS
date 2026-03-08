@@ -272,6 +272,27 @@ int network_tcp_recv(void *buf, size_t max_len) {
     return (int)copied;
 }
 
+int network_tcp_recv_nb(void *buf, size_t max_len) {
+    if (network_processing) return -1;
+    network_processing = 1;
+
+    if (!tcp_recv_queue) {
+        network_processing = 0;
+        return 0;
+    }
+    
+    size_t to_copy = max_len;
+    if (to_copy > tcp_recv_queue->tot_len) to_copy = tcp_recv_queue->tot_len;
+    if (to_copy > 0xFFFF) to_copy = 0xFFFF; // pbuf_copy_partial limit
+
+    size_t copied = pbuf_copy_partial(tcp_recv_queue, buf, (u16_t)to_copy, 0);
+    struct pbuf *remainder = pbuf_free_header(tcp_recv_queue, (u16_t)copied);
+    if (current_tcp_pcb) tcp_recved(current_tcp_pcb, (u16_t)copied);
+    tcp_recv_queue = remainder;
+    network_processing = 0;
+    return (int)copied;
+}
+
 int network_tcp_close(void) {
     if (network_processing) return 0;
     network_processing = 1;

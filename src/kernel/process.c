@@ -329,6 +329,72 @@ uint64_t process_schedule(uint64_t current_rsp) {
     return current_process->rsp;
 }
 
+static void process_cleanup_inner(process_t *proc) {
+    if (!proc || proc->pid == 0xFFFFFFFF) return;
+
+    // 1. Cleanup side effects
+    extern Window win_cmd;
+    if (proc->ui_window && (proc->ui_window != &win_cmd)) {
+        wm_remove_window((Window *)proc->ui_window);
+        proc->ui_window = NULL;
+    }
+    
+    extern void fat32_close(struct FAT32_FileHandle *fh);
+    for (int i = 0; i < MAX_PROCESS_FDS; i++) {
+        if (proc->fds[i]) {
+            fat32_close(proc->fds[i]);
+            proc->fds[i] = NULL;
+        }
+    }
+    
+    extern void cmd_process_finished(void);
+    cmd_process_finished();
+    
+    extern void network_cleanup_pcb(void *pcb);
+    // TODO: We need per-process PCB tracking to call this safely
+    // For now, let's NOT call global network_cleanup
+}
+
+void process_terminate(process_t *to_delete) {
+    if (!to_delete || to_delete->pid == 0xFFFFFFFF) return;
+
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+
+    process_cleanup_inner(to_delete);
+
+    // 2. Find previous process in circular list
+    process_t *prev = to_delete;
+    while (prev->next != to_delete) {
+        prev = prev->next;
+    }
+
+    if (prev == to_delete) {
+        // Only one process (should be kernel), cannot terminate.
+        asm volatile("push %0; popfq" : : "r"(rflags));
+        return;
+    }
+
+    // 3. Remove current from list
+    prev->next = to_delete->next;
+    
+    if (to_delete == current_process) {
+        current_process = to_delete->next;
+        // WARNING: If this was called as a regular function and not via a task switch,
+        // the stack might be in a weird state. But usually we call this via window manager
+        // or other external triggers.
+    }
+
+    // Mark slot as free
+    to_delete->pid = 0xFFFFFFFF; 
+
+    if (to_delete->user_stack_alloc) kfree(to_delete->user_stack_alloc);
+    to_delete->user_stack_alloc = NULL;
+    to_delete->kernel_stack_alloc = NULL; 
+
+    asm volatile("push %0; popfq" : : "r"(rflags));
+}
+
 uint64_t process_terminate_current(void) {
     uint64_t rflags;
     asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
@@ -338,26 +404,7 @@ uint64_t process_terminate_current(void) {
         return 0;
     }
     
-    // 1. Cleanup side effects
-    extern Window win_cmd;
-    if (current_process->ui_window && (current_process->ui_window != &win_cmd)) {
-        wm_remove_window((Window *)current_process->ui_window);
-        current_process->ui_window = NULL;
-    }
-    
-    extern void fat32_close(struct FAT32_FileHandle *fh);
-    for (int i = 0; i < MAX_PROCESS_FDS; i++) {
-        if (current_process->fds[i]) {
-            fat32_close(current_process->fds[i]);
-            current_process->fds[i] = NULL;
-        }
-    }
-    
-    extern void cmd_process_finished(void);
-    cmd_process_finished();
-
-    extern void network_cleanup(void);
-    network_cleanup();
+    process_cleanup_inner(current_process);
 
     // 2. Find previous process in circular list
     process_t *prev = current_process;
