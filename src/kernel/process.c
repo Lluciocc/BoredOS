@@ -31,8 +31,7 @@ void process_init(void) {
     kernel_proc->pml4_phys = paging_get_pml4_phys();
     kernel_proc->kernel_stack = 0;
     
-    // Initialize FPU state for kernel
-    asm volatile("fxsave %0" : "=m"(kernel_proc->fpu_state));
+    // Initialize FPU/SSE state for kernel (first interrupt will capture it on stack)
     kernel_proc->fpu_initialized = true;
 
     for (int i = 0; i < MAX_PROCESS_FDS; i++) kernel_proc->fds[i] = NULL;
@@ -58,12 +57,12 @@ void process_create(void* entry_point, bool is_user) {
     if (!new_proc->pml4_phys) return;
     
     // 2. Allocate aligned stack
-    void* stack = kmalloc_aligned(4096, 4096);
+    void* user_stack = kmalloc_aligned(4096, 4096);
     void* kernel_stack = kmalloc_aligned(32768, 32768); // Needed for when user interrupts to Ring 0
     
     if (is_user) {
         // Map user stack to 0x800000
-        paging_map_page(new_proc->pml4_phys, 0x800000, v2p((uint64_t)stack), PT_PRESENT | PT_RW | PT_USER);
+        paging_map_page(new_proc->pml4_phys, 0x800000, v2p((uint64_t)user_stack), PT_PRESENT | PT_RW | PT_USER);
         
         // Allocate code page aligned and copy code
         void* code = kmalloc_aligned(4096, 4096);
@@ -86,11 +85,16 @@ void process_create(void* entry_point, bool is_user) {
         // Push 15 zeros for general purpose registers (r15 -> rax)
         for (int i = 0; i < 15; i++) *(--stack_ptr) = 0;
         
+        // Push 512 bytes for SSE/FPU state (fxsave_region)
+        // Zero it out for safety
+        stack_ptr = (uint64_t*)((uint64_t)stack_ptr - 512);
+        for (int i = 0; i < 512/8; i++) stack_ptr[i] = 0;
+        
         new_proc->kernel_stack = (uint64_t)kernel_stack + 32768;
         new_proc->rsp = (uint64_t)stack_ptr;
     } else {
         // Kernel thread
-        uint64_t* stack_ptr = (uint64_t*)((uint64_t)stack + 4096);
+        uint64_t* stack_ptr = (uint64_t*)((uint64_t)kernel_stack + 32768);
         *(--stack_ptr) = 0x10;          // SS (Kernel Data)
         stack_ptr--;
         *stack_ptr = (uint64_t)stack_ptr; // RSP
@@ -100,15 +104,21 @@ void process_create(void* entry_point, bool is_user) {
         *(--stack_ptr) = 0;             // int_no
         *(--stack_ptr) = 0;             // err_code
         
+        // Push 15 zeros for general purpose registers (r15 -> rax)
         for (int i = 0; i < 15; i++) *(--stack_ptr) = 0;
         
-        new_proc->kernel_stack = 0;
+        // Push 512 bytes for SSE/FPU state (fxsave_region)
+        stack_ptr = (uint64_t*)((uint64_t)stack_ptr - 512);
+        // Zero it out for safety
+        for (int i = 0; i < 512/8; i++) stack_ptr[i] = 0;
+
+        new_proc->kernel_stack = (uint64_t)kernel_stack + 32768;
         new_proc->rsp = (uint64_t)stack_ptr;
+        kfree(user_stack); // Unused for kernel threads
     }
 
     // Initialize FPU state for new process
     asm volatile("fninit");
-    asm volatile("fxsave %0" : "=m"(new_proc->fpu_state));
     new_proc->fpu_initialized = true;
     
     // Add to linked list
@@ -246,7 +256,6 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     *(--stack_ptr) = entry_point;     // RIP
     *(--stack_ptr) = 0;               // err_code
     *(--stack_ptr) = 0;               // int_no
-
     // 15 General purpose registers
     *(--stack_ptr) = 0;                // RAX
     *(--stack_ptr) = 0;                // RBX
@@ -263,6 +272,12 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     *(--stack_ptr) = 0;                // R13
     *(--stack_ptr) = 0;                // R14
     *(--stack_ptr) = 0;                // R15
+    
+    // Space for 512-byte fxsave_region
+    stack_ptr = (uint64_t*)((uint64_t)stack_ptr - 512);
+    // Initialize with a clean FPU state
+    asm volatile("fninit");
+    asm volatile("fxsave %0" : "=m"(*stack_ptr));
 
     new_proc->kernel_stack = (uint64_t)kernel_stack + 32768;
     new_proc->kernel_stack_alloc = kernel_stack;
@@ -271,7 +286,6 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
 
     // Initialize FPU state for new process
     asm volatile("fninit");
-    asm volatile("fxsave %0" : "=m"(new_proc->fpu_state));
     new_proc->fpu_initialized = true;
 
     // Slot is already counted in process_count if new, or reused.
@@ -296,21 +310,11 @@ uint64_t process_schedule(uint64_t current_rsp) {
         
     // serial_write("SCHED\n");
 
-    // Save context
+    // Save/Restore context
     current_process->rsp = current_rsp;
-    
-    // Save FPU state
-    if (current_process->fpu_initialized) {
-        asm volatile("fxsave %0" : "=m"(current_process->fpu_state));
-    }
 
     // Switch process
     current_process = current_process->next;
-
-    // Restore FPU state
-    if (current_process->fpu_initialized) {
-        asm volatile("fxrstor %0" : : "m"(current_process->fpu_state));
-    }
     
     // Update Kernel Stack for User Mode interrupts and System Calls
     if (current_process->is_user && current_process->kernel_stack) {

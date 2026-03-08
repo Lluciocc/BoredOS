@@ -1,5 +1,6 @@
 #include "wallpaper.h"
-#include "nanojpeg.h"
+#define STBI_NO_STDIO
+#include "userland/stb_image.h"
 #include "graphics.h"
 #include "fat32.h"
 #include "memory_manager.h"
@@ -10,7 +11,7 @@
 // Static buffer for the current wallpaper (max 1920x1080)
 #define MAX_WP_WIDTH 1920
 #define MAX_WP_HEIGHT 1080
-static uint32_t wp_pixels[MAX_WP_WIDTH * MAX_WP_HEIGHT];
+static uint32_t* wp_pixels = NULL;
 static int wp_width = 0;
 static int wp_height = 0;
 
@@ -18,39 +19,33 @@ static int wp_height = 0;
 static volatile const char *pending_wallpaper_path = NULL;
 static char pending_path_buf[256];
 
-// Simple nearest-neighbor scale from decoded RGB to ARGB pixel buffer
-static void scale_rgb_to_argb(const unsigned char *rgb, int src_w, int src_h,
-                              uint32_t *dst, int dst_w, int dst_h) {
+// Simple nearest-neighbor scale from decoded RGBA to ARGB pixel buffer
+static void scale_rgba_to_argb(const unsigned char *rgba, int src_w, int src_h,
+                               uint32_t *dst, int dst_w, int dst_h) {
     for (int y = 0; y < dst_h; y++) {
         int src_y = y * src_h / dst_h;
         if (src_y >= src_h) src_y = src_h - 1;
         for (int x = 0; x < dst_w; x++) {
             int src_x = x * src_w / dst_w;
             if (src_x >= src_w) src_x = src_w - 1;
-            int idx = (src_y * src_w + src_x) * 3;
-            unsigned char r = rgb[idx];
-            unsigned char g = rgb[idx + 1];
-            unsigned char b = rgb[idx + 2];
-            dst[y * dst_w + x] = 0xFF000000 | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+            
+            size_t idx = ((size_t)src_y * (size_t)src_w + (size_t)src_x) * 4;
+            unsigned char r = rgba[idx];
+            unsigned char g = rgba[idx + 1];
+            unsigned char b = rgba[idx + 2];
+            unsigned char a = rgba[idx + 3];
+            dst[y * dst_w + x] = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
         }
     }
 }
 
 // Decode JPEG data from memory and set as wallpaper (MUST be called from non-interrupt context)
 static int decode_and_set_wallpaper(const unsigned char *jpg_data, unsigned int jpg_size) {
-    njInit();
-    nj_result_t result = njDecode(jpg_data, (int)jpg_size);
-    if (result != NJ_OK) {
-        njDone();
-        return 0;
-    }
-
-    int img_w = njGetWidth();
-    int img_h = njGetHeight();
-    unsigned char *rgb = njGetImage();
-
-    if (!rgb || img_w <= 0 || img_h <= 0) {
-        njDone();
+    int img_w, img_h, channels;
+    // We request 4 channels (RGBA) for better alignment and consistency with working userland code
+    unsigned char *rgba = stbi_load_from_memory(jpg_data, (int)jpg_size, &img_w, &img_h, &channels, 4);
+    
+    if (!rgba || img_w <= 0 || img_h <= 0) {
         return 0;
     }
 
@@ -60,11 +55,19 @@ static int decode_and_set_wallpaper(const unsigned char *jpg_data, unsigned int 
     if (screen_w > MAX_WP_WIDTH) screen_w = MAX_WP_WIDTH;
     if (screen_h > MAX_WP_HEIGHT) screen_h = MAX_WP_HEIGHT;
 
-    scale_rgb_to_argb(rgb, img_w, img_h, wp_pixels, screen_w, screen_h);
+    if (!wp_pixels) {
+        wp_pixels = (uint32_t*)kmalloc(MAX_WP_WIDTH * MAX_WP_HEIGHT * sizeof(uint32_t));
+        if (!wp_pixels) {
+            stbi_image_free(rgba);
+            return 0;
+        }
+    }
+
+    scale_rgba_to_argb(rgba, img_w, img_h, wp_pixels, screen_w, screen_h);
     wp_width = screen_w;
     wp_height = screen_h;
 
-    njDone();
+    stbi_image_free(rgba);
 
     graphics_set_bg_image(wp_pixels, wp_width, wp_height);
     return 1;
@@ -113,8 +116,11 @@ void wallpaper_process_pending(void) {
         if (fh) {
             uint32_t file_size = fh->size;
             if (file_size > 0 && file_size <= 4 * 1024 * 1024) {
-                unsigned char *buf = (unsigned char*)kmalloc(file_size);
+                // Add padding to avoid stb_image reading past the end and potential corruption
+                size_t padded_size = file_size + 128;
+                unsigned char *buf = (unsigned char*)kmalloc(padded_size);
                 if (buf) {
+                    mem_memset(buf, 0, padded_size);
                     int total_read = 0;
                     while (total_read < (int)file_size) {
                         int chunk = fat32_read(fh, buf + total_read, (int)file_size - total_read);

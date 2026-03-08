@@ -15,11 +15,12 @@ struct FAT32_FileHandle;
 
 // Registers saved on the stack by interrupts/exceptions
 typedef struct registers_t {
+    uint8_t fxsave_region[512]; // SSE/FPU state, MUST be at the bottom (lowest address)
     uint64_t r15, r14, r13, r12, r11, r10, r9, r8;
     uint64_t rbp, rdi, rsi, rdx, rcx, rbx, rax;
     uint64_t int_no, err_code;
     uint64_t rip, cs, rflags, rsp, ss;
-} __attribute__((packed)) registers_t;
+} __attribute__((packed, aligned(16))) registers_t;
 
 typedef struct process {
     uint32_t pid;
@@ -45,8 +46,7 @@ typedef struct process {
 
     struct process *next;
 
-    uint8_t fpu_state[512] __attribute__((aligned(16)));
-    bool fpu_initialized;
+    bool fpu_initialized; 
 } __attribute__((aligned(16))) process_t;
 
 void process_init(void);

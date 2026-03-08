@@ -525,7 +525,18 @@ static uint64_t syscall_handler_inner(uint64_t syscall_num, uint64_t arg1, uint6
                             uint32_t *dest = &win->pixels[(ry + y) * win->w + rx];
                             uint32_t *src = &image_data[(src_y_offset + y) * (int)params[2] + src_x_offset];
                             for (int x = 0; x < rw; x++) {
-                                dest[x] = src[x];
+                                uint32_t s = src[x];
+                                uint8_t alpha = (s >> 24) & 0xFF;
+                                if (alpha == 0xFF) {
+                                    dest[x] = s;
+                                } else if (alpha == 0) {
+                                    // Skip
+                                } else {
+                                    uint32_t d = dest[x];
+                                    uint32_t rb = ((s & 0xFF00FF) * alpha + (d & 0xFF00FF) * (255 - alpha)) >> 8;
+                                    uint32_t g = ((s & 0x00FF00) * alpha + (d & 0x00FF00) * (255 - alpha)) >> 8;
+                                    dest[x] = (rb & 0xFF00FF) | (g & 0x00FF00) | 0xFF000000;
+                                }
                             }
                         }
                     }

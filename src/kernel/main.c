@@ -155,6 +155,7 @@ void kmain(void) {
     fat32_mkdir("/Library");
     fat32_mkdir("/Library/images");
     fat32_mkdir("/Library/images/Wallpapers");
+    fat32_mkdir("/Library/images/gif");
     fat32_mkdir("/Library/Fonts");
     fat32_mkdir("/Library/DOOM");
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2023-2026 Chris (boreddevnl)
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
-#include "nanojpeg.h"
+#include "stb_image.h"
 #include "libc/syscall.h"
 #include "libc/libui.h"
 #include "libc/stdlib.h"
@@ -13,6 +13,12 @@
 #define VIEWER_MAX_H 600
 
 static uint32_t *viewer_pixels = NULL;
+static uint32_t **viewer_frames = NULL;
+static int *viewer_delays = NULL;
+static int viewer_frame_count = 0;
+static int viewer_current_frame = 0;
+static uint64_t viewer_next_frame_tick = 0;
+
 static int viewer_img_w = 0;
 static int viewer_img_h = 0;
 static char viewer_title[64] = "Viewer";
@@ -33,20 +39,43 @@ static int viewer_strlen(const char *s) {
     return len;
 }
 
-static void viewer_scale_rgb_to_argb(const unsigned char *rgb, int src_w, int src_h,
-                                     uint32_t *dst, int dst_w, int dst_h) {
-    for (int y = 0; y < dst_h; y++) {
-        int src_y = y * src_h / dst_h;
-        if (src_y >= src_h) src_y = src_h - 1;
-        for (int x = 0; x < dst_w; x++) {
-            int src_x = x * src_w / dst_w;
-            if (src_x >= src_w) src_x = src_w - 1;
-            int idx = (src_y * src_w + src_x) * 3;
-            unsigned char r = rgb[idx];
-            unsigned char g = rgb[idx + 1];
-            unsigned char b = rgb[idx + 2];
-            dst[y * dst_w + x] = 0xFF000000 | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
+static void viewer_scale_rgba_to_argb(const unsigned char *rgba, int src_w, int src_h,
+                                      uint32_t *dst, int dst_w, int dst_h) {
+    if (src_w == dst_w && src_h == dst_h) {
+        // Fast path: 1:1 copy
+        for (int i = 0; i < dst_w * dst_h; i++) {
+            int idx = i * 4;
+            dst[i] = ((uint32_t)rgba[idx + 3] << 24) | ((uint32_t)rgba[idx] << 16) | 
+                     ((uint32_t)rgba[idx + 1] << 8) | rgba[idx + 2];
         }
+        return;
+    }
+
+    // Fixed-point 16.16
+    uint32_t step_x = (src_w << 16) / dst_w;
+    uint32_t step_y = (src_h << 16) / dst_h;
+    uint32_t curr_y = 0;
+
+    for (int y = 0; y < dst_h; y++) {
+        uint32_t src_y = curr_y >> 16;
+        if (src_y >= (uint32_t)src_h) src_y = src_h - 1;
+        
+        uint32_t curr_x = 0;
+        uint32_t src_row_offset = src_y * src_w;
+        uint32_t dst_row_offset = y * dst_w;
+
+        for (int x = 0; x < dst_w; x++) {
+            uint32_t src_x = curr_x >> 16;
+            if (src_x >= (uint32_t)src_w) src_x = src_w - 1;
+            
+            int idx = (src_row_offset + src_x) * 4;
+            dst[dst_row_offset + x] = ((uint32_t)rgba[idx + 3] << 24) | 
+                                      ((uint32_t)rgba[idx] << 16) | 
+                                      ((uint32_t)rgba[idx + 1] << 8) | 
+                                      rgba[idx + 2];
+            curr_x += step_x;
+        }
+        curr_y += step_y;
     }
 }
 
@@ -56,12 +85,14 @@ static void viewer_paint(ui_window_t win) {
     int cw = win_w - 8;
     int ch = win_h - 28;
 
-    ui_draw_rect(win, cx, cy, cw, ch, 0xFF1A1A1A);
 
     if (!viewer_has_image) {
         ui_draw_string(win, cx + 20, cy + ch / 2, "No image loaded", 0xFF888888);
         return;
     }
+
+    uint32_t *pixels = viewer_pixels;
+    if (viewer_frames) pixels = viewer_frames[viewer_current_frame];
 
     int disp_w = viewer_img_w;
     int disp_h = viewer_img_h;
@@ -76,43 +107,36 @@ static void viewer_paint(ui_window_t win) {
     }
 
     int ox = cx + (cw - disp_w) / 2;
-    int oy = cy + (ch - disp_h - 30) / 2;
+    int oy = cy + (ch - disp_h) / 2;
 
     uint32_t *temp_buf = malloc(disp_w * disp_h * sizeof(uint32_t));
     if (temp_buf) {
-        for (int y = 0; y < disp_h; y++) {
-            int src_y = y * viewer_img_h / disp_h;
-            if (src_y >= viewer_img_h) src_y = viewer_img_h - 1;
-            for (int x = 0; x < disp_w; x++) {
-                int src_x = x * viewer_img_w / disp_w;
-                if (src_x >= viewer_img_w) src_x = viewer_img_w - 1;
-                temp_buf[y * disp_w + x] = viewer_pixels[src_y * viewer_img_w + src_x];
+        if (disp_w == viewer_img_w && disp_h == viewer_img_h) {
+            // Fast path: 1:1
+            for (int i = 0; i < disp_w * disp_h; i++) temp_buf[i] = pixels[i];
+        } else {
+            // Fixed-point 16.16
+            uint32_t step_x = (viewer_img_w << 16) / disp_w;
+            uint32_t step_y = (viewer_img_h << 16) / disp_h;
+            uint32_t curr_y = 0;
+
+            for (int y = 0; y < disp_h; y++) {
+                uint32_t src_y = curr_y >> 16;
+                if (src_y >= (uint32_t)viewer_img_h) src_y = viewer_img_h - 1;
+                uint32_t curr_x = 0;
+                uint32_t src_row_off = src_y * viewer_img_w;
+                uint32_t dst_row_off = y * disp_w;
+                for (int x = 0; x < disp_w; x++) {
+                    uint32_t src_x = curr_x >> 16;
+                    if (src_x >= (uint32_t)viewer_img_w) src_x = viewer_img_w - 1;
+                    temp_buf[dst_row_off + x] = pixels[src_row_off + src_x];
+                    curr_x += step_x;
+                }
+                curr_y += step_y;
             }
         }
         ui_draw_image(win, ox, oy, disp_w, disp_h, temp_buf);
         free(temp_buf);
-    }
-
-    int btn_w = 160;
-    int btn_h = 22;
-    int btn_x = cx + (cw - btn_w) / 2;
-    int btn_y = (win_h - 20) - 30;
-    ui_draw_rounded_rect_filled(win, btn_x, btn_y, btn_w, btn_h, 6, 0xFF2D2D2D);
-    ui_draw_string(win, btn_x + 10, btn_y + 6, "Set as Wallpaper", 0xFFF0F0F0);
-}
-
-static void viewer_handle_click(ui_window_t win, int x, int y) {
-    if (!viewer_has_image) return;
-
-    int cx = 4;
-    int cw = win_w - 8;
-    int btn_w = 160;
-    int btn_x = cx + (cw - btn_w) / 2;
-    int btn_y = (win_h - 25) - 30; // Matches the hitboxes
-    
-    if (x >= btn_x && x < btn_x + btn_w && y >= btn_y && y < btn_y + 22) {
-        // SYSTEM_CMD_SET_WALLPAPER_PATH is 31
-        sys_system(31, (uint64_t)viewer_file_path, 0, 0, 0);
     }
 }
 
@@ -120,18 +144,21 @@ void viewer_open_file(const char *path) {
     int fd = sys_open(path, "r");
     if (fd < 0) return;
 
-    // We can't use stat yet, so read chunks until EOF
-    // Alternatively, use a large buffer if sys_read handles large chunks.
-    int alloc_size = 2 * 1024 * 1024;
-    unsigned char *buf = malloc(alloc_size);
+    uint32_t file_size = sys_size(fd);
+    if (file_size == 0 || file_size > 32 * 1024 * 1024) { // 32MB limit
+        sys_close(fd);
+        return;
+    }
+
+    unsigned char *buf = malloc(file_size);
     if (!buf) {
         sys_close(fd);
         return;
     }
 
     int total_read = 0;
-    while (total_read < alloc_size) {
-        int chunk = sys_read(fd, (char*)buf + total_read, alloc_size - total_read);
+    while (total_read < (int)file_size) {
+        int chunk = sys_read(fd, (char*)buf + total_read, (int)file_size - total_read);
         if (chunk <= 0) break;
         total_read += chunk;
     }
@@ -142,20 +169,35 @@ void viewer_open_file(const char *path) {
         return;
     }
 
-    njInit();
-    nj_result_t result = njDecode(buf, total_read);
-    if (result != NJ_OK) {
-        njDone();
-        free(buf);
-        return;
+    // Free previous image if any
+    if (viewer_pixels) { free(viewer_pixels); viewer_pixels = NULL; }
+    if (viewer_frames) {
+        for (int i = 0; i < viewer_frame_count; i++) {
+            if (viewer_frames[i]) free(viewer_frames[i]);
+        }
+        free(viewer_frames); viewer_frames = NULL;
+    }
+    if (viewer_delays) { free(viewer_delays); viewer_delays = NULL; }
+    viewer_frame_count = 0;
+    viewer_current_frame = 0;
+    viewer_has_image = false;
+
+    int img_w, img_h, channels;
+    unsigned char *rgba = NULL;
+    int *delays = NULL;
+    int frame_count = 1;
+
+    // Check if it's a GIF - more robust check
+    bool is_gif = (total_read > 4 && buf[0] == 'G' && buf[1] == 'I' && buf[2] == 'F');
+
+    if (is_gif) {
+        rgba = stbi_load_gif_from_memory(buf, total_read, &delays, &img_w, &img_h, &frame_count, &channels, 4);
+    } else {
+        rgba = stbi_load_from_memory(buf, total_read, &img_w, &img_h, &channels, 4);
     }
 
-    int img_w = njGetWidth();
-    int img_h = njGetHeight();
-    unsigned char *rgb = njGetImage();
-
-    if (!rgb || img_w <= 0 || img_h <= 0) {
-        njDone();
+    if (!rgba || img_w <= 0 || img_h <= 0) {
+        if (rgba) stbi_image_free(rgba);
         free(buf);
         return;
     }
@@ -171,15 +213,41 @@ void viewer_open_file(const char *path) {
         fit_h = VIEWER_MAX_H;
     }
 
-    viewer_pixels = malloc(fit_w * fit_h * sizeof(uint32_t));
-    if (viewer_pixels) {
-        viewer_scale_rgb_to_argb(rgb, img_w, img_h, viewer_pixels, fit_w, fit_h);
-        viewer_img_w = fit_w;
-        viewer_img_h = fit_h;
-        viewer_has_image = true;
+    if (frame_count > 1 && delays) {
+        viewer_frames = malloc(frame_count * sizeof(uint32_t *));
+        viewer_delays = malloc(frame_count * sizeof(int));
+        if (viewer_frames && viewer_delays) {
+            viewer_frame_count = frame_count;
+            for (int i = 0; i < frame_count; i++) {
+                viewer_frames[i] = malloc(fit_w * fit_h * sizeof(uint32_t));
+                if (viewer_frames[i]) {
+                    viewer_scale_rgba_to_argb(rgba + (i * img_w * img_h * 4), img_w, img_h, viewer_frames[i], fit_w, fit_h);
+                    viewer_delays[i] = delays[i];
+                } else {
+                    // Memory exhausted, stop here
+                    viewer_frame_count = i;
+                    break;
+                }
+            }
+            viewer_img_w = fit_w;
+            viewer_img_h = fit_h;
+            viewer_has_image = (viewer_frame_count > 0);
+            if (viewer_has_image) {
+                viewer_next_frame_tick = sys_system(16, 0, 0, 0, 0) + (viewer_delays[0] * 60 / 1000);
+            }
+        }
+        free(delays);
+    } else {
+        viewer_pixels = malloc(fit_w * fit_h * sizeof(uint32_t));
+        if (viewer_pixels) {
+            viewer_scale_rgba_to_argb(rgba, img_w, img_h, viewer_pixels, fit_w, fit_h);
+            viewer_img_w = fit_w;
+            viewer_img_h = fit_h;
+            viewer_has_image = true;
+        }
     }
 
-    njDone();
+    stbi_image_free(rgba);
     free(buf);
 
     viewer_strcpy(viewer_file_path, path);
@@ -204,7 +272,7 @@ void viewer_open_file(const char *path) {
 
     win_w = fit_w + 16;
     if (win_w < 200) win_w = 200;
-    win_h = fit_h + 64;
+    win_h = fit_h + 34;
     if (win_h < 100) win_h = 100;
 }
 
@@ -223,10 +291,23 @@ int main(int argc, char **argv) {
                 viewer_paint(win);
                 ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
             } else if (ev.type == GUI_EVENT_CLICK) {
-                viewer_handle_click(win, ev.arg1, ev.arg2);
+                // No actions currently
             } else if (ev.type == GUI_EVENT_CLOSE) {
                 sys_exit(0);
             }
+        } else {
+            if (viewer_has_image && viewer_frame_count > 1) {
+                uint64_t now = sys_system(16, 0, 0, 0, 0);
+                if (now >= viewer_next_frame_tick) {
+                    viewer_current_frame = (viewer_current_frame + 1) % viewer_frame_count;
+                    viewer_next_frame_tick = now + (viewer_delays[viewer_current_frame] * 60 / 1000);
+                    if (viewer_next_frame_tick <= now) viewer_next_frame_tick = now + 1;
+                    viewer_paint(win);
+                    ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
+                }
+            }
+            // Small sleep to avoid eating 100% CPU
+            for (volatile int i = 0; i < 10000; i++);
         }
     }
     return 0;

@@ -13,9 +13,20 @@
 #include <stddef.h>
 #include "wallpaper.h"
 #include "fat32.h"
-#include "nanojpeg.h"
+#define STBI_NO_STDIO
+#include "userland/stb_image.h"
 #include "memory_manager.h"
 #include "disk.h"
+
+
+// Hello developer,
+// i advise you to just not read this code and live on with your life.
+// It's not worth it.
+// TRUST ME.
+// If you do decide to hate yourself for some dumb reason,
+// add a few hours to the counter of despair:
+// hours wasted: 57
+// send help
 
 extern void serial_write(const char *str);
 
@@ -122,6 +133,15 @@ static bool str_ends_with(const char *str, const char *suffix) {
         if (str[str_len - suf_len + i] != suffix[i]) return false;
     }
     return true;
+}
+
+static bool is_image_file(const char *filename) {
+    if (!filename) return false;
+    return str_ends_with(filename, ".jpg") || str_ends_with(filename, ".JPG") ||
+           str_ends_with(filename, ".png") || str_ends_with(filename, ".PNG") ||
+           str_ends_with(filename, ".gif") || str_ends_with(filename, ".GIF") ||
+           str_ends_with(filename, ".bmp") || str_ends_with(filename, ".BMP") ||
+           str_ends_with(filename, ".tga") || str_ends_with(filename, ".TGA");
 }
 
 // Helper to check if string starts with prefix
@@ -595,20 +615,17 @@ static uint32_t* thumb_cache_decode(const char *path) {
     
     if (total <= 0) { kfree(buf); return NULL; }
     
-    // Decode JPEG
-    njInit();
-    if (njDecode(buf, total) != NJ_OK) {
-        serial_write("[WM] njDecode failed for deferred thumb\n");
-        njDone();
+    // Decode image
+    int img_w, img_h, channels;
+    unsigned char *img = stbi_load_from_memory(buf, total, &img_w, &img_h, &channels, 4);
+    if (!img || img_w <= 0 || img_h <= 0) {
+        serial_write("[WM] stbi_load_from_memory failed for deferred thumb\n");
+        if (img) stbi_image_free(img);
         kfree(buf);
         return NULL;
     }
     
-    serial_write("[WM] njDecode OK for deferred thumb\n");
-    
-    int img_w = njGetWidth();
-    int img_h = njGetHeight();
-    unsigned char *img = njGetImage();
+    serial_write("[WM] stbi_load_from_memory OK for deferred thumb\n");
     
     // Store in cache — downscale to 48x48
     int slot = thumb_cache_next;
@@ -626,16 +643,16 @@ static uint32_t* thumb_cache_decode(const char *path) {
             int sy = ty * img_h / 48;
             if (sx >= img_w) sx = img_w - 1;
             if (sy >= img_h) sy = img_h - 1;
-            int idx = (sy * img_w + sx) * 3;
-            uint32_t r = img[idx], g = img[idx+1], b = img[idx+2];
-            thumb_cache[slot].pixels[ty * 48 + tx] = 0xFF000000 | (r << 16) | (g << 8) | b;
+            int idx = (sy * img_w + sx) * 4;
+            uint32_t r = img[idx], g = img[idx+1], b = img[idx+2], a = img[idx+3];
+            thumb_cache[slot].pixels[ty * 48 + tx] = (a << 24) | (r << 16) | (g << 8) | b;
         }
     }
     
     thumb_cache[slot].valid = true;
     thumb_cache[slot].failed = false;
     
-    njDone();
+    stbi_image_free(img);
     kfree(buf);
     
     return thumb_cache[slot].pixels;
@@ -1226,7 +1243,7 @@ void wm_paint(void) {
         } else {
             if (str_ends_with(icon->name, ".elf")) draw_elf_icon(icon->x, icon->y, icon->name);
             else if (str_ends_with(icon->name, ".pnt")) draw_paint_icon(icon->x, icon->y, icon->name);
-            else if (str_ends_with(icon->name, ".jpg") || str_ends_with(icon->name, ".JPG")) {
+            else if (is_image_file(icon->name)) {
                 char full_path[128] = "/Desktop/";
                 int p=9; int n=0; while(icon->name[n] && p < 127) full_path[p++] = icon->name[n++]; full_path[p]=0;
                 draw_image_icon(icon->x, icon->y, full_path);
@@ -2100,7 +2117,7 @@ void wm_handle_right_click(int x, int y) {
                         process_create_elf("/bin/paint.elf", path);
                     } else if (str_ends_with(icon->name, ".md")) {
                         process_create_elf("/bin/markdown.elf", path);
-                    } else if (str_ends_with(icon->name, ".jpg") || str_ends_with(icon->name, ".JPG")) {
+                    } else if (is_image_file(icon->name)) {
                         process_create_elf("/bin/viewer.elf", path);
                     } else {
                         process_create_elf("/bin/txtedit.elf", path);

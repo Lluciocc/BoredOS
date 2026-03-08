@@ -135,6 +135,15 @@ static bool explorer_str_ends_with(const char *str, const char *suffix) {
     return explorer_strcmp(str + str_len - suf_len, suffix) == 0;
 }
 
+// Helper to check if file is an image supported by stb_image
+static bool explorer_is_image_file(const char *filename) {
+    return explorer_str_ends_with(filename, ".jpg") || explorer_str_ends_with(filename, ".JPG") ||
+           explorer_str_ends_with(filename, ".png") || explorer_str_ends_with(filename, ".PNG") ||
+           explorer_str_ends_with(filename, ".gif") || explorer_str_ends_with(filename, ".GIF") ||
+           explorer_str_ends_with(filename, ".bmp") || explorer_str_ends_with(filename, ".BMP") ||
+           explorer_str_ends_with(filename, ".tga") || explorer_str_ends_with(filename, ".TGA");
+}
+
 // Helper for label drawing (adapted from wm.c)
 static void explorer_draw_icon_label(int x, int y, const char *label, uint32_t color) {
     char line1[11] = {0}; // 10 chars + null
@@ -815,7 +824,7 @@ static void explorer_open_target(const char *path) {
             process_create_elf("A:/bin/markdown.elf", path);
         } else if (explorer_str_ends_with(path, ".pnt")) {
             process_create_elf("A:/bin/paint.elf", path);
-        } else if (explorer_str_ends_with(path, ".jpg") || explorer_str_ends_with(path, ".JPG")) {
+        } else if (explorer_is_image_file(path)) {
             process_create_elf("A:/bin/viewer.elf", path);
         } else {
             process_create_elf("A:/bin/txtedit.elf", path);
@@ -901,7 +910,7 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
         else draw_icon(x + 5, y + 5, "");
     } else if (explorer_str_ends_with(filename, ".pnt")) {
         draw_paint_icon(x + 5, y + 5, "");
-    } else if (explorer_str_ends_with(filename, ".jpg") || explorer_str_ends_with(filename, ".JPG")) {
+    } else if (explorer_is_image_file(filename)) {
         // Build full path for thumbnail loading
         char full_path[FAT32_MAX_PATH];
         explorer_strcpy(full_path, current_path);

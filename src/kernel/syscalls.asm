@@ -45,6 +45,10 @@ syscall_entry:
     push r13
     push r14
     push r15
+    
+    ; Save SSE/FPU state
+    sub rsp, 512
+    fxsave [rsp]
 
     ; 4. Call C handler with registers_t*
     mov rdi, rsp
@@ -54,6 +58,10 @@ syscall_entry:
 
     ; 5. Switch to the resulting RSP (might be different if task switched)
     mov rsp, rax
+
+    ; Restore SSE/FPU state
+    fxrstor [rsp]
+    add rsp, 512
 
     ; 6. Restore and return via iretq
     pop r15

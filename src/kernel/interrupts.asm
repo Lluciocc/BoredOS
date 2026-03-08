@@ -41,6 +41,10 @@ isr%2_wrapper:
     push r14
     push r15
     
+    ; Save SSE/FPU state
+    sub rsp, 512
+    fxsave [rsp]
+
     ; Pass current RSP as 1st argument (registers_t*)
     mov rdi, rsp
     
@@ -48,6 +52,10 @@ isr%2_wrapper:
     
     ; Update RSP with return value (task switch)
     mov rsp, rax
+    
+    ; Restore SSE/FPU state
+    fxrstor [rsp]
+    add rsp, 512
     
     pop r15
     pop r14
@@ -146,6 +154,10 @@ exception_common:
     push r14
     push r15
     
+    ; Save SSE/FPU state
+    sub rsp, 512
+    fxsave [rsp]
+
     ; Pass current RSP as 1st argument (registers_t*)
     mov rdi, rsp
     
@@ -154,6 +166,10 @@ exception_common:
     ; Switch stack if needed (for process termination)
     mov rsp, rax
     
+    ; Restore SSE/FPU state
+    fxrstor [rsp]
+    add rsp, 512
+
     ; Restore registers
     pop r15
     pop r14

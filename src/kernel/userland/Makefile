@@ -13,7 +13,7 @@ BIN_DIR = bin
 LIBC_SOURCES = $(wildcard libc/*.c)
 LIBC_OBJS = $(patsubst libc/%.c, $(BIN_DIR)/%.o, $(LIBC_SOURCES)) $(BIN_DIR)/crt0.o
 
-APP_SOURCES = $(filter-out nanojpeg.c, $(wildcard *.c))
+APP_SOURCES = $(filter-out stb_image.c, $(wildcard *.c))
 APP_ELFS = $(patsubst %.c, $(BIN_DIR)/%.elf, $(APP_SOURCES))
 
 DOOM_SOURCES = $(wildcard doom/*.c)
@@ -30,25 +30,25 @@ $(BIN_DIR)/crt0.o: crt0.asm
 $(BIN_DIR)/%.o: libc/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BIN_DIR)/nanojpeg.o: nanojpeg.c
+$(BIN_DIR)/stb_image.o: stb_image.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BIN_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BIN_DIR)/viewer.elf: $(LIBC_OBJS) $(BIN_DIR)/viewer.o $(BIN_DIR)/nanojpeg.o
+$(BIN_DIR)/viewer.elf: $(LIBC_OBJS) $(BIN_DIR)/viewer.o $(BIN_DIR)/stb_image.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
-$(BIN_DIR)/settings.elf: $(LIBC_OBJS) $(BIN_DIR)/settings.o $(BIN_DIR)/nanojpeg.o
+$(BIN_DIR)/settings.elf: $(LIBC_OBJS) $(BIN_DIR)/settings.o $(BIN_DIR)/stb_image.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
-$(BIN_DIR)/browser.elf: $(LIBC_OBJS) $(BIN_DIR)/browser.o $(BIN_DIR)/nanojpeg.o
+$(BIN_DIR)/browser.elf: $(LIBC_OBJS) $(BIN_DIR)/browser.o $(BIN_DIR)/stb_image.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 $(BIN_DIR)/%.o: doom/%.c
 	$(CC) $(CFLAGS) -Wno-error -Idoom -c $< -o $@
 
-$(BIN_DIR)/doom.elf: $(LIBC_OBJS) $(DOOM_OBJS) $(BIN_DIR)/nanojpeg.o
+$(BIN_DIR)/doom.elf: $(LIBC_OBJS) $(DOOM_OBJS) $(BIN_DIR)/stb_image.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
 $(BIN_DIR)/%.elf: $(LIBC_OBJS) $(BIN_DIR)/%.o

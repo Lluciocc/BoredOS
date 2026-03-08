@@ -1,3 +1,17 @@
+#ifndef BOREDOS_STBI_CONFIG
+#define BOREDOS_STBI_CONFIG
+#define STBI_NO_STDIO
+#define STBI_NO_LINEAR
+#define STBI_NO_HDR
+#define STBI_NO_SIMD
+#define STBI_NO_PSD
+#define STBI_NO_PIC
+#define STBI_NO_PNM
+#define STBI_NO_THREAD_LOCALS
+#define STBI_ASSERT(x) ((void)(x))
+static inline int abs_stbi(int x) { return x < 0 ? -x : x; }
+#define abs abs_stbi
+#endif
 /* stb_image - v2.30 - public domain image loader - http://nothings.org/stb
                                   no warranty implied; use at your own risk
 

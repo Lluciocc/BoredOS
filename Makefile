@@ -17,9 +17,7 @@ ISO_DIR = iso_root
 KERNEL_ELF = $(BUILD_DIR)/boredos.elf
 ISO_IMAGE = boredos.iso
 
-# Exclude old network stack files
-OLD_NET_SOURCES = $(SRC_DIR)/dns.c $(SRC_DIR)/http.c $(SRC_DIR)/icmp.c $(SRC_DIR)/tcp.c
-C_SOURCES = $(filter-out $(OLD_NET_SOURCES), $(wildcard $(SRC_DIR)/*.c)) \
+C_SOURCES = $(wildcard $(SRC_DIR)/*.c) \
             $(wildcard $(SRC_DIR)/lwip/core/*.c) \
             $(wildcard $(SRC_DIR)/lwip/core/ipv4/*.c) \
 			$(SRC_DIR)/lwip/netif/ethernet.c \
@@ -39,7 +37,6 @@ LDFLAGS = -m elf_x86_64 -nostdlib -static -pie --no-dynamic-linker \
 
 NASMFLAGS = -f elf64
 
-# Limine Version
 LIMINE_VERSION = 10.8.2
 LIMINE_URL_BASE = https://github.com/limine-bootloader/limine/raw/v$(LIMINE_VERSION)
 
@@ -47,12 +44,10 @@ LIMINE_URL_BASE = https://github.com/limine-bootloader/limine/raw/v$(LIMINE_VERS
 
 all: $(ISO_IMAGE)
 
-# Ensure build directories exist
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 	mkdir -p $(BUILD_DIR)
 
-# Download Limine Binaries via Git
 limine-setup:
 	@if [ ! -f limine/limine-bios.sys ]; then \
 		echo "Limine binaries missing or invalid. Cloning v$(LIMINE_VERSION)-binary..."; \
@@ -66,18 +61,15 @@ limine-setup:
 	@echo "Building Limine host utility..."; \
 	$(MAKE) -C limine
 
-# Compile C Sources
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR) limine-setup
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 
 
-# Assemble ASM Sources
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.asm | $(BUILD_DIR)
 	$(NASM) $(NASMFLAGS) $< -o $@
 
-# Assemble test files specifically if they get missed
 $(BUILD_DIR)/test_syscall.o: $(SRC_DIR)/test_syscall.asm | $(BUILD_DIR)
 	$(NASM) $(NASMFLAGS) $< -o $@
 
@@ -87,20 +79,16 @@ $(BUILD_DIR)/user_test.o: $(SRC_DIR)/user_test.asm | $(BUILD_DIR)
 $(BUILD_DIR)/process_asm.o: $(SRC_DIR)/process_asm.asm | $(BUILD_DIR)
 	$(NASM) $(NASMFLAGS) $< -o $@
 
-# Link Kernel
 $(KERNEL_ELF): $(OBJ_FILES)
 	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES)
 	$(MAKE) -C $(SRC_DIR)/userland
 
-# Create ISO
 $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 	rm -rf $(ISO_DIR)
 	mkdir -p $(ISO_DIR)
 	mkdir -p $(ISO_DIR)/EFI/BOOT
 	
-	# Copy Kernel and Config
 	cp $(KERNEL_ELF) $(ISO_DIR)/
-	# Build ISO limine.conf natively with modules
 	cp limine.conf $(ISO_DIR)/
 	mkdir -p $(ISO_DIR)/bin
 	@for f in $(SRC_DIR)/userland/bin/*.elf; do \
@@ -111,7 +99,6 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 		fi \
 	done
 	
-	# Copy README and WAD
 	@if [ -f README.md ]; then cp README.md $(ISO_DIR)/; fi
 	@if [ -f $(SRC_DIR)/userland/doom/doom1.wad ]; then \
 		mkdir -p $(ISO_DIR)/Library/DOOM; \
@@ -119,7 +106,6 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 		echo "    module_path: boot():/Library/DOOM/doom1.wad" >> $(ISO_DIR)/limine.conf; \
 	fi
 	
-	# Copy Wallpapers
 	mkdir -p $(ISO_DIR)/Library/images/Wallpapers
 	@for f in $(SRC_DIR)/images/wallpapers/*.jpg; do \
 		if [ -f "$$f" ]; then \
@@ -130,16 +116,22 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 	done
 	@if [ -f splash.jpg ]; then cp splash.jpg $(ISO_DIR)/; fi
 	
-	# Copy Limine Bootloader Files (flat structure in binary branch)
+	mkdir -p $(ISO_DIR)/Library/images/gif
+	@for f in $(SRC_DIR)/images/gif/*.gif; do \
+		if [ -f "$$f" ]; then \
+			basename=$$(basename "$$f"); \
+			cp "$$f" $(ISO_DIR)/Library/images/gif/; \
+			echo "    module_path: boot():/Library/images/gif/$$basename" >> $(ISO_DIR)/limine.conf; \
+		fi \
+	done
+	
 	cp limine/limine-bios.sys $(ISO_DIR)/
 	cp limine/limine-bios-cd.bin $(ISO_DIR)/
 	cp limine/limine-uefi-cd.bin $(ISO_DIR)/
 	
-	# Create EFI Boot Files
 	cp limine/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/
 	cp limine/BOOTIA32.EFI $(ISO_DIR)/EFI/BOOT/
 
-	# Copy Fonts
 	mkdir -p $(ISO_DIR)/Library/Fonts
 	@for f in $(SRC_DIR)/fonts/*.ttf; do \
 		if [ -f "$$f" ]; then \
@@ -149,14 +141,12 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 		fi \
 	done
 	
-	# Generate ISO
-	$(XORRISO) -as mkisofs -b limine-bios-cd.bin \
+	$(XORRISO) -as mkisofs -R -J -b limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot limine-uefi-cd.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
 		$(ISO_DIR) -o $(ISO_IMAGE)
 	
-	# Install Limine to ISO (for BIOS boot)
 	./limine/limine bios-install $(ISO_IMAGE)
 
 clean:

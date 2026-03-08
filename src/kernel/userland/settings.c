@@ -4,7 +4,7 @@
 #include "libc/syscall.h"
 #include "libc/libui.h"
 #include "libc/stdlib.h"
-#include "nanojpeg.h"
+#include "stb_image.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -113,13 +113,17 @@ static void generate_lumberjack_pattern(void) {
     }
 }
 
-static void scale_rgb_to_argb(const unsigned char *rgb, int src_w, int src_h, uint32_t *dst, int dst_w, int dst_h) {
+static void scale_rgba_to_argb(const unsigned char *rgba, int src_w, int src_h, uint32_t *dst, int dst_w, int dst_h) {
     for (int y = 0; y < dst_h; y++) {
         int src_y = y * src_h / dst_h;
         for (int x = 0; x < dst_w; x++) {
             int src_x = x * src_w / dst_w;
-            int idx = (src_y * src_w + src_x) * 3;
-            dst[y * dst_w + x] = 0xFF000000 | (rgb[idx] << 16) | (rgb[idx + 1] << 8) | rgb[idx + 2];
+            int idx = (src_y * src_w + src_x) * 4;
+            uint8_t r = rgba[idx];
+            uint8_t g = rgba[idx + 1];
+            uint8_t b = rgba[idx + 2];
+            uint8_t a = rgba[idx + 3];
+            dst[y * dst_w + x] = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
         }
     }
 }
@@ -161,12 +165,13 @@ static void load_wallpapers(void) {
                     unsigned char *buf = (unsigned char *)malloc(size);
                     if (buf) {
                         sys_read(fd, buf, size);
-                        njInit();
-                        if (njDecode(buf, size) == NJ_OK) {
-                            scale_rgb_to_argb(njGetImage(), njGetWidth(), njGetHeight(), wp->thumb, WALLPAPER_THUMB_W, WALLPAPER_THUMB_H);
+                        int img_w, img_h, channels;
+                        unsigned char *img = stbi_load_from_memory(buf, size, &img_w, &img_h, &channels, 4);
+                        if (img && img_w > 0 && img_h > 0) {
+                            scale_rgba_to_argb(img, img_w, img_h, wp->thumb, WALLPAPER_THUMB_W, WALLPAPER_THUMB_H);
                             wp->valid = 1;
+                            stbi_image_free(img);
                         }
-                        njDone();
                         free(buf); // Release memory
                     }
             }
