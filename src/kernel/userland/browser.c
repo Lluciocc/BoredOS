@@ -340,22 +340,37 @@ static void decode_image(unsigned char *data, int len, RenderElement *el) {
             el->img_current_frame = 0;
             el->next_frame_tick = sys_system(16, 0, 0, 0, 0) + (delays[0] * 60 / 1000);
             
+            uint32_t step_x = (img_w_orig << 16) / fit_w;
+            uint32_t step_y = (img_h_orig << 16) / fit_h;
+
             for (int i = 0; i < frame_count; i++) {
                 el->img_frames[i] = malloc(fit_w * fit_h * sizeof(uint32_t));
                 if (el->img_frames[i]) {
                     unsigned char *src_frame = rgba + (i * img_w_orig * img_h_orig * 4);
-                    for (int y = 0; y < fit_h; y++) {
-                        int sy = y * img_h_orig / fit_h;
-                        for (int x = 0; x < fit_w; x++) {
-                            int sx = x * img_w_orig / fit_w;
-                            int idx = (sy * img_w_orig + sx) * 4;
-                            uint32_t r = src_frame[idx];
-                            uint32_t g = src_frame[idx+1];
-                            uint32_t b = src_frame[idx+2];
-                            uint32_t a = src_frame[idx+3];
-                            el->img_frames[i][y * fit_w + x] = (a << 24) | (r << 16) | (g << 8) | b;
+                    uint16_t *src_h_table = malloc(fit_h * sizeof(uint16_t));
+                    uint16_t *src_w_table = malloc(fit_w * sizeof(uint16_t));
+                    
+                    if (src_h_table && src_w_table) {
+                        for (int y = 0; y < fit_h; y++) src_h_table[y] = (y * step_y) >> 16;
+                        for (int x = 0; x < fit_w; x++) src_w_table[x] = (x * step_x) >> 16;
+
+                        for (int y = 0; y < fit_h; y++) {
+                            int sy = src_h_table[y];
+                            uint32_t src_row_off = sy * img_w_orig;
+                            uint32_t dst_row_off = y * fit_w;
+                            for (int x = 0; x < fit_w; x++) {
+                                int sx = src_w_table[x];
+                                int idx = (src_row_off + sx) * 4;
+                                uint32_t r = src_frame[idx];
+                                uint32_t g = src_frame[idx+1];
+                                uint32_t b = src_frame[idx+2];
+                                uint32_t a = src_frame[idx+3];
+                                el->img_frames[i][dst_row_off + x] = (a << 24) | (r << 16) | (g << 8) | b;
+                            }
                         }
                     }
+                    if (src_h_table) free(src_h_table);
+                    if (src_w_table) free(src_w_table);
                 }
                 el->img_delays[i] = delays[i];
             }
@@ -364,16 +379,20 @@ static void decode_image(unsigned char *data, int len, RenderElement *el) {
         } else {
             el->img_pixels = malloc(fit_w * fit_h * sizeof(uint32_t));
             if (el->img_pixels) {
+                uint32_t step_x = (img_w_orig << 16) / fit_w;
+                uint32_t step_y = (img_h_orig << 16) / fit_h;
                 for (int y = 0; y < fit_h; y++) {
-                    int sy = y * img_h_orig / fit_h;
+                    int sy = (y * step_y) >> 16;
+                    uint32_t src_row_off = sy * img_w_orig;
+                    uint32_t dst_row_off = y * fit_w;
                     for (int x = 0; x < fit_w; x++) {
-                        int sx = x * img_w_orig / fit_w;
-                        int idx = (sy * img_w_orig + sx) * 4;
+                        int sx = (x * step_x) >> 16;
+                        int idx = (src_row_off + sx) * 4;
                         uint32_t r = rgba[idx];
                         uint32_t g = rgba[idx+1];
                         uint32_t b = rgba[idx+2];
                         uint32_t a = rgba[idx+3];
-                        el->img_pixels[y * fit_w + x] = (a << 24) | (r << 16) | (g << 8) | b;
+                        el->img_pixels[dst_row_off + x] = (a << 24) | (r << 16) | (g << 8) | b;
                     }
                 }
                 el->img_w = fit_w; el->img_h = fit_h;

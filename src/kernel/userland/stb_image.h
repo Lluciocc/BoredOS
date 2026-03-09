@@ -6669,35 +6669,44 @@ static void stbi__out_gif_code(stbi__gif *g, stbi__uint16 code)
 {
    stbi_uc *p, *c;
    int idx;
+   stbi__uint16 stack[4096];
+   int top = 0;
+   stbi__uint16 current = code;
 
-   // recurse to decode the prefixes, since the linked-list is backwards,
-   // and working backwards through an interleaved image would be nasty
-   if (g->codes[code].prefix >= 0)
-      stbi__out_gif_code(g, g->codes[code].prefix);
-
-   if (g->cur_y >= g->max_y) return;
-
-   idx = g->cur_x + g->cur_y;
-   p = &g->out[idx];
-   g->history[idx / 4] = 1;
-
-   c = &g->color_table[g->codes[code].suffix * 4];
-   if (c[3] > 128) { // don't render transparent pixels;
-      p[0] = c[2];
-      p[1] = c[1];
-      p[2] = c[0];
-      p[3] = c[3];
+   // Follow the chain of prefixes to the root, pushing suffixes onto the stack
+   while (current != (stbi__uint16)-1) {
+      if (top >= 4096) break;
+      stack[top++] = current;
+      current = (stbi__uint16)g->codes[current].prefix;
    }
-   g->cur_x += 4;
 
-   if (g->cur_x >= g->max_x) {
-      g->cur_x = g->start_x;
-      g->cur_y += g->step;
+   // Pop and process suffixes in order
+   while (top > 0) {
+      stbi__uint16 c_code = stack[--top];
+      if (g->cur_y >= g->max_y) continue;
 
-      while (g->cur_y >= g->max_y && g->parse > 0) {
-         g->step = (1 << g->parse) * g->line_size;
-         g->cur_y = g->start_y + (g->step >> 1);
-         --g->parse;
+      idx = g->cur_x + g->cur_y;
+      p = &g->out[idx];
+      g->history[idx / 4] = 1;
+
+      c = &g->color_table[g->codes[c_code].suffix * 4];
+      if (c[3] > 128) { // don't render transparent pixels;
+         p[0] = c[2];
+         p[1] = c[1];
+         p[2] = c[0];
+         p[3] = c[3];
+      }
+      g->cur_x += 4;
+
+      if (g->cur_x >= g->max_x) {
+         g->cur_x = g->start_x;
+         g->cur_y += g->step;
+
+         while (g->cur_y >= g->max_y && g->parse > 0) {
+            g->step = (1 << g->parse) * g->line_size;
+            g->cur_y = g->start_y + (g->step >> 1);
+            --g->parse;
+         }
       }
    }
 }
@@ -6963,15 +6972,46 @@ static stbi_uc *stbi__gif_load_next(stbi__context *s, stbi__gif *g, int *comp, i
    }
 }
 
-static void *stbi__load_gif_main_outofmem(stbi__gif *g, stbi_uc *out, int **delays)
+static int stbi__gif_count_frames(stbi__context *s)
 {
-   STBI_FREE(g->out);
-   STBI_FREE(g->history);
-   STBI_FREE(g->background);
+   int layers = 0;
+   stbi_uc flags;
+   int tag;
+   int off = s->read_from_callbacks ? 0 : (int)(s->img_buffer - s->img_buffer_original);
 
-   if (out) STBI_FREE(out);
-   if (delays && *delays) STBI_FREE(*delays);
-   return stbi__errpuc("outofmem", "Out of memory");
+   stbi__skip(s, 6); // GIF87a/GIF89a
+   stbi__skip(s, 4); // w, h
+   flags = stbi__get8(s);
+   stbi__skip(s, 2);
+   if (flags & 0x80) stbi__skip(s, 3 * (2 << (flags & 7)));
+
+   while (!stbi__at_eof(s)) {
+      tag = stbi__get8(s);
+      if (tag == 0x2C) {
+         layers++;
+         stbi__skip(s, 8);
+         flags = stbi__get8(s);
+         if (flags & 0x80) stbi__skip(s, 3 * (2 << (flags & 7)));
+         stbi__get8(s); // LZW size
+         while (1) {
+            int len = stbi__get8(s);
+            if (len == 0) break;
+            stbi__skip(s, len);
+         }
+      } else if (tag == 0x21) {
+         stbi__get8(s);
+         while (1) {
+            int len = stbi__get8(s);
+            if (len == 0) break;
+            stbi__skip(s, len);
+         }
+      } else if (tag == 0x3B) break;
+      else break;
+   }
+
+   stbi__rewind(s);
+   if (off) stbi__skip(s, off);
+   return layers;
 }
 
 static void *stbi__load_gif_main(stbi__context *s, int **delays, int *x, int *y, int *z, int *comp, int req_comp)
@@ -6983,16 +7023,27 @@ static void *stbi__load_gif_main(stbi__context *s, int **delays, int *x, int *y,
       stbi_uc *two_back = 0;
       stbi__gif g;
       int stride;
-      int out_size = 0;
-      int delays_size = 0;
-
-      STBI_NOTUSED(out_size);
-      STBI_NOTUSED(delays_size);
+      int total_layers = 0;
 
       memset(&g, 0, sizeof(g));
+
+      total_layers = stbi__gif_count_frames(s);
+      if (total_layers <= 0) return stbi__errpuc("no frames", "Corrupt GIF");
+
+      // Initial header parse to get dimensions
+      if (!stbi__gif_header(s, &g, comp, 0)) return 0;
+      stride = g.w * g.h * 4;
+      stbi__rewind(s); // Rewind again for the main loop
+
+      out = (stbi_uc*)stbi__malloc(total_layers * stride);
+      if (!out) return stbi__errpuc("outofmem", "Out of memory");
+      
       if (delays) {
-         *delays = 0;
+         *delays = (int*)stbi__malloc(total_layers * sizeof(int));
+         if (!*delays) { STBI_FREE(out); return stbi__errpuc("outofmem", "Out of memory"); }
       }
+
+      memset(&g, 0, sizeof(g)); // Reset for real load
 
       do {
          u = stbi__gif_load_next(s, &g, comp, req_comp, two_back);
@@ -7002,39 +7053,12 @@ static void *stbi__load_gif_main(stbi__context *s, int **delays, int *x, int *y,
             *x = g.w;
             *y = g.h;
             ++layers;
-            stride = g.w * g.h * 4;
+            
+            if (layers > total_layers) break; // Defensive
 
-            if (out) {
-               void *tmp = (stbi_uc*) STBI_REALLOC_SIZED( out, out_size, layers * stride );
-               if (!tmp)
-                  return stbi__load_gif_main_outofmem(&g, out, delays);
-               else {
-                   out = (stbi_uc*) tmp;
-                   out_size = layers * stride;
-               }
-
-               if (delays) {
-                  int *new_delays = (int*) STBI_REALLOC_SIZED( *delays, delays_size, sizeof(int) * layers );
-                  if (!new_delays)
-                     return stbi__load_gif_main_outofmem(&g, out, delays);
-                  *delays = new_delays;
-                  delays_size = layers * sizeof(int);
-               }
-            } else {
-               out = (stbi_uc*)stbi__malloc( layers * stride );
-               if (!out)
-                  return stbi__load_gif_main_outofmem(&g, out, delays);
-               out_size = layers * stride;
-               if (delays) {
-                  *delays = (int*) stbi__malloc( layers * sizeof(int) );
-                  if (!*delays)
-                     return stbi__load_gif_main_outofmem(&g, out, delays);
-                  delays_size = layers * sizeof(int);
-               }
-            }
             memcpy( out + ((layers - 1) * stride), u, stride );
             if (layers >= 2) {
-               two_back = out - 2 * stride;
+               two_back = out + (layers - 2) * stride;
             }
 
             if (delays) {
