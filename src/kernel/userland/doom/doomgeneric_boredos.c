@@ -35,7 +35,7 @@ void DG_DrawFrame(void) {
             int sy = y * src_h / dst_h;
             for (int x = 0; x < dst_w; x++) {
                 int sx = x * src_w / dst_w;
-                scaled_buffer[y * dst_w + x] = ((uint32_t*)DG_ScreenBuffer)[sy * src_w + sx];
+                scaled_buffer[y * dst_w + x] = 0xFF000000 | ((uint32_t*)DG_ScreenBuffer)[sy * src_w + sx];
             }
         }
         

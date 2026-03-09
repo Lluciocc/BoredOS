@@ -92,7 +92,7 @@ static long strtol(const char* nptr, char** endptr, int base) {
 typedef struct {
     char content[1024];
     int x, y, w, h;
-    int tag; // Changed from HTMLTag enum to int
+    int tag; 
     char link_url[256];
     char attr_value[256];
     uint32_t color;
@@ -109,7 +109,7 @@ typedef struct {
     int input_scroll;
     float scale;
     int list_depth;
-    int blockquote_depth; // Added blockquote support
+    int blockquote_depth; 
     bool img_loading;
     bool img_failed;
     uint32_t **img_frames;
@@ -276,7 +276,7 @@ static int fetch_content(const char *url, char *dest_buf, int max_len, bool prog
     
     int total = 0;
     int last_render = 0;
-    if (progressive) inc_parse_offset = 0; // Reset incremental state for new page
+    if (progressive) inc_parse_offset = 0; 
     while (1) {
         int len = sys_tcp_recv(dest_buf + total, max_len - 1 - total);
         if (len <= 0) break;
@@ -289,16 +289,14 @@ static int fetch_content(const char *url, char *dest_buf, int max_len, bool prog
             if (body) {
                 body += 4;
                 if (!strstr(dest_buf, "Transfer-Encoding: chunked")) {
-                    // Find last '>' to avoid splitting a tag
                     int body_len = total - (body - dest_buf);
                     int safe_len = body_len;
                     while (safe_len > 0 && body[safe_len - 1] != '>') safe_len--;
-                    // Avoid splitting an HTML entity (&...;)
                     int check_amp = total - (body - dest_buf) - 1;
                     if (check_amp >= safe_len) check_amp = safe_len - 1;
                     int amp_pos = -1;
                     for (int k = 0; k < 15 && check_amp - k >= 0; k++) {
-                        if (body[check_amp - k] == ';') break; // Complete entity
+                        if (body[check_amp - k] == ';') break; 
                         if (body[check_amp - k] == '&') { amp_pos = check_amp - k; break; }
                     }
                     if (amp_pos != -1) safe_len = amp_pos;
@@ -453,14 +451,13 @@ static int cur_line_y = 10;
 static int cur_line_x = 10;
 static int list_depth = 0;
 
-// Incremental parser state for progressive rendering
 
 
 static int inc_list_type[16];
 static int inc_list_index[16];
 static int inc_center_depth = 0;
 static int inc_table_depth = 0;
-static int inc_blockquote_depth = 0; // New field for blockquote
+static int inc_blockquote_depth = 0; 
 static bool inc_is_bold = false;
 static bool inc_is_italic = false;
 static bool inc_is_underline = false;
@@ -487,11 +484,11 @@ static void flush_line(void) {
     RenderElement *first_el = &elements[line_elements[0]];
     bool centered = first_el->centered;
     int ldepth = first_el->list_depth;
-    int bdepth = first_el->blockquote_depth; // Get blockquote depth
+    int bdepth = first_el->blockquote_depth; 
 
     int line_w = 0;
     for (int i = 0; i < line_element_count; i++) line_w += elements[line_elements[i]].w;
-    int offset_x = centered ? (win_w - SCROLL_BAR_W - line_w) / 2 : 10 + (ldepth * 20) + (bdepth * 20); // Adjust for blockquote
+    int offset_x = centered ? (win_w - SCROLL_BAR_W - line_w) / 2 : 10 + (ldepth * 20) + (bdepth * 20); 
     if (offset_x < 10) offset_x = 10;
 
     int max_h = 16;
@@ -536,16 +533,16 @@ static void browser_reflow(void) {
         
         if (el->tag == TAG_BR) {
             flush_line();
-            cur_line_x = 10 + (el->list_depth * 20) + (el->blockquote_depth * 20); // Adjust for blockquote
+            cur_line_x = 10 + (el->list_depth * 20) + (el->blockquote_depth * 20); 
             continue;
         }
         
         if (el->tag == TAG_HR) {
             flush_line();
-            el->w = win_w - SCROLL_BAR_W - 40 - (el->blockquote_depth * 40); // Adjust for blockquote
+            el->w = win_w - SCROLL_BAR_W - 40 - (el->blockquote_depth * 40); 
             line_elements[line_element_count++] = i;
             flush_line();
-            cur_line_x = 10 + (el->list_depth * 20) + (el->blockquote_depth * 20); // Adjust for blockquote
+            cur_line_x = 10 + (el->list_depth * 20) + (el->blockquote_depth * 20); 
             continue;
         }
         
@@ -554,9 +551,9 @@ static void browser_reflow(void) {
             if (cur_line_x + el->w > win_w - SCROLL_BAR_W - 20 - (el->blockquote_depth * 40)) continue;
         }
 
-        if (cur_line_x + el->w > win_w - SCROLL_BAR_W - 20 - (el->blockquote_depth * 40)) { // Adjust for blockquote
-            flush_line();
-            cur_line_x = 10 + (el->list_depth * 20) + (el->blockquote_depth * 20); // Adjust for blockquote
+        if (cur_line_x + el->w > win_w - SCROLL_BAR_W - 20 - (el->blockquote_depth * 40)) {
+            flush_line();   
+            cur_line_x = 10 + (el->list_depth * 20) + (el->blockquote_depth * 20); 
         }
         
         line_elements[line_element_count++] = i;
@@ -572,7 +569,7 @@ static uint32_t parse_html_color(const char *str) {
     if (*str == '#') {
         char *end;
         uint32_t val = (uint32_t)strtol(str + 1, &end, 16);
-        return 0xFF000000 | val; // Assumes RRGGBB
+        return 0xFF000000 | val; 
     }
     if (str_istarts_with(str, "red")) return 0xFFFF0000;
     if (str_istarts_with(str, "green")) return 0xFF008000;
@@ -598,7 +595,7 @@ static void decode_html_entities(char *str) {
             if (str_istarts_with(src, "&apos;")) { *dst++ = '\''; src += 6; continue; }
             if (str_istarts_with(src, "&nbsp;")) { *dst++ = ' '; src += 6; continue; }
             if (str_istarts_with(src, "&mdash;")) { *dst++ = (char)128; src += 7; continue; }
-            if (str_istarts_with(src, "&mdash"))  { *dst++ = (char)128; src += 6; continue; } // Fallback
+            if (str_istarts_with(src, "&mdash"))  { *dst++ = (char)128; src += 6; continue; } 
             if (str_istarts_with(src, "&ndash;")) { *dst++ = (char)129; src += 7; continue; }
             if (str_istarts_with(src, "&ndash"))  { *dst++ = (char)129; src += 6; continue; }
             if (str_istarts_with(src, "&bull;"))  { *dst++ = (char)130; src += 6; continue; }
@@ -611,9 +608,7 @@ static void decode_html_entities(char *str) {
             if (str_istarts_with(src, "&lsquo;")) { *dst++ = '\''; src += 7; continue; }
             if (str_istarts_with(src, "&rsquo;")) { *dst++ = '\''; src += 7; continue; }
             if (str_istarts_with(src, "&ldquo;")) { *dst++ = '\"'; src += 7; continue; }
-            if (str_istarts_with(src, "&rdquo;")) { *dst++ = '\"'; src += 7; continue; }
-            
-            // ISO Latin-1 (RFC 1866 Section 9.7)
+            if (str_istarts_with(src, "&rdquo;")) { *dst++ = '\"'; src += 7; continue; }      
             if (str_istarts_with(src, "&iexcl;")) { *dst++ = (char)161; src += 7; continue; }
             if (str_istarts_with(src, "&cent;")) { *dst++ = (char)162; src += 6; continue; }
             if (str_istarts_with(src, "&pound;")) { *dst++ = (char)163; src += 7; continue; }
@@ -714,7 +709,7 @@ static void parse_html(const char *html) {
             if (tag_name[0] == '/') {
                 if (str_iequals(tag_name+1, "center")) { emit_br(); if (center_depth > 0) center_depth--; }
                 else if (str_iequals(tag_name+1, "table")) { emit_br(); if (table_depth > 0) table_depth--; }
-                else if (str_iequals(tag_name+1, "blockquote")) { emit_br(); if (blockquote_depth > 0) blockquote_depth--; } // Handle blockquote end
+                else if (str_iequals(tag_name+1, "blockquote")) { emit_br(); if (blockquote_depth > 0) blockquote_depth--; } 
                 
                 else if (str_iequals(tag_name+1, "ul") || str_iequals(tag_name+1, "ol") || str_iequals(tag_name+1, "dl") || str_iequals(tag_name+1, "dir") || str_iequals(tag_name+1, "menu")) { emit_br(); if (list_depth > 0) list_depth--; }
                 
