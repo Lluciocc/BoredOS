@@ -641,16 +641,6 @@ static int explorer_build_context_menu(Window *win, ExplorerContextItem *items_o
         if (is_dir) {
             items_out[count++] = (ExplorerContextItem){"New File", 101, true, COLOR_WHITE};
             items_out[count++] = (ExplorerContextItem){"New Folder", 102, true, COLOR_WHITE};
-            
-            // Only show color options if it's NOT the Recycle Bin folder (i love hardcoding stuff cause it's lowk easier (cry about it))
-            if (explorer_strcmp(state->items[state->file_context_menu_item].name, "RecycleBin") != 0) {
-                items_out[count++] = (ExplorerContextItem){"---", 0, false, 0}; // Marker
-                items_out[count++] = (ExplorerContextItem){"Blue", 200, true, COLOR_APPLE_BLUE};
-                items_out[count++] = (ExplorerContextItem){"Red", 201, true, COLOR_RED};
-                items_out[count++] = (ExplorerContextItem){"Yellow", 202, true, COLOR_APPLE_YELLOW};
-                items_out[count++] = (ExplorerContextItem){"Green", 203, true, COLOR_APPLE_GREEN};
-                items_out[count++] = (ExplorerContextItem){"Black", 204, true, COLOR_BLACK};
-            }
         }
     }
     return count;
@@ -660,40 +650,7 @@ static int explorer_build_context_menu(Window *win, ExplorerContextItem *items_o
 
 // === Explorer Logic ===
 
-static uint32_t explorer_get_folder_color(const char *folder_path) {
-    char color_file_path[FAT32_MAX_PATH];
-    explorer_strcpy(color_file_path, folder_path);
-    if (color_file_path[explorer_strlen(color_file_path) - 1] != '/') {
-        explorer_strcat(color_file_path, "/");
-    }
-    explorer_strcat(color_file_path, ".color");
-    
-    FAT32_FileHandle *file = fat32_open(color_file_path, "r");
-    if (file) {
-        uint32_t color = 0;
-        int bytes_read = fat32_read(file, &color, sizeof(uint32_t));
-        fat32_close(file);
-        if (bytes_read == sizeof(uint32_t)) {
-            return color;
-        }
-    }
-    return COLOR_APPLE_YELLOW;
-}
-
-static void explorer_set_folder_color(const char *folder_path, uint32_t color) {
-    char color_file_path[FAT32_MAX_PATH];
-    explorer_strcpy(color_file_path, folder_path);
-    if (color_file_path[explorer_strlen(color_file_path) - 1] != '/') {
-        explorer_strcat(color_file_path, "/");
-    }
-    explorer_strcat(color_file_path, ".color");
-    
-    FAT32_FileHandle *file = fat32_open(color_file_path, "w");
-    if (file) {
-        fat32_write(file, &color, sizeof(uint32_t));
-        fat32_close(file);
-    }
-}
+// Folder color feature removed - all folders use default blue
 
 static void explorer_restore_file(Window *win, int item_idx) {
     ExplorerState *state = (ExplorerState*)win->data;
@@ -730,6 +687,8 @@ static void explorer_load_directory(Window *win, const char *path) {
     ExplorerState *state = (ExplorerState*)win->data;
     bool path_changed = (explorer_strcmp(state->current_path, path) != 0);
     explorer_strcpy(state->current_path, path);
+
+    state->item_count = 0;
     
     FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(EXPLORER_MAX_FILES * sizeof(FAT32_FileInfo));
     if (!entries) return;
@@ -751,21 +710,11 @@ static void explorer_load_directory(Window *win, const char *path) {
         explorer_strcpy(state->items[temp_count].name, entries[i].name);
         state->items[temp_count].is_directory = entries[i].is_directory;
         state->items[temp_count].size = entries[i].size;
-        
-        if (state->items[temp_count].is_directory) {
-            char subfolder_path[FAT32_MAX_PATH];
-            explorer_strcpy(subfolder_path, path);
-            if (subfolder_path[explorer_strlen(subfolder_path) - 1] != '/') {
-                explorer_strcat(subfolder_path, "/");
-            }
-            explorer_strcat(subfolder_path, state->items[temp_count].name);
-            state->items[temp_count].color = explorer_get_folder_color(subfolder_path);
-        } else {
-            state->items[temp_count].color = COLOR_APPLE_YELLOW;
-        }
+        state->items[temp_count].color = entries[i].is_directory ? COLOR_APPLE_BLUE : COLOR_APPLE_YELLOW;
         temp_count++;
     }
     
+    // Set the final count AFTER all items are fully populated
     state->item_count = temp_count;
     
     kfree(entries);
@@ -932,6 +881,9 @@ static void explorer_paint(Window *win) {
     int offset_y = win->y + 20;
     DirtyRect dirty = graphics_get_dirty_rect();
     
+
+    graphics_set_clipping(offset_x, offset_y, win->w - 8, win->h - 28);
+    
     // Fill background with dark mode
     draw_rect(offset_x, offset_y, win->w - 8, win->h - 28, COLOR_DARK_BG);
     
@@ -1006,7 +958,7 @@ static void explorer_paint(Window *win) {
     // Draw file list
     int content_start_y = offset_y + 30;
     
-    // Clip content to window area (excluding borders and top bar)
+    // Tighten clipping to content area (excluding toolbar)
     graphics_set_clipping(win->x + 4, content_start_y, win->w - 8, win->h - 54 - 4);
     
     for (int i = 0; i < state->item_count; i++) {
@@ -1861,15 +1813,6 @@ static void explorer_handle_file_context_menu_click(Window *win, int x, int y) {
         explorer_create_shortcut(win, full_path);
     } else if (clicked_action == 112) { // Open in new window
         explorer_create_window(full_path);
-    } else if (clicked_action >= 200 && clicked_action <= 204) { // Colors
-        uint32_t new_color = state->items[state->file_context_menu_item].color;
-        if (clicked_action == 200) new_color = COLOR_APPLE_BLUE;
-        else if (clicked_action == 201) new_color = COLOR_RED;
-        else if (clicked_action == 202) new_color = COLOR_APPLE_YELLOW;
-        else if (clicked_action == 203) new_color = COLOR_APPLE_GREEN;
-        else if (clicked_action == 204) new_color = COLOR_BLACK;
-        state->items[state->file_context_menu_item].color = new_color;
-        explorer_set_folder_color(full_path, new_color);
     }
     
     state->file_context_menu_visible = false;
@@ -2039,8 +1982,8 @@ Window* explorer_create_window(const char *path) {
     win->y = 100 + (explorer_win_count * 30);
     win->w = 600;
     win->h = 400;
-    win->visible = true;
-    win->focused = true;
+    win->visible = false;
+    win->focused = false;
     win->z_index = 10;
     win->paint = explorer_paint;
     win->handle_key = explorer_handle_key;
@@ -2053,12 +1996,15 @@ Window* explorer_create_window(const char *path) {
     state->explorer_scroll_row = 0;
     state->dialog_state = DIALOG_NONE;
     
+    // Load directory BEFORE adding to WM so items are populated
+    // before any paint can run from a timer interrupt
+    if (explorer_strcmp(path, "/") == 0) explorer_load_directory(win, "A:/");
+    else explorer_load_directory(win, path);
+    
     explorer_wins[explorer_win_count++] = win;
     wm_add_window(win);
     wm_bring_to_front(win);
     
-    if (explorer_strcmp(path, "/") == 0) explorer_load_directory(win, "A:/");
-    else explorer_load_directory(win, path);
     return win;
 }
 
