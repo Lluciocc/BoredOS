@@ -88,6 +88,8 @@ static long strtol(const char* nptr, char** endptr, int base) {
 #define TAG_BUTTON 3
 #define TAG_HR 4
 #define TAG_BR 5
+#define TAG_RADIO 6
+#define TAG_CHECKBOX 7
 
 typedef struct {
     char content[1024];
@@ -100,6 +102,7 @@ typedef struct {
     bool bold;
     bool italic;
     bool underline;
+    bool checked;
     uint32_t *img_pixels;
     int img_w, img_h;
     char form_action[256];
@@ -871,7 +874,7 @@ static void parse_html(const char *html) {
                         // Inside DL, li shouldn't really be used but we treat it as space.
                         el->content[0] = ' '; el->content[1] = 0;
                     } else { // UL
-                        el->content[0] = '-'; el->content[1] = ' '; el->content[2] = 0;
+                        el->content[0] = (char)130; el->content[1] = ' '; el->content[2] = 0;
                     }
                     
                     el->w = ui_get_string_width_scaled(el->content, current_scale);
@@ -948,7 +951,12 @@ static void parse_html(const char *html) {
                         l = 0; const char *dn = "q"; while(dn[l]) { el->input_name[l] = dn[l]; l++; } el->input_name[l] = 0;
                     }
                     
-                    if (type && str_istarts_with(type+6, "submit")) el->tag = TAG_BUTTON;
+                    if (type) {
+                        if (str_istarts_with(type+6, "submit")) el->tag = TAG_BUTTON;
+                        else if (str_istarts_with(type+6, "radio")) { el->tag = TAG_RADIO; el->w = 16; el->h = 16; }
+                        else if (str_istarts_with(type+6, "checkbox")) { el->tag = TAG_CHECKBOX; el->w = 16; el->h = 16; }
+                    }
+                    if (str_istrstr(attr_buf, "checked")) el->checked = true;
                     
                     if (val) {
                         val += 7; int l = 0;
@@ -1216,7 +1224,7 @@ static void parse_html_incremental(const char *html, int safe_len) {
                 else if (str_iequals(tag_name, "li")) {
                     emit_br(); RenderElement *el = &elements[element_count++]; memset(el, 0, sizeof(RenderElement));
                     el->tag = TAG_NONE; if (list_depth > 0 && list_type[list_depth - 1] == 1) { char num[16]; itoa(list_index[list_depth - 1]++, num); int l=0; while(num[l]) { el->content[l] = num[l]; l++; } el->content[l++] = '.'; el->content[l++] = ' '; el->content[l] = 0; }
-                    else if (list_depth > 0 && list_type[list_depth - 1] == 2) { el->content[0] = ' '; el->content[1] = 0; } else { el->content[0] = '-'; el->content[1] = ' '; el->content[2] = 0; }
+                    else if (list_depth > 0 && list_type[list_depth - 1] == 2) { el->content[0] = ' '; el->content[1] = 0; } else { el->content[0] = (char)130; el->content[1] = ' '; el->content[2] = 0; }
                     el->w = ui_get_string_width_scaled(el->content, current_scale); el->h = ui_get_font_height_scaled(current_scale); el->color = current_color; el->centered = EFF_CENTER; el->bold = is_bold; el->scale = current_scale; el->list_depth = list_depth; el->blockquote_depth = blockquote_depth;
                 }
                 else if (str_iequals(tag_name, "form")) { emit_br(); current_form_id = next_form_id++; char *action = str_istrstr(attr_buf, "action=\""); if (action) { action += 8; int l = 0; while(action[l] && action[l] != '"' && l < 255) { current_form_action[l] = action[l]; l++; } current_form_action[l] = 0; } else current_form_action[0] = 0; }
@@ -1235,7 +1243,12 @@ static void parse_html_incremental(const char *html, int safe_len) {
                     char *val = str_istrstr(attr_buf, "value=\""); char *ph = str_istrstr(attr_buf, "placeholder=\""); char *type = str_istrstr(attr_buf, "type=\""); char *name = str_istrstr(attr_buf, "name=\"");
                     el->form_id = current_form_id; el->input_cursor = 0; el->input_scroll = 0; int l; l = 0; while(current_form_action[l]) { el->form_action[l] = current_form_action[l]; l++; } el->form_action[l] = 0;
                     if (name) { name += 6; l = 0; while(name[l] && name[l] != '"' && l < 63) { el->input_name[l] = name[l]; l++; } el->input_name[l] = 0; } else { l = 0; const char *dn = "q"; while(dn[l]) { el->input_name[l] = dn[l]; l++; } el->input_name[l] = 0; }
-                    if (type && str_istarts_with(type+6, "submit")) el->tag = TAG_BUTTON;
+                    if (type) {
+                        if (str_istarts_with(type+6, "submit")) el->tag = TAG_BUTTON;
+                        else if (str_istarts_with(type+6, "radio")) { el->tag = TAG_RADIO; el->w = 16; el->h = 16; }
+                        else if (str_istarts_with(type+6, "checkbox")) { el->tag = TAG_CHECKBOX; el->w = 16; el->h = 16; }
+                    }
+                    if (str_istrstr(attr_buf, "checked")) el->checked = true;
                     if (val) { val += 7; int l = 0; while(val[l] && val[l] != '"' && l < 255) { el->attr_value[l] = val[l]; l++; } el->attr_value[l] = 0; } else if (ph) { ph += 13; int l = 0; while(ph[l] && ph[l] != '"' && l < 255) { el->attr_value[l] = ph[l]; l++; } el->attr_value[l] = 0; } else el->attr_value[0] = 0;
                     if (el->tag == TAG_BUTTON) {
                         el->w = ui_get_string_width(el->attr_value) + 20;
@@ -1370,6 +1383,18 @@ static void browser_paint(void) {
             ui_draw_rect(win_browser, el->x, draw_y, 1, el->h, 0xFFFFFFFF);
             ui_draw_rect(win_browser, el->x + el->w - 1, draw_y, 1, el->h, 0xFF888888);
             ui_draw_string(win_browser, el->x + 10, draw_y + 4, el->attr_value, 0xFF000000);
+        } else if (el->tag == TAG_RADIO) {
+            ui_draw_rounded_rect_filled(win_browser, el->x, draw_y, el->w, el->h, el->w/2, 0xFF808080);
+            ui_draw_rounded_rect_filled(win_browser, el->x + 1, draw_y + 1, el->w - 2, el->h - 2, (el->w-2)/2, 0xFFFFFFFF);
+            if (el->checked) {
+                ui_draw_rounded_rect_filled(win_browser, el->x + 4, draw_y + 4, el->w - 8, el->h - 8, (el->w-8)/2, 0xFF000000);
+            }
+        } else if (el->tag == TAG_CHECKBOX) {
+            ui_draw_rect(win_browser, el->x, draw_y, el->w, el->h, 0xFF808080);
+            ui_draw_rect(win_browser, el->x + 1, draw_y + 1, el->w - 2, el->h - 2, 0xFFFFFFFF);
+            if (el->checked) {
+                ui_draw_rect(win_browser, el->x + 4, draw_y + 4, el->w - 8, el->h - 8, 0xFF000000);
+            }
         } else if (el->tag == TAG_HR) {
             ui_draw_rect(win_browser, el->x, draw_y + el->h / 2, el->w, 2, 0xFF888888);
             ui_draw_rect(win_browser, el->x, draw_y + (el->h / 2) + 2, el->w, 1, 0xFFFFFFFF);
@@ -1514,11 +1539,22 @@ int main(int argc, char **argv) {
                             if (el->input_cursor >= el->input_scroll + max_v) el->input_scroll = el->input_cursor - max_v + 1;
                             found = true; needs_repaint = true; break;
                         }
+                        if (el->tag == TAG_RADIO) {
+                            for (int k = 0; k < element_count; k++) {
+                                if (elements[k].tag == TAG_RADIO && elements[k].form_id == el->form_id && str_iequals(elements[k].input_name, el->input_name)) {
+                                    elements[k].checked = false;
+                                }
+                            }
+                            el->checked = true;
+                            needs_repaint = true; found = true; break;
+                        }
+                        if (el->tag == TAG_CHECKBOX) {
+                            el->checked = !el->checked;
+                            needs_repaint = true; found = true; break;
+                        }
                         if (el->tag == TAG_BUTTON) {
                             int fid = el->form_id;
-                            int search_idx = -1;
-                            for (int k=0; k<element_count; k++) if (elements[k].tag == TAG_INPUT && elements[k].form_id == fid) { search_idx = k; break; }
-                            if (search_idx >= 0) {
+                            if (fid > 0) {
                                 char search_url[1024];
                                 char *u = search_url;
                                 const char *s;
@@ -1545,15 +1581,40 @@ int main(int argc, char **argv) {
                                     if (el->form_action[0]) { s = el->form_action; while(*s) *u++ = *s++; }
                                 }
                                 
-                                s = (strstr(search_url, "?") ? "&" : "?");
-                                while(*s) *u++ = *s++;
-                                s = elements[search_idx].input_name; while(*s) *u++ = *s++;
-                                *u++ = '=';
-                                
-                                for (int m=0; elements[search_idx].attr_value[m] && (u - search_url) < 1020; m++) {
-                                    char sc = elements[search_idx].attr_value[m];
-                                    if (sc == ' ') *u++ = '+';
-                                    else *u++ = sc;
+                                bool first_param = true;
+                                for (int k = 0; k < element_count; k++) {
+                                    RenderElement *rel = &elements[k];
+                                    if (rel->form_id != fid) continue;
+                                    
+                                    bool include = false;
+                                    const char *val_ptr = NULL;
+                                    if (rel->tag == TAG_INPUT) {
+                                        include = true;
+                                        val_ptr = rel->attr_value;
+                                    } else if ((rel->tag == TAG_RADIO || rel->tag == TAG_CHECKBOX) && rel->checked) {
+                                        include = true;
+                                        val_ptr = rel->attr_value;
+                                        if (!val_ptr[0]) val_ptr = "on";
+                                    }
+                                    
+                                    if (include && rel->input_name[0]) {
+                                        if (first_param) {
+                                            s = (strstr(search_url, "?") ? "&" : "?");
+                                            while(*s) *u++ = *s++;
+                                            first_param = false;
+                                        } else {
+                                            *u++ = '&';
+                                        }
+                                        
+                                        s = rel->input_name; while(*s) *u++ = *s++;
+                                        *u++ = '=';
+                                        
+                                        for (int m = 0; val_ptr[m] && (u - search_url) < 1020; m++) {
+                                            char sc = val_ptr[m];
+                                            if (sc == ' ') *u++ = '+';
+                                            else *u++ = sc;
+                                        }
+                                    }
                                 }
                                 *u = 0;
                                 if (history_count < HISTORY_MAX) { int j=0; while(url_input_buffer[j]) { history_stack[history_count][j] = url_input_buffer[j]; j++; } history_stack[history_count][j] = 0; history_count++; }

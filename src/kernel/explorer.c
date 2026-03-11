@@ -857,7 +857,7 @@ static void explorer_paint(Window *win) {
     const char *ts = type_str;
     while (*ts) drive_label[di++] = *ts++;
     drive_label[di++] = ' ';
-    drive_label[di++] = '';
+    drive_label[di++] = ' ';
     drive_label[di++] = ' ';
     drive_label[di++] = ']';
     drive_label[di] = 0;
