@@ -18,7 +18,6 @@
 
 Window win_explorer;
 
-// Dialog states
 #define DIALOG_NONE 0
 #define DIALOG_CREATE_FILE 1
 #define DIALOG_CREATE_FOLDER 2
@@ -35,29 +34,25 @@ Window win_explorer;
 static Window* explorer_wins[10];
 static int explorer_win_count = 0;
 
-// Dropdown menu state
 static int dropdown_menu_item_height = 25;
 #define DROPDOWN_MENU_WIDTH 120
 #define DROPDOWN_MENU_ITEMS 3
 
-// File context menu state
 #define FILE_CONTEXT_MENU_WIDTH 180
 #define FILE_CONTEXT_MENU_HEIGHT 50
 #define CONTEXT_MENU_ITEM_HEIGHT 25
 
-// Clipboard state
 static char clipboard_path[FAT32_MAX_PATH] = "";
-static int clipboard_action = 0; // 0=None, 1=Copy, 2=Cut
-#define FILE_CONTEXT_ITEMS 2  // "Open with Text Editor" and "Open with Markdown Viewer"
+static int clipboard_action = 0; 
+#define FILE_CONTEXT_ITEMS 2 
 
 typedef struct {
     const char *label;
-    int action_id; // 100+ for actions
+    int action_id; 
     bool enabled;
     uint32_t color;
 } ExplorerContextItem;
 
-// === Helper Functions ===
 
 size_t explorer_strlen(const char *str);
 void explorer_strcpy(char *dest, const char *src);
@@ -97,12 +92,10 @@ void explorer_strcat(char *dest, const char *src) {
     explorer_strcpy(dest, src);
 }
 
-// Get file extension (e.g., "md" from "file.md")
 static const char* explorer_get_extension(const char *filename) {
     const char *dot = filename;
     const char *ext = "";
     
-    // Find the last dot
     while (*dot) {
         if (*dot == '.') {
             ext = dot + 1;
@@ -113,13 +106,11 @@ static const char* explorer_get_extension(const char *filename) {
     return ext;
 }
 
-// Check if file is markdown
 static bool explorer_is_markdown_file(const char *filename) {
     const char *ext = explorer_get_extension(filename);
     return explorer_strcmp(ext, "md") == 0;
 }
 
-// Helper to check if string starts with prefix
 static bool explorer_str_starts_with(const char *str, const char *prefix) {
     while(*prefix) {
         if (*prefix++ != *str++) return false;
@@ -127,7 +118,6 @@ static bool explorer_str_starts_with(const char *str, const char *prefix) {
     return true;
 }
 
-// Helper to check if string ends with suffix
 static bool explorer_str_ends_with(const char *str, const char *suffix) {
     int str_len = explorer_strlen(str);
     int suf_len = explorer_strlen(suffix);
@@ -135,7 +125,6 @@ static bool explorer_str_ends_with(const char *str, const char *suffix) {
     return explorer_strcmp(str + str_len - suf_len, suffix) == 0;
 }
 
-// Helper to check if file is an image supported by stb_image
 static bool explorer_is_image_file(const char *filename) {
     return explorer_str_ends_with(filename, ".jpg") || explorer_str_ends_with(filename, ".JPG") ||
            explorer_str_ends_with(filename, ".png") || explorer_str_ends_with(filename, ".PNG") ||
@@ -144,16 +133,14 @@ static bool explorer_is_image_file(const char *filename) {
            explorer_str_ends_with(filename, ".tga") || explorer_str_ends_with(filename, ".TGA");
 }
 
-// Helper for label drawing (adapted from wm.c)
 static void explorer_draw_icon_label(int x, int y, const char *label, uint32_t color) {
-    char line1[11] = {0}; // 10 chars + null
-    char line2[11] = {0}; // 10 chars + null
+    char line1[11] = {0}; 
+    char line2[11] = {0}; 
     int len = 0; while(label[len]) len++;
     
     if (len <= 10) {
         for (int i = 0; i < len; i++) line1[i] = label[i];
     } else {
-        // Dot-based wrap: keep extension together if prefix fits
         int dot_pos = -1;
         for (int i = len - 1; i >= 0; i--) {
             if (label[i] == '.') { dot_pos = i; break; }
@@ -163,7 +150,6 @@ static void explorer_draw_icon_label(int x, int y, const char *label, uint32_t c
         if (dot_pos != -1 && dot_pos > 0 && dot_pos <= 10) {
             split = dot_pos;
         } else {
-            // Word-based wrap: look for space in the first 11 characters
             for (int i = 10; i >= 0; i--) {
                 if (label[i] == ' ') {
                     split = i;
@@ -198,7 +184,6 @@ static void explorer_draw_icon_label(int x, int y, const char *label, uint32_t c
         }
     }
     
-    // Center in EXPLORER_ITEM_WIDTH
     ttf_font_t *font = graphics_get_current_ttf();
 
     int l1_w = font_manager_get_string_width(font, line1);
@@ -214,7 +199,6 @@ static void explorer_draw_icon_label(int x, int y, const char *label, uint32_t c
 static bool check_desktop_limit_explorer(Window *win) {
     ExplorerState *state = (ExplorerState*)win->data;
     if (explorer_str_starts_with(state->current_path, "/Desktop")) {
-        // Check if root desktop
         if (explorer_strcmp(state->current_path, "/Desktop") == 0 || explorer_strcmp(state->current_path, "/Desktop/") == 0) { // Check if root desktop
              if (state->item_count >= desktop_max_cols * (desktop_max_rows_per_col > 1 ? desktop_max_rows_per_col - 1 : 0)) {
                  state->dialog_state = DIALOG_ERROR;
@@ -249,7 +233,6 @@ static void dialog_open_delete_confirm(Window *win, int item_idx) {
     state->dialog_state = DIALOG_DELETE_CONFIRM;
     state->dialog_target_is_dir = state->items[item_idx].is_directory;
     
-    // Build full path to target
     explorer_strcpy(state->dialog_target_path, state->current_path);
     if (state->dialog_target_path[explorer_strlen(state->dialog_target_path) - 1] != '/') {
         explorer_strcat(state->dialog_target_path, "/");
@@ -283,7 +266,6 @@ static void dialog_confirm_create_file(Window *win) {
         return;
     }
     
-    // Create empty file
     FAT32_FileHandle *file = fat32_open(full_path, "w");
     if (file) {
         fat32_close(file);
@@ -323,7 +305,6 @@ static void dialog_confirm_create_folder(Window *win) {
     }
     explorer_strcat(full_path, state->dialog_input);
     
-    // Create directory
     if (fat32_mkdir(full_path)) {
         explorer_refresh_all();
     }
@@ -331,10 +312,8 @@ static void dialog_confirm_create_folder(Window *win) {
     dialog_close(win);
 }
 
-// Recursive delete for directories
 bool explorer_delete_permanently(const char *path) {
     if (fat32_is_directory(path)) {
-        // List contents and delete recursively
         FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(64 * sizeof(FAT32_FileInfo));
         if (!entries) return false;
 
@@ -357,26 +336,21 @@ bool explorer_delete_permanently(const char *path) {
             }
         }
         kfree(entries);
-        // Delete the directory itself
         return fat32_rmdir(path);
     } else {
-        // Regular file
         return fat32_delete(path);
     }
 }
 
 bool explorer_delete_recursive(const char *path) {
-    // Check if path is on an external drive (not A:)
     bool is_external = false;
     if (path[0] && path[1] == ':' && path[0] != 'A' && path[0] != 'a') {
         is_external = true;
     }
     
     if (is_external || explorer_str_starts_with(path, "/RecycleBin")) {
-        // External drives have no RecycleBin — delete permanently
         return explorer_delete_permanently(path);
     } else {
-        // Move to Recycle Bin
         char filename[256];
         int len = explorer_strlen(path);
         int i = len - 1;
@@ -385,7 +359,6 @@ bool explorer_delete_recursive(const char *path) {
         for (int k = i + 1; k < len; k++) filename[j++] = path[k];
         filename[j] = 0;
         
-        // Extract drive from path
         char drive_prefix[3] = "A:";
         if (path[0] && path[1] == ':') {
             drive_prefix[0] = path[0];
@@ -396,7 +369,6 @@ bool explorer_delete_recursive(const char *path) {
         explorer_strcat(dest_path, "/RecycleBin/");
         explorer_strcat(dest_path, filename);
         
-        // Save origin
         char origin_path[FAT32_MAX_PATH];
         explorer_strcpy(origin_path, dest_path);
         explorer_strcat(origin_path, ".origin");
@@ -406,7 +378,6 @@ bool explorer_delete_recursive(const char *path) {
             fat32_close(fh);
         }
         
-        // Use copy + delete (permanent) to simulate move
         explorer_copy_recursive(path, dest_path);
         explorer_delete_permanently(path);
         return true;
@@ -431,8 +402,6 @@ static void dialog_confirm_replace_move(Window *win) {
     explorer_perform_move_internal(win, state->dialog_move_src, state->dialog_dest_dir);
     dialog_close(win);
 }
-
-// === Clipboard Functions ===
 
 void explorer_clipboard_copy(const char *path) {
     explorer_strcpy(clipboard_path, path);
@@ -472,7 +441,6 @@ static bool explorer_copy_recursive(const char *src_path, const char *dest_path)
         kfree(files);
         return true;
     } else {
-        // Copy file
         FAT32_FileHandle *src = fat32_open(src_path, "r");
         FAT32_FileHandle *dst = fat32_open(dest_path, "w");
         bool success = false;
@@ -518,14 +486,13 @@ static void explorer_perform_paste(Window *win, const char *dest_dir) {
     (void)win;
     explorer_copy_file_internal(clipboard_path, dest_dir);
     
-    if (clipboard_action == 2) { // Cut
-        // Delete source
+    if (clipboard_action == 2) { 
         if (fat32_is_directory(clipboard_path)) {
             explorer_delete_permanently(clipboard_path);
         } else {
             fat32_delete(clipboard_path);
         }
-        clipboard_action = 0; // Clear clipboard after cut-paste
+        clipboard_action = 0;
     }
     explorer_refresh_all();
 }
@@ -534,7 +501,6 @@ void explorer_clipboard_paste(Window *win, const char *dest_dir) {
     ExplorerState *state = (ExplorerState*)win->data;
     if (!explorer_clipboard_has_content()) return;
     
-    // Prevent pasting a directory into itself or its subdirectories
     if (explorer_str_starts_with(dest_dir, clipboard_path)) {
         int src_len = explorer_strlen(clipboard_path);
         if (dest_dir[src_len] == '\0' || dest_dir[src_len] == '/') {
@@ -542,7 +508,6 @@ void explorer_clipboard_paste(Window *win, const char *dest_dir) {
         }
     }
 
-    // Check for collision
     char filename[FAT32_MAX_FILENAME];
     int len = explorer_strlen(clipboard_path);
     int i = len - 1;
@@ -596,16 +561,13 @@ static void dropdown_menu_toggle(Window *win) {
     state->dropdown_menu_visible = !state->dropdown_menu_visible;
 }
 
-// === Context Menu Builder ===
 static int explorer_build_context_menu(Window *win, ExplorerContextItem *items_out) {
     ExplorerState *state = (ExplorerState*)win->data;
     int count = 0;
     if (state->file_context_menu_item == -1) {
         if (explorer_str_starts_with(state->current_path, "/RecycleBin")) {
-            // Dead space in Recycle Bin - no actions for now
             return 0;
         }
-        // Dead space
         items_out[count++] = (ExplorerContextItem){"New File", 101, true, COLOR_WHITE};
         items_out[count++] = (ExplorerContextItem){"New Folder", 102, true, COLOR_WHITE};
         items_out[count++] = (ExplorerContextItem){"Paste", 103, explorer_clipboard_has_content(), explorer_clipboard_has_content() ? COLOR_WHITE : COLOR_DKGRAY};
@@ -646,11 +608,6 @@ static int explorer_build_context_menu(Window *win, ExplorerContextItem *items_o
     return count;
 }
 
-// === Helper Functions (continued)
-
-// === Explorer Logic ===
-
-// Folder color feature removed - all folders use default blue
 
 static void explorer_restore_file(Window *win, int item_idx) {
     ExplorerState *state = (ExplorerState*)win->data;
@@ -673,9 +630,8 @@ static void explorer_restore_file(Window *win, int item_idx) {
         fat32_close(fh);
     }
     
-    if (original_path[0] == 0) return; // No origin info
+    if (original_path[0] == 0) return; 
     
-    // Restore
     explorer_copy_recursive(recycle_path, original_path);
     explorer_delete_permanently(recycle_path);
     fat32_delete(origin_file_path);
@@ -697,12 +653,10 @@ static void explorer_load_directory(Window *win, const char *path) {
     
     int temp_count = 0;
     for (int i = 0; i < count && temp_count < EXPLORER_MAX_FILES; i++) {
-        // Skip .color files
         if (explorer_strcmp(entries[i].name, ".color") == 0) {
             continue;
         }
         
-        // Skip .origin files
         if (explorer_str_ends_with(entries[i].name, ".origin")) {
             continue;
         }
@@ -714,7 +668,6 @@ static void explorer_load_directory(Window *win, const char *path) {
         temp_count++;
     }
     
-    // Set the final count AFTER all items are fully populated
     state->item_count = temp_count;
     
     kfree(entries);
@@ -729,14 +682,11 @@ static void explorer_navigate_to(Window *win, const char *dirname) {
     char new_path[FAT32_MAX_PATH];
     
     if (explorer_strcmp(dirname, "..") == 0) {
-        // Go to parent directory
         int len = explorer_strlen(state->current_path);
         int i = len - 1;
         
-        // Skip trailing slashes
         while (i > 0 && state->current_path[i] == '/') i--;
         
-        // Find last slash
         while (i > 0 && state->current_path[i] != '/') i--;
         
         if (i == 0) {
@@ -748,7 +698,6 @@ static void explorer_navigate_to(Window *win, const char *dirname) {
             new_path[i] = 0;
         }
     } else {
-        // Go to subdirectory
         explorer_strcpy(new_path, state->current_path);
         if (new_path[explorer_strlen(new_path) - 1] != '/') {
             explorer_strcat(new_path, "/");
@@ -797,7 +746,6 @@ static void explorer_open_item(Window *win, int index) {
     }
     explorer_strcat(full_path, state->items[index].name);
 
-    // Check if shortcut
     if (explorer_str_ends_with(state->items[index].name, ".shortcut")) {
         Window *target = NULL;
         if (explorer_strcmp(state->items[index].name, "Notepad.shortcut") == 0) {
@@ -823,7 +771,6 @@ static void explorer_open_item(Window *win, int index) {
             return;
         }
 
-        // Generic shortcut
         FAT32_FileHandle *fh = fat32_open(full_path, "r");
         if (fh) {
             char buf[FAT32_MAX_PATH];
@@ -837,11 +784,9 @@ static void explorer_open_item(Window *win, int index) {
         }
     }
 
-    // Default open
     explorer_open_target(full_path);
 }
 
-// Draw a simple file icon
 static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, const char *filename, const char *current_path) {
     if (is_dir) {
         if (explorer_strcmp(filename, "RecycleBin") == 0) draw_recycle_bin_icon(x + 5, y + 5, "");
@@ -860,7 +805,6 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
     } else if (explorer_str_ends_with(filename, ".pnt")) {
         draw_paint_icon(x + 5, y + 5, "");
     } else if (explorer_is_image_file(filename)) {
-        // Build full path for thumbnail loading
         char full_path[FAT32_MAX_PATH];
         explorer_strcpy(full_path, current_path);
         if (full_path[explorer_strlen(full_path) - 1] != '/') explorer_strcat(full_path, "/");
@@ -873,7 +817,6 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
     }
 }
 
-// === Paint Function ===
 
 static void explorer_paint(Window *win) {
     ExplorerState *state = (ExplorerState*)win->data;
@@ -884,12 +827,9 @@ static void explorer_paint(Window *win) {
 
     graphics_set_clipping(offset_x, offset_y, win->w - 8, win->h - 28);
     
-    // Fill background with dark mode
     draw_rect(offset_x, offset_y, win->w - 8, win->h - 28, COLOR_DARK_BG);
     
-    // Draw Drive Button (modern rounded style)
     char drive_label[20];
-    // Extract drive from the window's current_path instead of using global current_drive
     char current_drv = 'A';
     if (state->current_path[0] && state->current_path[1] == ':') {
         current_drv = state->current_path[0];
@@ -897,7 +837,6 @@ static void explorer_paint(Window *win) {
         current_drv = state->current_path[0];
     }
     
-    // Look up drive type
     const char *type_str = "RAM";
     Disk *drv = disk_get_by_letter(current_drv);
     if (drv) {
@@ -910,7 +849,6 @@ static void explorer_paint(Window *win) {
         }
     }
     
-    // Build label: "[ A:TYPE v ]"
     int di = 0;
     drive_label[di++] = '[';
     drive_label[di++] = ' ';
@@ -919,19 +857,17 @@ static void explorer_paint(Window *win) {
     const char *ts = type_str;
     while (*ts) drive_label[di++] = *ts++;
     drive_label[di++] = ' ';
-    drive_label[di++] = 'v';
+    drive_label[di++] = '';
     drive_label[di++] = ' ';
     drive_label[di++] = ']';
     drive_label[di] = 0;
     
-    // Button at x+4, y+3, sized to fit label (rounded)
     ttf_font_t *ttf_ = graphics_get_current_ttf();
     int drive_label_w = ttf_ ? font_manager_get_string_width(ttf_, drive_label) + 16 : 80;
     if (drive_label_w < 60) drive_label_w = 60;
     draw_rounded_rect_filled(win->x + 4, offset_y + 3, drive_label_w, 22, 5, COLOR_DARK_PANEL);
     draw_string(win->x + 12, offset_y + 8, drive_label, COLOR_DARK_TEXT);
 
-    // Draw path bar (shifted right after drive button, rounded, dark mode)
     int path_height = 22;
     int path_x = offset_x + drive_label_w + 8;
     int path_w = win->w - 16 - drive_label_w - 8;
@@ -940,47 +876,38 @@ static void explorer_paint(Window *win) {
     int path_label_w = ttf_ ? font_manager_get_string_width(ttf_, "Path:") : 40;
     draw_string(path_x + 6 + path_label_w + 6, offset_y + 8, state->current_path, COLOR_DARK_TEXT);
     
-    // Draw dropdown menu button (right-aligned, before back button, rounded)
     int dropdown_btn_x = win->x + win->w - 90;
     draw_rounded_rect_filled(dropdown_btn_x, offset_y + 3, 35, 22, 5, COLOR_DARK_PANEL);
     draw_string(dropdown_btn_x + 10, offset_y + 8, "...", COLOR_DARK_TEXT);
     
-    // Draw back button (right-aligned, rounded)
     draw_rounded_rect_filled(win->x + win->w - 40, offset_y + 3, 30, 22, 5, COLOR_DARK_PANEL);
     draw_string(win->x + win->w - 32, offset_y + 8, "<", COLOR_DARK_TEXT);
     
-    // Draw scroll buttons (left of dropdown, rounded)
     draw_rounded_rect_filled(win->x + win->w - 160, offset_y + 3, 30, 22, 5, COLOR_DARK_PANEL);
     draw_string(win->x + win->w - 150, offset_y + 8, "^", COLOR_DARK_TEXT);
     draw_rounded_rect_filled(win->x + win->w - 125, offset_y + 3, 30, 22, 5, COLOR_DARK_PANEL);
     draw_string(win->x + win->w - 115, offset_y + 8, "v", COLOR_DARK_TEXT);
     
-    // Draw file list
     int content_start_y = offset_y + 30;
     
-    // Tighten clipping to content area (excluding toolbar)
     graphics_set_clipping(win->x + 4, content_start_y, win->w - 8, win->h - 54 - 4);
     
     for (int i = 0; i < state->item_count; i++) {
         int row = i / EXPLORER_COLS;
         int col = i % EXPLORER_COLS;
         
-        // Apply scrolling
         if (row < state->explorer_scroll_row) continue;
         if (row >= state->explorer_scroll_row + EXPLORER_ROWS) break;
         
         int item_x = offset_x + 10 + (col * (EXPLORER_ITEM_WIDTH + EXPLORER_PADDING));
         int item_y = content_start_y + ((row - state->explorer_scroll_row) * (EXPLORER_ITEM_HEIGHT + EXPLORER_PADDING));
         
-        // Draw item background (dark mode with rounded corners)
         uint32_t bg_color = (i == state->selected_item) ? 0xFF4A90E2 : COLOR_DARK_PANEL;
         uint32_t text_color = (i == state->selected_item) ? COLOR_WHITE : COLOR_DARK_TEXT;
         draw_rounded_rect_filled(item_x, item_y, EXPLORER_ITEM_WIDTH, EXPLORER_ITEM_HEIGHT, 6, bg_color);
         
-        // Draw icon (larger area)
         explorer_draw_file_icon(item_x + 5, item_y + 5, state->items[i].is_directory, state->items[i].color, state->items[i].name, state->current_path);
         
-        // Draw name using intelligent wrapping
         const char *display_name = state->items[i].name;
         if (explorer_strcmp(state->items[i].name, "RecycleBin") == 0) {
             display_name = "Recycle Bin";
@@ -988,15 +915,13 @@ static void explorer_paint(Window *win) {
         explorer_draw_icon_label(item_x, item_y, display_name, text_color);
     }
     
-    // Restore dirty-rect clipping instead of clearing it entirely.
-    // This ensures the context menu respects the dirty region.
+
     if (dirty.active) {
         graphics_set_clipping(dirty.x, dirty.y, dirty.w, dirty.h);
     } else {
         graphics_clear_clipping();
     }
     
-    // Draw Drive Menu if visible (dark mode)
     if (state->drive_menu_visible) {
         int menu_x = win->x + 4;
         int menu_y = offset_y + 26;
@@ -1013,11 +938,9 @@ static void explorer_paint(Window *win) {
                 buf[0] = d->letter;
                 buf[1] = ':';
                 buf[2] = ' ';
-                // Copy name truncated
                 int n = 0; while(d->name[n] && n < 10) { buf[3+n] = d->name[n]; n++; }
                 buf[3+n] = 0;
                 
-                // Highlight current (dark blue)
                 if (d->letter == current_drv) {
                     draw_rounded_rect_filled(menu_x + 2, menu_y + i*25 + 2, menu_w - 4, 21, 4, 0xFF4A90E2);
                     draw_string(menu_x + 5, menu_y + i*25 + 6, buf, COLOR_WHITE);
@@ -1028,36 +951,28 @@ static void explorer_paint(Window *win) {
         }
     }
     
-    // Draw dropdown menu if visible
     if (state->dropdown_menu_visible) {
         int menu_x = dropdown_btn_x;
         int menu_y = offset_y + 26;
         
-        // Draw menu background
         draw_rounded_rect_filled(menu_x, menu_y, DROPDOWN_MENU_WIDTH, dropdown_menu_item_height * DROPDOWN_MENU_ITEMS, 6, COLOR_DARK_PANEL);
         
-        // Draw menu items
         draw_string(menu_x + 8, menu_y + 5, "New File", COLOR_WHITE);
         draw_string(menu_x + 8, menu_y + dropdown_menu_item_height + 5, "New Folder", COLOR_WHITE);
         draw_string(menu_x + 8, menu_y + dropdown_menu_item_height * 2 + 5, "Delete", COLOR_RED);
     }
 
-    // Draw dialogs
     if (state->dialog_state == DIALOG_CREATE_FILE) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background (modern dark, rounded)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
-        // Title
         draw_string(dlg_x + 10, dlg_y + 10, "Create New File", COLOR_WHITE);
         
-        // Input field (rounded dark)
         draw_rounded_rect_filled(dlg_x + 10, dlg_y + 35, 280, 20, 4, COLOR_DARK_BG);
         draw_string(dlg_x + 15, dlg_y + 40, state->dialog_input, COLOR_WHITE);
-                // Dynamic cursor — find start offset so text doesn't overflow the input box
-        { int max_w = 265; /* input box is 280px wide with 15px left pad */
+        { int max_w = 265; 
           ttf_font_t *ttf_ = graphics_get_current_ttf();
           int total_w = font_manager_get_string_width(ttf_, state->dialog_input);
           int scroll_x = 0;
@@ -1070,7 +985,6 @@ static void explorer_paint(Window *win) {
           if (cx_ > max_w) cx_ = max_w;
           draw_rect(dlg_x+15+cx_, dlg_y+39, 2, 12, COLOR_WHITE); }
         
-        // Buttons (rounded)
         draw_rounded_rect_filled(dlg_x + 50, dlg_y + 65, 80, 25, 6, COLOR_DARK_BORDER);
         draw_string(dlg_x + 70, dlg_y + 72, "Create", COLOR_WHITE);
         draw_rounded_rect_filled(dlg_x + 170, dlg_y + 65, 80, 25, 6, COLOR_DARK_BORDER);
@@ -1079,17 +993,13 @@ static void explorer_paint(Window *win) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background (modern dark, rounded)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
-        // Title
         draw_string(dlg_x + 10, dlg_y + 10, "Create New Folder", COLOR_WHITE);
         
-        // Input field (rounded dark)
         draw_rounded_rect_filled(dlg_x + 10, dlg_y + 35, 280, 20, 4, COLOR_DARK_BG);
         draw_string(dlg_x + 15, dlg_y + 40, state->dialog_input, COLOR_WHITE);
-                // Dynamic cursor — find start offset so text doesn't overflow the input box
-        { int max_w = 265; /* input box is 280px wide with 15px left pad */
+        { int max_w = 265; 
           ttf_font_t *ttf_ = graphics_get_current_ttf();
           int total_w = font_manager_get_string_width(ttf_, state->dialog_input);
           int scroll_x = 0;
@@ -1102,7 +1012,6 @@ static void explorer_paint(Window *win) {
           if (cx_ > max_w) cx_ = max_w;
           draw_rect(dlg_x+15+cx_, dlg_y+39, 2, 12, COLOR_WHITE); }
         
-        // Buttons (rounded)
         draw_rounded_rect_filled(dlg_x + 50, dlg_y + 65, 80, 25, 6, COLOR_DARK_BORDER);
         draw_string(dlg_x + 70, dlg_y + 72, "Create", COLOR_WHITE);
         draw_rounded_rect_filled(dlg_x + 170, dlg_y + 65, 80, 25, 6, COLOR_DARK_BORDER);
@@ -1111,14 +1020,11 @@ static void explorer_paint(Window *win) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background (modern dark, rounded)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
-        // Title
         const char *title = state->dialog_target_is_dir ? "Delete Folder?" : "Delete File?";
         draw_string(dlg_x + 10, dlg_y + 10, title, COLOR_WHITE);
         
-        // Message
         if (explorer_str_starts_with(state->current_path, "/RecycleBin")) {
             draw_string(dlg_x + 10, dlg_y + 35, "This action cannot be undone.", 0xFFAAAAAA);
             draw_string(dlg_x + 10, dlg_y + 48, "Delete forever?", 0xFFAAAAAA);
@@ -1126,7 +1032,6 @@ static void explorer_paint(Window *win) {
             draw_string(dlg_x + 10, dlg_y + 35, "This file will be moved to", 0xFFAAAAAA);
             draw_string(dlg_x + 10, dlg_y + 45, "the recycle bin.", 0xFFAAAAAA);
         }
-        // Buttons (rounded, delete button red-tinted)
         draw_rounded_rect_filled(dlg_x + 50, dlg_y + 65, 80, 25, 6, 0xFF8B2020);
         draw_string(dlg_x + 68, dlg_y + 72, "Delete", COLOR_WHITE);
         draw_rounded_rect_filled(dlg_x + 170, dlg_y + 65, 80, 25, 6, COLOR_DARK_BORDER);
@@ -1135,17 +1040,13 @@ static void explorer_paint(Window *win) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background (modern dark, rounded)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
-        // Title
         draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_WHITE);
         
-        // Message
         draw_string(dlg_x + 10, dlg_y + 35, "Replace existing file?", 0xFFAAAAAA);
         draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", 0xFFAAAAAA);
         
-        // Buttons (rounded)
         draw_rounded_rect_filled(dlg_x + 50, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
         draw_string(dlg_x + 63, dlg_y + 77, "Replace", COLOR_WHITE);
         draw_rounded_rect_filled(dlg_x + 170, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
@@ -1154,17 +1055,13 @@ static void explorer_paint(Window *win) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background (modern dark, rounded)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
-        // Title
         draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_WHITE);
         
-        // Message
         draw_string(dlg_x + 10, dlg_y + 35, "Replace existing file?", 0xFFAAAAAA);
         draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", 0xFFAAAAAA);
         
-        // Buttons (rounded)
         draw_rounded_rect_filled(dlg_x + 50, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
         draw_string(dlg_x + 63, dlg_y + 77, "Replace", COLOR_WHITE);
         draw_rounded_rect_filled(dlg_x + 170, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
@@ -1173,17 +1070,13 @@ static void explorer_paint(Window *win) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background (modern dark, rounded)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
-        // Title
         draw_string(dlg_x + 10, dlg_y + 10, "File Exists", COLOR_WHITE);
         
-        // Message
         draw_string(dlg_x + 10, dlg_y + 35, "Overwrite existing file?", 0xFFAAAAAA);
         draw_string(dlg_x + 10, dlg_y + 48, "This cannot be undone.", 0xFFAAAAAA);
         
-        // Buttons (rounded)
         draw_rounded_rect_filled(dlg_x + 50, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
         draw_string(dlg_x + 57, dlg_y + 77, "Overwrite", COLOR_WHITE);
         draw_rounded_rect_filled(dlg_x + 170, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
@@ -1192,26 +1085,22 @@ static void explorer_paint(Window *win) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Dialog background (modern dark, rounded)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         
         draw_string(dlg_x + 10, dlg_y + 10, "Error", 0xFFFF6B6B);
         draw_string(dlg_x + 10, dlg_y + 40, state->dialog_input, 0xFFAAAAAA);
         
-        // OK Button (rounded)
         draw_rounded_rect_filled(dlg_x + 110, dlg_y + 70, 80, 25, 6, COLOR_DARK_BORDER);
         draw_string(dlg_x + 138, dlg_y + 77, "OK", COLOR_WHITE);
     } else if (state->dialog_state == DIALOG_RENAME) {
         int dlg_x = win->x + win->w / 2 - 150;
         int dlg_y = win->y + win->h / 2 - 60;
         
-        // Rename dialog (modern)
         draw_rounded_rect_filled(dlg_x, dlg_y, 300, 110, 8, COLOR_DARK_PANEL);
         draw_string(dlg_x + 10, dlg_y + 10, "Rename", COLOR_WHITE);
         draw_rounded_rect_filled(dlg_x + 10, dlg_y + 35, 280, 20, 4, COLOR_DARK_BG);
         draw_string(dlg_x + 15, dlg_y + 40, state->dialog_input, COLOR_WHITE);
-                // Dynamic cursor — find start offset so text doesn't overflow the input box
-        { int max_w = 265; /* input box is 280px wide with 15px left pad */
+        { int max_w = 265; 
           ttf_font_t *ttf_ = graphics_get_current_ttf();
           int total_w = font_manager_get_string_width(ttf_, state->dialog_input);
           int scroll_x = 0;
@@ -1229,28 +1118,24 @@ static void explorer_paint(Window *win) {
         draw_string(dlg_x + 185, dlg_y + 72, "Cancel", COLOR_WHITE);
     }
     
-    // Draw context menu if visible
     if (state->file_context_menu_visible) {
-        // Convert window-relative coordinates to screen coordinates for drawing
         int menu_screen_x = win->x + state->file_context_menu_x;
-        int menu_screen_y = win->y + state->file_context_menu_y + 20; // Adjusted for title bar (20px)
+        int menu_screen_y = win->y + state->file_context_menu_y + 20;
         
         ExplorerContextItem menu_items[20];
         int count = explorer_build_context_menu(win, menu_items);
         
         int menu_height = 0;
         for (int i = 0; i < count; i++) {
-            if (menu_items[i].action_id == 0) menu_height += 5; // Separator
+            if (menu_items[i].action_id == 0) menu_height += 5; 
             else menu_height += CONTEXT_MENU_ITEM_HEIGHT;
         }
         
-        // Draw menu background (modern dark, rounded)
         draw_rounded_rect_filled(menu_screen_x, menu_screen_y, FILE_CONTEXT_MENU_WIDTH, menu_height, 8, COLOR_DARK_PANEL);
         
         int y_offset = 0;
         for (int i = 0; i < count; i++) {
             if (menu_items[i].action_id == 0) {
-                // Separator (subtle)
                 draw_rect(menu_screen_x + 8, menu_screen_y + y_offset + 3, FILE_CONTEXT_MENU_WIDTH - 16, 1, COLOR_DARK_BORDER);
                 y_offset += 5;
             } else {
@@ -1261,22 +1146,18 @@ static void explorer_paint(Window *win) {
     }
 }
 
-// === Mouse Handler ===
 
 static void explorer_handle_click(Window *win, int x, int y) {
     ExplorerState *state = (ExplorerState*)win->data;
-    // Handle file context menu clicks first
     if (state->file_context_menu_visible) {
         explorer_handle_file_context_menu_click(win, x, y);
         return;
     }
     
-    // Handle dialog clicks
     if (state->dialog_state == DIALOG_CREATE_FILE || state->dialog_state == DIALOG_CREATE_FOLDER) {
         int dlg_x = win->w / 2 - 150;
         int dlg_y = win->h / 2 - 80;
         
-        // Create button
         if (x >= dlg_x + 50 && x < dlg_x + 130 &&
             y >= dlg_y + 65 && y < dlg_y + 90) {
             if (state->dialog_state == DIALOG_CREATE_FILE) {
@@ -1287,14 +1168,12 @@ static void explorer_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        // Cancel button
         if (x >= dlg_x + 170 && x < dlg_x + 250 &&
             y >= dlg_y + 65 && y < dlg_y + 90) {
             dialog_close(win);
             return;
         }
         
-        // Input field click
         if (x >= dlg_x + 10 && x < dlg_x + 290 &&
             y >= dlg_y + 35 && y < dlg_y + 55) {
             state->dialog_input_cursor = (x - dlg_x - 15) / 8;
@@ -1303,25 +1182,23 @@ static void explorer_handle_click(Window *win, int x, int y) {
             }
             return;
         }
-        return; // Clicked inside dialog but not on button - consume click
+        return; 
     } else if (state->dialog_state == DIALOG_DELETE_CONFIRM) {
         int dlg_x = win->w / 2 - 150;
-        int dlg_y = win->h / 2 - 80; // Adjusted for title bar offset
+        int dlg_y = win->h / 2 - 80; 
         
-        // Delete button
         if (x >= dlg_x + 50 && x < dlg_x + 130 &&
             y >= dlg_y + 65 && y < dlg_y + 90) {
             dialog_confirm_delete(win);
             return;
         }
         
-        // Cancel button
         if (x >= dlg_x + 170 && x < dlg_x + 250 &&
             y >= dlg_y + 65 && y < dlg_y + 90) {
             dialog_close(win);
             return;
         }
-        return; // Consume click
+        return; 
     } else if (state->dialog_state == DIALOG_REPLACE_CONFIRM) {
         int dlg_x = win->w / 2 - 150;
         int dlg_y = win->h / 2 - 80;
@@ -1400,13 +1277,12 @@ static void explorer_handle_click(Window *win, int x, int y) {
             }
             return;
         }
-        return; // Consume click
+        return; 
     }
     
-    // Handle Drive Menu Selection
     if (state->drive_menu_visible) {
-        int menu_x = 4; // Window relative
-        int menu_y = 26; // 24+26
+        int menu_x = 4; 
+        int menu_y = 26; 
         int menu_w = 80;
         int count = disk_get_count();
         int menu_h = count * 25;
@@ -1415,7 +1291,6 @@ static void explorer_handle_click(Window *win, int x, int y) {
             int idx = (y - menu_y) / 25;
             Disk *d = disk_get_by_index(idx);
             if (d) {
-                // Do not change global drive, just navigate explorer to it
                 char path[4];
                 path[0] = d->letter;
                 path[1] = ':';
@@ -1427,17 +1302,14 @@ static void explorer_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        // Click outside closes menu
         state->drive_menu_visible = false;
         return;
     }
     
-    // Handle dropdown menu clicks
     if (state->dropdown_menu_visible) {
-        int dropdown_btn_x = win->w - 90;  // Window-relative
-        int menu_y = 26;  // Window-relative (offset_y + 26, where offset_y = 24)
+        int dropdown_btn_x = win->w - 90;  
+        int menu_y = 26;  
         
-        // New File
         if (x >= dropdown_btn_x && x < dropdown_btn_x + DROPDOWN_MENU_WIDTH &&
             y >= menu_y && y < menu_y + dropdown_menu_item_height) {
             dropdown_menu_toggle(win);
@@ -1445,7 +1317,6 @@ static void explorer_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        // New Folder
         if (x >= dropdown_btn_x && x < dropdown_btn_x + DROPDOWN_MENU_WIDTH &&
             y >= menu_y + dropdown_menu_item_height && 
             y < menu_y + dropdown_menu_item_height * 2) {
@@ -1454,7 +1325,6 @@ static void explorer_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        // Delete
         if (x >= dropdown_btn_x && x < dropdown_btn_x + DROPDOWN_MENU_WIDTH &&
             y >= menu_y + dropdown_menu_item_height * 2 && 
             y < menu_y + dropdown_menu_item_height * 3) {
@@ -1465,47 +1335,37 @@ static void explorer_handle_click(Window *win, int x, int y) {
             return;
         }
         
-        // Click outside menu closes it
         dropdown_menu_toggle(win);
         return;
     }
     
-    // x, y are already relative to window (0,0 is top-left of window content area)
     
-    // Check Drive Button
     int button_y = 3;
     if (x >= 4 && x < 64 && y >= button_y && y < button_y + 22) {
         state->drive_menu_visible = !state->drive_menu_visible;
-        state->dropdown_menu_visible = false; // Close other menu
+        state->dropdown_menu_visible = false; 
         return;
     }
     
-    // Check dropdown menu button
     if (x >= win->w - 90 && x < win->w - 55 &&
         y >= button_y && y < button_y + 22) {
-        // Dropdown menu button clicked
         dropdown_menu_toggle(win);
-        state->drive_menu_visible = false; // Close other menu
+        state->drive_menu_visible = false; 
         return;
     }
     
-    // Check back button (right-aligned)
     if (x >= win->w - 40 && x < win->w - 10 &&
         y >= button_y && y < button_y + 22) {
-        // Back button clicked
         explorer_navigate_to(win, "..");
         return;
     }
     
-    // Check scroll buttons
-    // Up: w-160
     if (x >= win->w - 160 && x < win->w - 130 &&
         y >= button_y && y < button_y + 22) {
         if (state->explorer_scroll_row > 0) state->explorer_scroll_row--;
         return;
     }
     
-    // Down: w-125
     if (x >= win->w - 125 && x < win->w - 95 &&
         y >= button_y && y < button_y + 22) {
         int total_rows = (state->item_count + EXPLORER_COLS - 1) / EXPLORER_COLS;
@@ -1514,7 +1374,6 @@ static void explorer_handle_click(Window *win, int x, int y) {
         return;
     }
     
-    // File items start at y=64 relative to window
     int content_start_y = 30;
     int offset_x = 4;
     
@@ -1522,7 +1381,6 @@ static void explorer_handle_click(Window *win, int x, int y) {
         int row = i / EXPLORER_COLS;
         int col = i % EXPLORER_COLS;
         
-        // Apply scrolling logic for hit test
         if (row < state->explorer_scroll_row) continue;
         if (row >= state->explorer_scroll_row + EXPLORER_ROWS) break;
         
@@ -1532,34 +1390,28 @@ static void explorer_handle_click(Window *win, int x, int y) {
         if (x >= item_x && x < item_x + EXPLORER_ITEM_WIDTH &&
             y >= item_y && y < item_y + EXPLORER_ITEM_HEIGHT) {
             
-            // Check for double-click
             if (state->last_clicked_item == i) {
-                // Double-click detected
                 explorer_open_item(win, i);
                 state->last_clicked_item = -1;
             } else {
-                // Single-click - select
                 state->selected_item = i;
                 state->last_clicked_item = i;
-                state->last_click_time = 0;  // Reset for next click
+                state->last_click_time = 0;  
             }
             return;
         }
     }
 }
 
-// === Key Handler ===
-
 static void explorer_handle_key(Window *win, char c, bool pressed) {
     if (!pressed) return;
     ExplorerState *state = (ExplorerState*)win->data;
     
-    // Handle dialog input
     if (state->dialog_state == DIALOG_CREATE_FILE || state->dialog_state == DIALOG_CREATE_FOLDER || state->dialog_state == DIALOG_RENAME) {
-        if (c == 27) {  // ESC - close dialog
+        if (c == 27) {
             dialog_close(win);
             return;
-        } else if (c == '\n') {  // ENTER - confirm
+        } else if (c == '\n') {
             if (state->dialog_state == DIALOG_CREATE_FILE) {
                 dialog_confirm_create_file(win);
             } else if (state->dialog_state == DIALOG_CREATE_FOLDER) {
@@ -1572,22 +1424,20 @@ static void explorer_handle_key(Window *win, char c, bool pressed) {
                 if (fat32_rename(state->dialog_target_path, new_path)) explorer_refresh(win);
                 dialog_close(win);
             }
-        } else if (c == 19) {  // LEFT arrow
+        } else if (c == 19) {
             if (state->dialog_input_cursor > 0) state->dialog_input_cursor--;
-        } else if (c == 20) {  // RIGHT arrow
+        } else if (c == 20) {
             if (state->dialog_input_cursor < (int)explorer_strlen(state->dialog_input)) state->dialog_input_cursor++;
-        } else if (c == 8 || c == 127) {  // BACKSPACE
+        } else if (c == 8 || c == 127) {
             if (state->dialog_input_cursor > 0) {
                 state->dialog_input_cursor--;
-                // Shift characters
                 for (int i = state->dialog_input_cursor; i < (int)explorer_strlen(state->dialog_input); i++) {
                     state->dialog_input[i] = state->dialog_input[i + 1];
                 }
             }
-        } else if (c >= 32 && c < 127) {  // Printable character
+        } else if (c >= 32 && c < 127) {
             int len = explorer_strlen(state->dialog_input);
             if (len < DIALOG_INPUT_MAX - 1) {
-                // Shift characters to make room
                 for (int i = len; i >= state->dialog_input_cursor; i--) {
                     state->dialog_input[i + 1] = state->dialog_input[i];
                 }
@@ -1633,15 +1483,12 @@ static void explorer_handle_key(Window *win, char c, bool pressed) {
         return;
     }
     
-
-    
-    // Close dropdown menu if open with ESC
     if (state->dropdown_menu_visible && c == 27) {
         dropdown_menu_toggle(win);
         return;
     }
     
-    if (c == 17) {  // UP
+    if (c == 17) {
         if (state->selected_item > 0) {
             state->selected_item -= EXPLORER_COLS;
             if (state->selected_item < 0) state->selected_item = 0;
@@ -1653,7 +1500,6 @@ static void explorer_handle_key(Window *win, char c, bool pressed) {
         if (state->selected_item < state->item_count - 1) {
             state->selected_item += EXPLORER_COLS;
             if (state->selected_item >= state->item_count) state->selected_item = state->item_count - 1;
-            // Scroll if needed
             int row = state->selected_item / EXPLORER_COLS;
             if (row >= state->explorer_scroll_row + (EXPLORER_ROWS - 1)) state->explorer_scroll_row = row - (EXPLORER_ROWS - 1) + 1;
         }
@@ -1671,22 +1517,21 @@ static void explorer_handle_key(Window *win, char c, bool pressed) {
                 explorer_open_item(win, state->selected_item);
             }
         }
-    } else if (c == 'd' || c == 'D') {  // Delete key
+    } else if (c == 'd' || c == 'D') {  
         if (state->selected_item >= 0) {
             dialog_open_delete_confirm(win, state->selected_item);
         }
-    } else if (c == 'n' || c == 'N') {  // New file
+    } else if (c == 'n' || c == 'N') {  
         dialog_open_create_file(win, state->current_path);
-    } else if (c == 'f' || c == 'F') {  // New folder
+    } else if (c == 'f' || c == 'F') {   // heya coder, i made these shortcuts.. idk if they're any good, just make a pull request to change them
+                                        // if you have a better idea lmao
         dialog_open_create_folder(win, state->current_path);
     }
 }
 
-// === Right-Click Handler ===
 
 static void explorer_handle_right_click(Window *win, int x, int y) {
     ExplorerState *state = (ExplorerState*)win->data;
-    // File items start at y=64 relative to window
     int content_start_y = 30;
     int offset_x = 4;
     
@@ -1694,7 +1539,6 @@ static void explorer_handle_right_click(Window *win, int x, int y) {
         int row = i / EXPLORER_COLS;
         int col = i % EXPLORER_COLS;
         
-        // Apply scrolling logic for hit test
         if (row < state->explorer_scroll_row) continue;
         if (row >= state->explorer_scroll_row + EXPLORER_ROWS) break;
         
@@ -1704,8 +1548,6 @@ static void explorer_handle_right_click(Window *win, int x, int y) {
         if (x >= item_x && x < item_x + EXPLORER_ITEM_WIDTH &&
             y >= item_y && y < item_y + EXPLORER_ITEM_HEIGHT) {
             
-            // Right-click on a file or folder item
-            // Show context menu
             state->file_context_menu_visible = true;
             state->file_context_menu_item = i;
             state->file_context_menu_x = x;
@@ -1714,9 +1556,8 @@ static void explorer_handle_right_click(Window *win, int x, int y) {
         }
     }
     
-    // Clicked on empty space
     state->file_context_menu_visible = true;
-    state->file_context_menu_item = -1; // Background
+    state->file_context_menu_item = -1; 
     state->file_context_menu_x = x;
     state->file_context_menu_y = y;
 }
@@ -1728,7 +1569,6 @@ static void explorer_handle_file_context_menu_click(Window *win, int x, int y) {
         return;
     }
     
-    // Adjust coordinates to be relative to context menu
     int relative_x = x - state->file_context_menu_x;
     int relative_y = y - state->file_context_menu_y;
     
@@ -1741,13 +1581,11 @@ static void explorer_handle_file_context_menu_click(Window *win, int x, int y) {
     
     if (relative_x < 0 || relative_x > FILE_CONTEXT_MENU_WIDTH ||
         relative_y < 0 || relative_y > menu_height) {
-        // Clicked outside menu - close it
         state->file_context_menu_visible = false;
         state->file_context_menu_item = -1;
         return;
     }
     
-    // Find clicked item
     int current_y = 0;
     int clicked_action = 0;
     
@@ -1764,7 +1602,6 @@ static void explorer_handle_file_context_menu_click(Window *win, int x, int y) {
     
     if (clicked_action == 0) return;
     
-    // Execute Action
     char full_path[FAT32_MAX_PATH];
     if (state->file_context_menu_item >= 0) {
         explorer_strcpy(full_path, state->current_path);
@@ -1819,7 +1656,6 @@ static void explorer_handle_file_context_menu_click(Window *win, int x, int y) {
     state->file_context_menu_item = -1;
 }
 
-// === Drag and Drop Support ===
 
 bool explorer_get_file_at(int screen_x, int screen_y, char *out_path, bool *is_dir) {
     for (int w = 0; w < explorer_win_count; w++) {
@@ -1878,7 +1714,6 @@ void explorer_refresh_all(void) {
 
 static void explorer_perform_move_internal(Window *win, const char *source_path, const char *dest_dir) {
     (void)win;
-    // 1. Extract filename
     char filename[FAT32_MAX_FILENAME];
     int len = explorer_strlen(source_path);
     int i = len - 1;
@@ -1887,7 +1722,6 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
     for (int k = i + 1; k < len; k++) filename[j++] = source_path[k];
     filename[j] = 0;
     
-    // 2. Build dest path
     char dest_path[FAT32_MAX_PATH];
     explorer_strcpy(dest_path, dest_dir);
     if (dest_path[explorer_strlen(dest_path) - 1] != '/') {
@@ -1895,7 +1729,6 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
     }
     explorer_strcat(dest_path, filename);
     
-    // Check if source and dest are the same to prevent deletion
     if (explorer_strcmp(source_path, dest_path) == 0) {
         return;
     }
@@ -1919,11 +1752,9 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
     }
 
     if (explorer_copy_recursive(source_path, dest_path)) {
-        // 4. Delete source (Move operation)
         explorer_delete_permanently(source_path);
     }
         
-    // Refresh
     explorer_refresh_all();
 }
 
@@ -1938,7 +1769,6 @@ void explorer_import_file_to(Window *win, const char *source_path, const char *d
         }
     }
 
-    // Check for collision
     char filename[FAT32_MAX_FILENAME];
     int len = explorer_strlen(source_path);
     int i = len - 1;
@@ -1967,7 +1797,6 @@ void explorer_import_file(Window *win, const char *source_path) {
     explorer_import_file_to(win, source_path, state->current_path);
 }
 
-// === Initialization ===
 
 Window* explorer_create_window(const char *path) {
     if (explorer_win_count >= 10) return NULL;
@@ -1996,8 +1825,6 @@ Window* explorer_create_window(const char *path) {
     state->explorer_scroll_row = 0;
     state->dialog_state = DIALOG_NONE;
     
-    // Load directory BEFORE adding to WM so items are populated
-    // before any paint can run from a timer interrupt
     if (explorer_strcmp(path, "/") == 0) explorer_load_directory(win, "A:/");
     else explorer_load_directory(win, path);
     
@@ -2037,7 +1864,6 @@ void explorer_init(void) {
 }
 void explorer_reset(void) {
     ExplorerState *state = (ExplorerState*)win_explorer.data;
-    // Reset explorer to root directory on close/reopen
     explorer_load_directory(&win_explorer, "A:/");
     state->explorer_scroll_row = 0;
     win_explorer.focused = false;
