@@ -22,16 +22,10 @@ static void write_cr3(uint64_t cr3) {
 
 // Helper to allocate a page table and clear it
 static uint64_t alloc_page_table_phys(void) {
-    void* ptr = kmalloc(PAGE_SIZE * 2); 
+    void *ptr = kmalloc_aligned(PAGE_SIZE, PAGE_SIZE);
     if (!ptr) return 0;
     
-    // Align to PAGE_SIZE virtually
-    uintptr_t addr = (uintptr_t)ptr;
-    if (addr % PAGE_SIZE != 0) {
-        addr = (addr + PAGE_SIZE) & ~(PAGE_SIZE - 1);
-    }
-    
-    page_table_t* table = (page_table_t*)addr;
+    page_table_t* table = (page_table_t*)ptr;
     
     // Clear table 
     for (int i = 0; i < 512; i++) {
@@ -119,4 +113,45 @@ uint64_t paging_create_user_pml4_phys(void) {
     
     // The lower half (0-255) is left empty for the user process to use
     return new_pml4_phys;
+}
+
+void paging_destroy_user_pml4_phys(uint64_t pml4_phys) {
+    if (!pml4_phys) return;
+    page_table_t* pml4 = (page_table_t*)p2v(pml4_phys);
+    
+    // Only traverse lower half (user space, indices 0-255)
+    for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++) {
+        if (pml4->entries[pml4_idx] & PT_PRESENT) {
+            page_table_t* pdpt = (page_table_t*)p2v(pml4->entries[pml4_idx] & PT_ADDR_MASK);
+            
+            for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++) {
+                if (pdpt->entries[pdpt_idx] & PT_PRESENT) {
+                    page_table_t* pd = (page_table_t*)p2v(pdpt->entries[pdpt_idx] & PT_ADDR_MASK);
+                    
+                    for (int pd_idx = 0; pd_idx < 512; pd_idx++) {
+                        if (pd->entries[pd_idx] & PT_PRESENT) {
+                            page_table_t* pt = (page_table_t*)p2v(pd->entries[pd_idx] & PT_ADDR_MASK);
+                            
+                            for (int pt_idx = 0; pt_idx < 512; pt_idx++) {
+                                if (pt->entries[pt_idx] & PT_PRESENT) {
+                                    uint64_t phys_addr = pt->entries[pt_idx] & PT_ADDR_MASK;
+                                    extern void kfree(void* ptr);
+                                    kfree((void*)p2v(phys_addr));
+                                }
+                            }
+                            extern void kfree(void* ptr);
+                            kfree((void*)pt);
+                        }
+                    }
+                    extern void kfree(void* ptr);
+                    kfree((void*)pd);
+                }
+            }
+            extern void kfree(void* ptr);
+            kfree((void*)pdpt);
+        }
+    }
+    // Finally free the pml4 itself
+    extern void kfree(void* ptr);
+    kfree((void*)pml4);
 }

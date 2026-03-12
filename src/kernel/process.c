@@ -19,6 +19,7 @@ process_t processes[MAX_PROCESSES] __attribute__((aligned(16)));
 int process_count = 0;
 static process_t* current_process = NULL;
 static uint32_t next_pid = 0;
+static void *free_kernel_stack_later = NULL;
 
 void process_init(void) {
     for (int i = 0; i < MAX_PROCESSES; i++) {
@@ -329,6 +330,11 @@ process_t* process_get_current(void) {
 }
 
 uint64_t process_schedule(uint64_t current_rsp) {
+    if (free_kernel_stack_later) {
+        kfree(free_kernel_stack_later);
+        free_kernel_stack_later = NULL;
+    }
+
     if (!current_process || !current_process->next || current_process == current_process->next) 
         return current_rsp;
         
@@ -433,9 +439,22 @@ void process_terminate(process_t *to_delete) {
     to_delete->pid = 0xFFFFFFFF; 
 
     if (to_delete->user_stack_alloc) kfree(to_delete->user_stack_alloc);
-    if (to_delete->kernel_stack_alloc) kfree(to_delete->kernel_stack_alloc);
+    if (to_delete->kernel_stack_alloc) {
+        if (to_delete == current_process) {
+            free_kernel_stack_later = to_delete->kernel_stack_alloc;
+        } else {
+            kfree(to_delete->kernel_stack_alloc);
+        }
+    }
+    
+    extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
+    if (to_delete->pml4_phys && to_delete->is_user) {
+        paging_destroy_user_pml4_phys(to_delete->pml4_phys);
+    }
+    
     to_delete->user_stack_alloc = NULL;
     to_delete->kernel_stack_alloc = NULL;
+    to_delete->pml4_phys = 0;
 
     asm volatile("push %0; popfq" : : "r"(rflags));
 }
@@ -486,9 +505,16 @@ uint64_t process_terminate_current(void) {
     // kernel stack is unsafe while we are still running on it.
     if (to_delete->user_stack_alloc) kfree(to_delete->user_stack_alloc);
     
+    extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
+    if (to_delete->pml4_phys && to_delete->is_user) {
+        paging_destroy_user_pml4_phys(to_delete->pml4_phys);
+    }
+    
     // Clear pointers to avoid double-free during slot reuse
     to_delete->user_stack_alloc = NULL;
+    free_kernel_stack_later = to_delete->kernel_stack_alloc;
     to_delete->kernel_stack_alloc = NULL; // Leak the small kernel stack for safety
+    to_delete->pml4_phys = 0;
     
     uint64_t next_rsp = current_process->rsp;
     asm volatile("push %0; popfq" : : "r"(rflags));

@@ -27,19 +27,16 @@ typedef struct {
     uint64_t entries[512];
 } __attribute__((aligned(PAGE_SIZE))) page_table_t;
 
-// Get the current PML4 physical address
 uint64_t paging_get_pml4_phys(void);
 
-// Map a physical address to a virtual address
 void paging_map_page(uint64_t pml4_phys, uint64_t virtual_addr, uint64_t physical_addr, uint64_t flags);
 
-// Create a new, isolated PML4 for a user process (returns physical address)
 uint64_t paging_create_user_pml4_phys(void);
 
-// Switch the active page table (takes physical address)
 void paging_switch_directory(uint64_t pml4_phys);
 
-// Initialize paging system (if needed beyond Limine's setup)
+void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
+
 void paging_init(void);
 
 #endif // PAGING_H
