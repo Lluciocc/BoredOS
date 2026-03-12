@@ -39,6 +39,7 @@ void draw_boredos_logo(int x, int y, int scale);
 // Get screen dimensions
 int get_screen_width(void);
 int get_screen_height(void);
+void graphics_update_resolution(int width, int height, int bpp, void* fb_addr, int color_mode);
 
 // Dirty rectangle management
 void graphics_mark_dirty(int x, int y, int w, int h);

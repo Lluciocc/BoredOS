@@ -29,13 +29,46 @@
 #define VIEW_DESKTOP 3
 #define VIEW_MOUSE 4
 #define VIEW_FONTS 5
+#define VIEW_DISPLAY 6
+
+static int disp_sel_res = 2;
+static int disp_sel_color = 0;
 
 static int current_view = VIEW_MAIN;
 static char rgb_r[4] = "";
 static char rgb_g[4] = "";
 static char rgb_b[4] = "";
+static char custom_res_w[6] = "";
+static char custom_res_h[6] = "";
 static int focused_field = -1;
 static int input_cursor = 0;
+
+static int dyn_res_w[3];
+static int dyn_res_h[3];
+static char dyn_res_str[3][32];
+
+static void init_dynamic_resolutions(void) {
+    uint64_t phys_w = 1920, phys_h = 1080;
+    ui_get_screen_size(&phys_w, &phys_h);
+    
+    dyn_res_w[2] = (int)phys_w; dyn_res_h[2] = (int)phys_h;
+    dyn_res_w[1] = (int)((phys_w * 3) / 4); dyn_res_h[1] = (int)((phys_h * 3) / 4);
+    dyn_res_w[0] = (int)(phys_w / 2); dyn_res_h[0] = (int)(phys_h / 2);
+    
+    for (int i = 0; i < 2; i++) {
+        dyn_res_w[i] &= ~1;
+        dyn_res_h[i] &= ~1;
+    }
+
+    for (int i = 0; i < 3; i++) {
+        char bw[16], bh[16];
+        itoa(dyn_res_w[i], bw);
+        itoa(dyn_res_h[i], bh);
+        strcpy(dyn_res_str[i], bw);
+        strcat(dyn_res_str[i], "x");
+        strcat(dyn_res_str[i], bh);
+    }
+}
 
 static char net_status[64] = "";
 
@@ -248,6 +281,17 @@ static void control_panel_paint_main(ui_window_t win) {
     ui_draw_string(win, offset_x + 14, offset_y + item_y + 10, "Aa", 0xFF6A9EF5);
     ui_draw_string(win, offset_x + 60, offset_y + item_y + 15, "Fonts", COLOR_DARK_TEXT);
     ui_draw_string(win, offset_x + 60, offset_y + item_y + 35, "Choose system font", COLOR_DKGRAY);
+
+    // Display
+    item_y += item_h + item_spacing;
+    ui_draw_rounded_rect_filled(win, offset_x, offset_y + item_y, win_w - 16, item_h, 8, COLOR_DARK_PANEL);
+    // Monitor icon
+    ui_draw_rect(win, offset_x + 14, offset_y + item_y + 12, 32, 22, 0xFF4A90E2);
+    ui_draw_rect(win, offset_x + 16, offset_y + item_y + 14, 28, 18, 0xFF87CEEB);
+    ui_draw_rect(win, offset_x + 26, offset_y + item_y + 34, 8, 4, 0xFFB0B0B0);
+    ui_draw_rect(win, offset_x + 22, offset_y + item_y + 38, 16, 2, 0xFFB0B0B0);
+    ui_draw_string(win, offset_x + 60, offset_y + item_y + 15, "Display", COLOR_DARK_TEXT);
+    ui_draw_string(win, offset_x + 60, offset_y + item_y + 35, "Screen resolution & color", COLOR_DKGRAY);
 }
 
 static void control_panel_paint_wallpaper(ui_window_t win) {
@@ -507,6 +551,73 @@ static void control_panel_paint_fonts(ui_window_t win) {
     }
 }
 
+static void control_panel_paint_display(ui_window_t win) {
+    int offset_x = 8;
+    int offset_y = 6;
+    int right_x = offset_x + 160;
+    
+    ui_draw_rounded_rect_filled(win, offset_x, offset_y + 5, 80, 25, 6, COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 10, offset_y + 13, "< Back", COLOR_DARK_TEXT);
+    ui_draw_string(win, offset_x, offset_y + 40, "Resolution:", COLOR_DARK_TEXT);
+    
+    int btn_y = offset_y + 60;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 140, 30, 6, (disp_sel_res == 0) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 30, btn_y + 10, "640x480", COLOR_DARK_TEXT);
+    
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 140, 30, 6, (disp_sel_res == 1) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 30, btn_y + 10, "800x600", COLOR_DARK_TEXT);
+    
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 140, 30, 6, (disp_sel_res == 2) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 30, btn_y + 10, dyn_res_str[0], COLOR_DARK_TEXT);
+    
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 140, 30, 6, (disp_sel_res == 3) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 30, btn_y + 10, dyn_res_str[1], COLOR_DARK_TEXT);
+    
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 140, 30, 6, (disp_sel_res == 4) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 30, btn_y + 10, dyn_res_str[2], COLOR_DARK_TEXT);
+
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 140, 30, 6, (disp_sel_res == 5) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 30, btn_y + 10, "Custom:", COLOR_DARK_TEXT);
+
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 60, 25, 4, (focused_field == 3) ? 0xFF4A90E2 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 5, btn_y + 7, custom_res_w[0] ? custom_res_w : "W", (custom_res_w[0] || focused_field == 3) ? 0xFFFFFFFF : 0xFF888888);
+    ui_draw_string(win, offset_x + 65, btn_y + 7, "x", COLOR_DARK_TEXT);
+    ui_draw_rounded_rect_filled(win, offset_x + 80, btn_y, 60, 25, 4, (focused_field == 4) ? 0xFF4A90E2 : COLOR_DARK_PANEL);
+    ui_draw_string(win, offset_x + 85, btn_y + 7, custom_res_h[0] ? custom_res_h : "H", (custom_res_h[0] || focused_field == 4) ? 0xFFFFFFFF : 0xFF888888);
+
+    btn_y = offset_y + 60;
+    ui_draw_string(win, right_x, offset_y + 40, "Color Depth:", COLOR_DARK_TEXT);
+
+    ui_draw_rounded_rect_filled(win, right_x, btn_y, 140, 30, 6, (disp_sel_color == 0) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, right_x + 40, btn_y + 10, "32-bit", COLOR_DARK_TEXT);
+    
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, right_x, btn_y, 140, 30, 6, (disp_sel_color == 1) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, right_x + 40, btn_y + 10, "16-bit", COLOR_DARK_TEXT);
+
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, right_x, btn_y, 140, 30, 6, (disp_sel_color == 2) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, right_x + 25, btn_y + 10, "256 Colors", COLOR_DARK_TEXT);
+
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, right_x, btn_y, 140, 30, 6, (disp_sel_color == 3) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, right_x + 30, btn_y + 10, "Grayscale", COLOR_DARK_TEXT);
+
+    btn_y += 35;
+    ui_draw_rounded_rect_filled(win, right_x, btn_y, 140, 30, 6, (disp_sel_color == 4) ? 0xFF3D5A80 : COLOR_DARK_PANEL);
+    ui_draw_string(win, right_x + 25, btn_y + 10, "Monochrome", COLOR_DARK_TEXT);
+
+    btn_y = offset_y + 320;
+    ui_draw_rounded_rect_filled(win, offset_x, btn_y, 300, 35, 6, 0xFF4A90E2);
+    ui_draw_string(win, offset_x + 125, btn_y + 12, "Apply", 0xFFFFFFFF);
+}
+
 static void control_panel_paint(ui_window_t win) {
     // Fill background
     ui_draw_rect(win, 0, 0, 350, 500, COLOR_DARK_BG);
@@ -523,6 +634,8 @@ static void control_panel_paint(ui_window_t win) {
         control_panel_paint_mouse(win);
     } else if (current_view == VIEW_FONTS) {
         control_panel_paint_fonts(win);
+    } else if (current_view == VIEW_DISPLAY) {
+        control_panel_paint_display(win);
     }
 }
 
@@ -544,6 +657,7 @@ static void fetch_kernel_state(void) {
     desktop_max_cols = sys_system(7, 4, 0, 0, 0);
     mouse_speed = sys_system(8 /*GET_MOUSE_SPEED*/, 0, 0, 0, 0);
     
+    init_dynamic_resolutions();
     load_wallpapers();
 }
 
@@ -578,6 +692,10 @@ static void control_panel_handle_click(int x, int y) {
         if (x >= offset_x && x < win_w - 8 && y >= item_y && y < item_y + item_h) {
             current_view = VIEW_FONTS;
             if (font_count == 0) load_fonts();
+        }
+        item_y += item_h + item_spacing;
+        if (x >= offset_x && x < win_w - 8 && y >= item_y && y < item_y + item_h) {
+            current_view = VIEW_DISPLAY;
         }
     } else if (current_view == VIEW_WALLPAPER) {
         int offset_x = 8;
@@ -762,6 +880,73 @@ static void control_panel_handle_click(int x, int y) {
             }
             item_y += 40;
         }
+    } else if (current_view == VIEW_DISPLAY) {
+        int offset_x = 8;
+        int offset_y = 6;
+        int right_x = offset_x + 160;
+        
+        if (x >= offset_x && x < offset_x + 80 && y >= offset_y + 5 && y < offset_y + 30) {
+            current_view = VIEW_MAIN;
+            return;
+        }
+
+        int btn_y = offset_y + 60;
+        if (x >= offset_x && x < offset_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_res = 0;
+        if (x >= right_x && x < right_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_color = 0;
+        
+        btn_y += 35;
+        if (x >= offset_x && x < offset_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_res = 1;
+        if (x >= right_x && x < right_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_color = 1;
+
+        btn_y += 35;
+        if (x >= offset_x && x < offset_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_res = 2;
+        if (x >= right_x && x < right_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_color = 2;
+
+        btn_y += 35;
+        if (x >= offset_x && x < offset_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_res = 3;
+        if (x >= right_x && x < right_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_color = 3;
+
+        btn_y += 35;
+        if (x >= offset_x && x < offset_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_res = 4;
+        if (x >= right_x && x < right_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_color = 4;
+
+        btn_y += 35;
+        if (x >= offset_x && x < offset_x + 140 && y >= btn_y && y < btn_y + 30) disp_sel_res = 5;
+
+        // Custom Inputs
+        btn_y += 35;
+        if (x >= offset_x && x < offset_x + 60 && y >= btn_y && y < btn_y + 25) {
+            focused_field = 3; disp_sel_res = 5;
+            int len = 0; while (custom_res_w[len]) len++; input_cursor = len;
+        }
+        if (x >= offset_x + 80 && x < offset_x + 140 && y >= btn_y && y < btn_y + 25) {
+            focused_field = 4; disp_sel_res = 5;
+            int len = 0; while (custom_res_h[len]) len++; input_cursor = len;
+        }
+
+        btn_y = offset_y + 320;
+        if (x >= offset_x && x < offset_x + 300 && y >= btn_y && y < btn_y + 35) {
+            int w = 1024, h = 768;
+            if (disp_sel_res == 0) { w = 640; h = 480; }
+            else if (disp_sel_res == 1) { w = 800; h = 600; }
+            else if (disp_sel_res >= 2 && disp_sel_res <= 4) {
+                w = dyn_res_w[disp_sel_res - 2];
+                h = dyn_res_h[disp_sel_res - 2];
+            } else if (disp_sel_res == 5) {
+                extern int atoi(const char *str);
+                int cw = atoi(custom_res_w);
+                int ch = atoi(custom_res_h);
+                if (cw >= 320 && ch >= 200) { w = cw; h = ch; }
+            }
+            
+            int bpp = 32, mode = 0;
+            if (disp_sel_color == 1) { bpp = 16; }
+            if (disp_sel_color == 2) { bpp = 8; mode = 0; }
+            if (disp_sel_color == 3) { bpp = 8; mode = 1; }
+            if (disp_sel_color == 4) { bpp = 8; mode = 2; }
+            
+            sys_system(47 /*SET_RESOLUTION*/, w, h, bpp, mode);
+        }
     }
 }
 
@@ -769,13 +954,15 @@ static void control_panel_handle_key(char c, bool pressed) {
     if (!pressed) return;
     if (focused_field < 0) return;
     
-    if (current_view == VIEW_WALLPAPER) {
+    if (current_view == VIEW_WALLPAPER || current_view == VIEW_DISPLAY) {
         char *focused_buffer = NULL;
         int max_len = 3;
         
-        if (focused_field == 0) focused_buffer = rgb_r;
-        else if (focused_field == 1) focused_buffer = rgb_g;
-        else if (focused_field == 2) focused_buffer = rgb_b;
+        if (focused_field == 0 && current_view == VIEW_WALLPAPER) focused_buffer = rgb_r;
+        else if (focused_field == 1 && current_view == VIEW_WALLPAPER) focused_buffer = rgb_g;
+        else if (focused_field == 2 && current_view == VIEW_WALLPAPER) focused_buffer = rgb_b;
+        else if (focused_field == 3 && current_view == VIEW_DISPLAY) { focused_buffer = custom_res_w; max_len = 5; }
+        else if (focused_field == 4 && current_view == VIEW_DISPLAY) { focused_buffer = custom_res_h; max_len = 5; }
         else return;
         
         if (c == '\b') {

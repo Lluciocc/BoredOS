@@ -58,6 +58,7 @@ void ui_mark_dirty(ui_window_t win, int x, int y, int w, int h);
 void ui_draw_image(ui_window_t win, int x, int y, int w, int h, uint32_t *image_data);
 uint32_t ui_get_string_width(const char *str);
 uint32_t ui_get_font_height(void);
+void ui_get_screen_size(uint64_t *out_w, uint64_t *out_h);
 void ui_draw_string_bitmap(ui_window_t win, int x, int y, const char *str, uint32_t color);
 
 void ui_draw_string_scaled(ui_window_t win, int x, int y, const char *str, uint32_t color, float scale);

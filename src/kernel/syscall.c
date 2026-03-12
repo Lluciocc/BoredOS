@@ -1156,10 +1156,34 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             extern void mem_memcpy(void *dest, const void *src, size_t len);
             mem_memcpy(user_buf, model, 49);
             return 0;
+        } else if (cmd == 47) { // SYSTEM_CMD_SET_RESOLUTION
+            uint16_t req_w = (uint16_t)arg2;
+            uint16_t req_h = (uint16_t)arg3;
+            uint16_t req_bpp = (uint16_t)arg4;
+            int req_color_mode = (int)arg5;
+            
+            extern bool vga_set_mode(uint16_t width, uint16_t height, uint16_t bpp, void **out_framebuffer);
+            extern void graphics_update_resolution(int width, int height, int bpp, void* fb_addr, int color_mode);
+            extern void wm_refresh(void);
+            extern void vga_set_palette_grayscale(void);
+            extern void vga_set_palette_standard(void);
+            
+            void *new_fb = NULL;
+            if (vga_set_mode(req_w, req_h, req_bpp, &new_fb)) {
+                if (req_color_mode == 1 || req_color_mode == 2) {
+                    vga_set_palette_grayscale();
+                } else if (req_bpp <= 8) {
+                    vga_set_palette_standard();
+                }
+                graphics_update_resolution(req_w, req_h, req_bpp, new_fb, req_color_mode);
+                wm_refresh();
+                return 0;
+            }
+            return -1;
         }
         return -1;
     }
-    
+
     return 0;
 }
 

@@ -9,6 +9,7 @@ extern uint64_t syscall5(uint64_t sys_num, uint64_t arg1, uint64_t arg2, uint64_
 
 // sys_gui uses syscall #3
 #define SYS_GUI 3
+#define GUI_CMD_GET_SCREEN_SIZE 17
 
 ui_window_t ui_window_create(const char *title, int x, int y, int w, int h) {
     uint64_t params[4] = { (uint64_t)x, (uint64_t)y, (uint64_t)w, (uint64_t)h };
@@ -56,6 +57,10 @@ uint32_t ui_get_string_width(const char *str) {
 
 uint32_t ui_get_font_height(void) {
     return (uint32_t)syscall3(SYS_GUI, GUI_CMD_GET_FONT_HEIGHT, 0, 0);
+}
+
+void ui_get_screen_size(uint64_t *out_w, uint64_t *out_h) {
+    syscall3(SYS_GUI, GUI_CMD_GET_SCREEN_SIZE, (uint64_t)out_w, (uint64_t)out_h);
 }
 
 void ui_draw_string_scaled(ui_window_t win, int x, int y, const char *str, uint32_t color, float scale) {

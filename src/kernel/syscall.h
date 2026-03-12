@@ -45,6 +45,7 @@ typedef struct registers_t registers_t;
 #define SYSTEM_CMD_PROCESS_LIST 44
 #define SYSTEM_CMD_GET_CPU_MODEL 45
 #define SYSTEM_CMD_SLEEP 46
+#define SYSTEM_CMD_SET_RESOLUTION 47
 
 void syscall_init(void);
 uint64_t syscall_handler_c(registers_t *regs);

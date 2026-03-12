@@ -12,6 +12,8 @@ static uint32_t g_bg_color = 0xFF696969;
 
 extern void serial_write(const char *str);
 
+static int g_color_mode = 0;
+
 #define PATTERN_SIZE 128
 static uint32_t g_bg_pattern[PATTERN_SIZE * PATTERN_SIZE];
 static bool g_use_pattern = false;
@@ -52,6 +54,30 @@ void graphics_init_fonts(void) {
     if (!g_current_ttf) {
         serial_write("[FONT] Falling back to bitmap font\n");
     }
+}
+
+void graphics_update_resolution(int width, int height, int bpp, void* fb_addr, int color_mode) {
+    if (!g_fb) return;
+    
+    uint64_t rflags;
+    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    
+    g_fb->width = width;
+    g_fb->height = height;
+    g_fb->bpp = bpp;
+    g_fb->pitch = width * (bpp / 8);
+    g_fb->address = fb_addr;
+    g_color_mode = color_mode;
+    
+    // Clear back buffer
+    for (int i = 0; i < MAX_FB_WIDTH * MAX_FB_HEIGHT; i++) {
+        g_back_buffer[i] = 0;
+    }
+    
+    // Clear dirty rect
+    g_dirty.active = false;
+    
+    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 void graphics_set_font(const char *path) {
@@ -576,9 +602,67 @@ void graphics_flip_buffer(void) {
     for (int i = 0; i < h; i++) {
         int curr_y = y + i;
         uint32_t *src_row = &g_back_buffer[curr_y * g_fb->width + x];
-        uint32_t *dst_row = (uint32_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
-        for (int j = 0; j < w; j++) {
-            dst_row[j] = src_row[j];
+        
+        if (g_fb->bpp == 32) {
+            uint32_t *dst_row = (uint32_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
+            for (int j = 0; j < w; j++) {
+                dst_row[j] = src_row[j];
+            }
+        } else if (g_fb->bpp == 16) {
+            uint16_t *dst_row = (uint16_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
+            for (int j = 0; j < w; j++) {
+                uint32_t c = src_row[j];
+                uint16_t r = ((c >> 16) & 0xFF) >> 3;
+                uint16_t g = ((c >> 8)  & 0xFF) >> 2;
+                uint16_t b = (c         & 0xFF) >> 3;
+                dst_row[j] = (r << 11) | (g << 5) | b;
+            }
+        } else if (g_fb->bpp == 8) {
+            uint8_t *dst_row = (uint8_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
+            if (g_color_mode == 1) { // Grayscale
+                for (int j = 0; j < w; j++) {
+                    uint32_t c = src_row[j];
+                    uint8_t r = (c >> 16) & 0xFF;
+                    uint8_t g = (c >> 8) & 0xFF;
+                    uint8_t b = c & 0xFF;
+                    dst_row[j] = (uint8_t)((r * 77 + g * 150 + b * 29) >> 8);
+                }
+            } else if (g_color_mode == 2) { // Monochrome
+                static const uint8_t bayer2[2][2] = {
+                    {  0, 128 },
+                    {192,  64 }
+                };
+                for (int j = 0; j < w; j++) {
+                    uint32_t c = src_row[j];
+                    uint8_t r = (c >> 16) & 0xFF;
+                    uint8_t g = (c >> 8) & 0xFF;
+                    uint8_t b = c & 0xFF;
+                    
+                    int gray = (r * 77 + g * 150 + b * 29) >> 8;
+                    
+                    // Boost contrast by 2x to separate the dark UI colors:
+                    // Background (~30) -> 60
+                    // Panel (~40) -> 80
+                    // With thresholds {0, 64, 128, 192}:
+                    // BG > 0 (1/4 white), Panel > 64 (2/4 white - checkerboard)
+                    // Text (~170) -> 255 (solid white)
+                    gray = gray * 2;
+                    if (gray > 255) gray = 255;
+                    
+                    int sx = x + j;
+                    uint8_t threshold = bayer2[curr_y & 1][sx & 1];
+                    
+                    dst_row[j] = (gray > threshold) ? 255 : 0;
+                }
+            } else { // 256 Colors (Standard)
+                for (int j = 0; j < w; j++) {
+                    uint32_t c = src_row[j];
+                    uint8_t r = ((c >> 16) & 0xFF) >> 5;
+                    uint8_t g = ((c >> 8) & 0xFF) >> 5;
+                    uint8_t b = (c & 0xFF) >> 6;
+                    dst_row[j] = (r << 5) | (g << 2) | b;
+                }
+            }
         }
     }
 }
