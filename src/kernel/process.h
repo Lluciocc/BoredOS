@@ -51,6 +51,7 @@ typedef struct process {
     char name[64];
     uint64_t ticks;
     uint64_t sleep_until;
+    size_t used_memory;
 } __attribute__((aligned(16))) process_t;
 
 typedef struct {

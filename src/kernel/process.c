@@ -44,6 +44,7 @@ void process_init(void) {
     extern void mem_memcpy(void *dest, const void *src, size_t len);
     mem_memcpy(kernel_proc->name, "kernel", 7);
     kernel_proc->ticks = 0;
+    kernel_proc->used_memory = 32768; // Kernel stack
 
     kernel_proc->next = kernel_proc; // Circular linked list
     current_process = kernel_proc;
@@ -168,7 +169,8 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     new_proc->is_terminal_proc = false;
 
     // 2. Load ELF executable
-    uint64_t entry_point = elf_load(filepath, new_proc->pml4_phys);
+    size_t elf_load_size = 0;
+    uint64_t entry_point = elf_load(filepath, new_proc->pml4_phys, &elf_load_size);
     if (entry_point == 0) {
         serial_write("[PROCESS] Failed to load ELF: ");
         serial_write(filepath);
@@ -307,6 +309,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     new_proc->kernel_stack_alloc = kernel_stack;
     new_proc->user_stack_alloc = stack;
     new_proc->rsp = (uint64_t)stack_ptr;
+    new_proc->used_memory = elf_load_size + user_stack_size + 65536;
 
     // Initialize FPU state for new process
     asm volatile("fninit");

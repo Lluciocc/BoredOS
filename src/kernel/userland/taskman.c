@@ -106,20 +106,38 @@ static void draw_graph(int x, int y, int w, int h, int *data, uint32_t color, in
     }
 }
 
-static void format_gib(uint64_t bytes, char *out) {
-    uint64_t gib_int = bytes / (1024 * 1024 * 1024);
-    uint64_t gib_frac = ((bytes % (1024 * 1024 * 1024)) * 100) / (1024 * 1024 * 1024);
-    
-    char s_int[16], s_frac[16];
-    itoa((int)gib_int, s_int);
-    itoa((int)gib_frac, s_frac);
-    
-    out[0] = 0;
-    strcat(out, s_int);
-    strcat(out, ".");
-    if (gib_frac < 10) strcat(out, "0");
-    strcat(out, s_frac);
-    strcat(out, " GiB");
+static void format_mem_smart(uint64_t bytes, char *out) {
+    if (bytes < 1024) {
+        itoa((int)bytes, out);
+        strcat(out, " B");
+    } else if (bytes < 1024 * 1024) {
+        itoa((int)(bytes / 1024), out);
+        strcat(out, " KB");
+    } else if (bytes < 1024 * 1024 * 1024) {
+        // Show MiB with two decimal places
+        uint64_t mib_int = bytes / (1024 * 1024);
+        uint64_t mib_frac = ((bytes % (1024 * 1024)) * 100) / (1024 * 1024);
+        char s_int[16], s_frac[16];
+        itoa((int)mib_int, s_int);
+        itoa((int)mib_frac, s_frac);
+        strcpy(out, s_int);
+        strcat(out, ".");
+        if (mib_frac < 10) strcat(out, "0");
+        strcat(out, s_frac);
+        strcat(out, " MiB");
+    } else {
+        // Show GiB with two decimal places
+        uint64_t gib_int = bytes / (1024 * 1024 * 1024);
+        uint64_t gib_frac = ((bytes % (1024 * 1024 * 1024)) * 100) / (1024 * 1024 * 1024);
+        char s_int[16], s_frac[16];
+        itoa((int)gib_int, s_int);
+        itoa((int)gib_frac, s_frac);
+        strcpy(out, s_int);
+        strcat(out, ".");
+        if (gib_frac < 10) strcat(out, "0");
+        strcat(out, s_frac);
+        strcat(out, " GiB");
+    }
 }
 
 static void draw_taskman(void) {
@@ -161,9 +179,9 @@ static void draw_taskman(void) {
     draw_graph(205, 25, 185, 60, mem_history, COLOR_MEM, max_mem_kb);
     
     // Memory GiB usage
-    char s_used[24], s_total[24], mem_text[64];
-    format_gib(used_mem_system, s_used);
-    format_gib(total_mem_system, s_total);
+    char s_used[32], s_total[32], mem_text[64];
+    format_mem_smart(used_mem_system, s_used);
+    format_mem_smart(total_mem_system, s_total);
     mem_text[0] = 0;
     strcat(mem_text, s_used);
     strcat(mem_text, " / ");
@@ -200,8 +218,7 @@ static void draw_taskman(void) {
         ui_draw_string(win_taskman, 65, ry + 6, name_disp, COLOR_DARK_TEXT);
         
         char m_str[32];
-        itoa((int)(proc_list[i].used_memory / 1024), m_str);
-        strcat(m_str, " KB");
+        format_mem_smart(proc_list[i].used_memory, m_str);
         ui_draw_string(win_taskman, 255, ry + 6, m_str, COLOR_DARK_TEXT);
         
         row++;

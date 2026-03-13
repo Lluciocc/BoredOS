@@ -601,6 +601,11 @@ static uint32_t parse_html_color(const char *str) {
     if (str_istarts_with(str, "yellow")) return 0xFFFFFF00;
     if (str_istarts_with(str, "gray")) return 0xFF808080;
     if (str_istarts_with(str, "purple")) return 0xFF800080;
+    if (str_istarts_with(str, "silver")) return 0xFFC0C0C0;
+    if (str_istarts_with(str, "maroon")) return 0xFF800000;
+    if (str_istarts_with(str, "navy")) return 0xFF000080;
+    if (str_istarts_with(str, "teal")) return 0xFF008080;
+    if (str_istarts_with(str, "olive")) return 0xFF808000;
     return COLOR_TEXT;
 }
 
@@ -650,6 +655,27 @@ static void decode_html_entities(char *str) {
             if (str_istarts_with(src, "&Aacute;")) { *dst++ = (char)193; src += 8; continue; }
             if (str_istarts_with(src, "&times;")) { *dst++ = (char)215; src += 7; continue; }
             if (str_istarts_with(src, "&divide;")) { *dst++ = (char)247; src += 8; continue; }
+            if (str_istarts_with(src, "&plusmn;")) { *dst++ = (char)177; src += 8; continue; }
+            if (str_istarts_with(src, "&micro;")) { *dst++ = (char)181; src += 7; continue; }
+            if (str_istarts_with(src, "&para;")) { *dst++ = (char)182; src += 6; continue; }
+            if (str_istarts_with(src, "&brvbar;")) { *dst++ = (char)166; src += 8; continue; }
+            if (str_istarts_with(src, "&sect;")) { *dst++ = (char)167; src += 6; continue; }
+            if (str_istarts_with(src, "&uml;")) { *dst++ = (char)168; src += 5; continue; }
+            if (str_istarts_with(src, "&ordf;")) { *dst++ = (char)170; src += 6; continue; }
+            if (str_istarts_with(src, "&laquo;")) { *dst++ = (char)171; src += 7; continue; }
+            if (str_istarts_with(src, "&not;")) { *dst++ = (char)172; src += 5; continue; }
+            if (str_istarts_with(src, "&shy;")) { src += 5; continue; } // Soft hyphen, ignore
+            if (str_istarts_with(src, "&macr;")) { *dst++ = (char)175; src += 6; continue; }
+            if (str_istarts_with(src, "&sup2;")) { *dst++ = (char)178; src += 6; continue; }
+            if (str_istarts_with(src, "&sup3;")) { *dst++ = (char)179; src += 6; continue; }
+            if (str_istarts_with(src, "&acute;")) { *dst++ = (char)180; src += 7; continue; }
+            if (str_istarts_with(src, "&cedil;")) { *dst++ = (char)184; src += 7; continue; }
+            if (str_istarts_with(src, "&sup1;")) { *dst++ = (char)185; src += 6; continue; }
+            if (str_istarts_with(src, "&ordm;")) { *dst++ = (char)186; src += 6; continue; }
+            if (str_istarts_with(src, "&raquo;")) { *dst++ = (char)187; src += 7; continue; }
+            if (str_istarts_with(src, "&frac14;")) { *dst++ = (char)188; src += 8; continue; }
+            if (str_istarts_with(src, "&frac12;")) { *dst++ = (char)189; src += 8; continue; }
+            if (str_istarts_with(src, "&frac34;")) { *dst++ = (char)190; src += 8; continue; }
 
             if (src[1] == '#') {
                 int val = 0;
@@ -704,12 +730,14 @@ static void parse_html(const char *html) {
     int list_type[16] = {0}; int list_index[16] = {0};
 
     bool is_pre = false;
+    bool is_plaintext = false;
+    int table_col = 0;
     next_form_id = 1;
     bool inside_title = false;
     char page_title[256] = "";
 
     while (html[i] && element_count < MAX_ELEMENTS) {
-        if (html[i] == '<') {
+        if (html[i] == '<' && !is_plaintext) {
             if (html[i+1] == '!' && html[i+2] == '-' && html[i+3] == '-') {
                 i += 4;
                 while (html[i] && !(html[i] == '-' && html[i+1] == '-' && html[i+2] == '>')) i++;
@@ -730,7 +758,28 @@ static void parse_html(const char *html) {
 
             if (tag_name[0] == '/') {
                 if (str_iequals(tag_name+1, "center")) { emit_br(); if (center_depth > 0) center_depth--; }
-                else if (str_iequals(tag_name+1, "table")) { emit_br(); if (table_depth > 0) table_depth--; }
+                else if (str_iequals(tag_name+1, "table")) { emit_br(); if (table_depth > 0) table_depth--; table_col = 0; }
+                else if (str_iequals(tag_name+1, "tr")) { emit_br(); table_col = 0; }
+                else if (str_iequals(tag_name+1, "td") || str_iequals(tag_name+1, "th")) { 
+                    table_col++;
+                    if (table_col == 1) {
+                         // Add spacer to align second column
+                         RenderElement *el = &elements[element_count++];
+                         memset(el, 0, sizeof(RenderElement));
+                         el->tag = TAG_NONE; el->content[0] = ' '; el->content[1] = 0;
+                         int current_x = cur_line_x;
+                         for (int k=0; k<line_element_count; k++) current_x += elements[line_elements[k]].w;
+                         int target_x = 160 + (blockquote_depth * 20) + (list_depth * 20);
+                         if (current_x < target_x) {
+                             el->w = target_x - current_x;
+                         } else {
+                             el->w = 10;
+                         }
+                         el->scale = current_scale; el->list_depth = list_depth; el->blockquote_depth = blockquote_depth;
+                    }
+                    if (str_iequals(tag_name+1, "th")) is_bold = false;
+                }
+                else if (str_iequals(tag_name+1, "caption")) { emit_br(); is_bold = false; if (center_depth > 0) center_depth--; }
                 else if (str_iequals(tag_name+1, "blockquote")) { emit_br(); if (blockquote_depth > 0) blockquote_depth--; } 
                 
                 else if (str_iequals(tag_name+1, "ul") || str_iequals(tag_name+1, "ol") || str_iequals(tag_name+1, "dl") || str_iequals(tag_name+1, "dir") || str_iequals(tag_name+1, "menu")) { emit_br(); if (list_depth > 0) list_depth--; }
@@ -748,7 +797,7 @@ static void parse_html(const char *html) {
                 }
                 else if (str_iequals(tag_name+1, "a")) current_link[0] = 0;
                 else if (str_iequals(tag_name+1, "p") || str_iequals(tag_name+1, "li") || str_iequals(tag_name+1, "div") || str_iequals(tag_name+1, "address")) emit_br();
-                else if (str_iequals(tag_name+1, "pre")) { emit_br(); is_pre = false; }
+                else if (str_iequals(tag_name+1, "pre") || str_iequals(tag_name+1, "xmp") || str_iequals(tag_name+1, "listing")) { emit_br(); is_pre = false; }
                 else if (str_iequals(tag_name+1, "font") || str_iequals(tag_name+1, "tt") || str_iequals(tag_name+1, "code") || str_iequals(tag_name+1, "samp") || str_iequals(tag_name+1, "kbd")) {
                     if (font_ptr > 0) {
                         font_ptr--;
@@ -767,7 +816,19 @@ static void parse_html(const char *html) {
                 }
             } else {
                 if (str_iequals(tag_name, "center")) { emit_br(); center_depth++; }
-                else if (str_iequals(tag_name, "table")) { emit_br(); table_depth++; }
+                else if (str_iequals(tag_name, "table")) { emit_br(); table_depth++; table_col = 0; }
+                else if (str_iequals(tag_name, "tr")) { emit_br(); table_col = 0; }
+                else if (str_iequals(tag_name, "td") || str_iequals(tag_name, "th")) {
+                    if (table_col > 0) {
+                        RenderElement *el = &elements[element_count++];
+                        memset(el, 0, sizeof(RenderElement));
+                        el->tag = TAG_NONE; el->content[0] = ' '; el->content[1] = 0; el->w = 10;
+                        el->h = ui_get_font_height_scaled(current_scale);
+                        el->scale = current_scale; el->list_depth = list_depth; el->blockquote_depth = blockquote_depth;
+                    }
+                    if (str_iequals(tag_name, "th")) is_bold = true;
+                }
+                else if (str_iequals(tag_name, "caption")) { emit_br(); center_depth++; is_bold = true; }
                 else if (str_iequals(tag_name, "blockquote")) { emit_br(); blockquote_depth++; } // Handle blockquote start
                 
                 else if (str_iequals(tag_name, "ul") || str_iequals(tag_name, "dir") || str_iequals(tag_name, "menu")) { emit_br(); list_type[list_depth] = 0; list_depth++; }
@@ -787,16 +848,18 @@ static void parse_html(const char *html) {
                 }
 
                 else if (str_iequals(tag_name, "b") || str_iequals(tag_name, "strong")) is_bold = true;
-                else if (str_iequals(tag_name, "i") || str_iequals(tag_name, "em") || str_iequals(tag_name, "cite") || str_iequals(tag_name, "var")) is_italic = true;
-                else if (str_iequals(tag_name, "u")) is_underline = true;
-                else if (str_iequals(tag_name, "tt") || str_iequals(tag_name, "code") || str_iequals(tag_name, "samp") || str_iequals(tag_name, "kbd")) {
+                else if (str_iequals(tag_name, "i") || str_iequals(tag_name, "em") || str_iequals(tag_name, "cite") || str_iequals(tag_name, "var") || str_iequals(tag_name, "dfn")) is_italic = true;
+                else if (str_iequals(tag_name, "u") || str_iequals(tag_name, "s") || str_iequals(tag_name, "strike")) is_underline = true;
+                else if (str_iequals(tag_name, "tt") || str_iequals(tag_name, "code") || str_iequals(tag_name, "samp") || str_iequals(tag_name, "kbd") || str_iequals(tag_name, "xmp") || str_iequals(tag_name, "listing")) {
                     if (font_ptr < MAX_FONT_STACK) {
                         font_stack[font_ptr].color = current_color;
                         font_stack[font_ptr].scale = current_scale;
                         font_ptr++;
                     }
                     current_scale = 14.0f;
+                    if (str_iequals(tag_name, "xmp") || str_iequals(tag_name, "listing")) { emit_br(); is_pre = true; }
                 }
+                else if (str_iequals(tag_name, "plaintext")) { emit_br(); is_plaintext = true; is_pre = true; current_scale = 14.0f; }
                 else if (str_iequals(tag_name, "address")) { emit_br(); }
                 else if (str_iequals(tag_name, "html") || str_iequals(tag_name, "body")) skip_content = false;
                 else if (str_iequals(tag_name, "head")) skip_content = true;
@@ -1114,6 +1177,8 @@ static void parse_html_incremental(const char *html, int safe_len) {
     int current_form_id = inc_form_id;
     bool skip_content = inc_skip_content;
     bool is_pre = inc_is_pre;
+    bool is_plaintext = false; // We don't persist plaintext across incremental chunks easily
+    int table_col = 0; 
     bool inside_title = inc_inside_title;
     char page_title[256]; { int k=0; while(current_page_title[k]) { page_title[k] = current_page_title[k]; k++; } page_title[k] = 0; }
 
@@ -1121,7 +1186,7 @@ static void parse_html_incremental(const char *html, int safe_len) {
     #define EFF_CENTER ((center_depth > 0) && (table_depth == 0))
 
     while (i < safe_len && html[i] && element_count < MAX_ELEMENTS) {
-        if (html[i] == '<') {
+        if (html[i] == '<' && !is_plaintext) {
             if (i + 3 < safe_len && html[i+1] == '!' && html[i+2] == '-' && html[i+3] == '-') {
                 i += 4;
                 while (i < safe_len && html[i] && !(i + 2 < safe_len && html[i] == '-' && html[i+1] == '-' && html[i+2] == '>')) i++;
@@ -1142,7 +1207,23 @@ static void parse_html_incremental(const char *html, int safe_len) {
 
             if (tag_name[0] == '/') {
                 if (str_iequals(tag_name+1, "center")) { emit_br(); if (center_depth > 0) center_depth--; }
-                else if (str_iequals(tag_name+1, "table")) { emit_br(); if (table_depth > 0) table_depth--; }
+                else if (str_iequals(tag_name+1, "table")) { emit_br(); if (table_depth > 0) table_depth--; table_col = 0; }
+                else if (str_iequals(tag_name+1, "tr")) { emit_br(); table_col = 0; }
+                else if (str_iequals(tag_name+1, "td") || str_iequals(tag_name+1, "th")) {
+                    table_col++;
+                    if (table_col == 1) {
+                         RenderElement *el = &elements[element_count++];
+                         memset(el, 0, sizeof(RenderElement));
+                         el->tag = TAG_NONE; el->content[0] = ' '; el->content[1] = 0;
+                         int current_x = cur_line_x;
+                         for (int k=0; k<line_element_count; k++) current_x += elements[line_elements[k]].w;
+                         int target_x = 160 + (blockquote_depth * 20) + (list_depth * 20);
+                         if (current_x < target_x) el->w = target_x - current_x; else el->w = 10;
+                         el->scale = current_scale; el->list_depth = list_depth; el->blockquote_depth = blockquote_depth;
+                    }
+                    if (str_iequals(tag_name+1, "th")) is_bold = false;
+                }
+                else if (str_iequals(tag_name+1, "caption")) { emit_br(); is_bold = false; if (center_depth > 0) center_depth--; }
                 else if (str_iequals(tag_name+1, "blockquote")) { emit_br(); if (blockquote_depth > 0) blockquote_depth--; }
                 else if (str_iequals(tag_name+1, "ul") || str_iequals(tag_name+1, "ol") || str_iequals(tag_name+1, "dl") || str_iequals(tag_name+1, "dir") || str_iequals(tag_name+1, "menu")) { emit_br(); if (list_depth > 0) list_depth--; }
                 else if (str_iequals(tag_name+1, "dt")) { emit_br(); is_bold = false; }
@@ -1155,7 +1236,7 @@ static void parse_html_incremental(const char *html, int safe_len) {
                 else if (str_iequals(tag_name+1, "form")) { emit_br(); current_form_id = 0; current_form_action[0] = 0; }
                 else if (str_iequals(tag_name+1, "a")) current_link[0] = 0;
                 else if (str_iequals(tag_name+1, "p") || str_iequals(tag_name+1, "li") || str_iequals(tag_name+1, "div")) emit_br();
-                else if (str_iequals(tag_name+1, "pre")) { emit_br(); is_pre = false; }
+                else if (str_iequals(tag_name+1, "pre") || str_iequals(tag_name+1, "xmp") || str_iequals(tag_name+1, "listing")) { emit_br(); is_pre = false; }
                 else if (str_iequals(tag_name+1, "font") || str_iequals(tag_name+1, "tt") || str_iequals(tag_name+1, "code") || str_iequals(tag_name+1, "samp") || str_iequals(tag_name+1, "kbd")) {
                     if (inc_font_ptr > 0) {
                         inc_font_ptr--;
@@ -1174,7 +1255,19 @@ static void parse_html_incremental(const char *html, int safe_len) {
                 }
             } else {
                 if (str_iequals(tag_name, "center")) { emit_br(); center_depth++; }
-                else if (str_iequals(tag_name, "table")) { emit_br(); table_depth++; }
+                else if (str_iequals(tag_name, "table")) { emit_br(); table_depth++; table_col = 0; }
+                else if (str_iequals(tag_name, "tr")) { emit_br(); table_col = 0; }
+                else if (str_iequals(tag_name, "td") || str_iequals(tag_name, "th")) {
+                    if (table_col > 0) {
+                        RenderElement *el = &elements[element_count++];
+                        memset(el, 0, sizeof(RenderElement));
+                        el->tag = TAG_NONE; el->content[0] = ' '; el->content[1] = 0; el->w = 10;
+                        el->h = ui_get_font_height_scaled(current_scale);
+                        el->scale = current_scale; el->list_depth = list_depth; el->blockquote_depth = blockquote_depth;
+                    }
+                    if (str_iequals(tag_name, "th")) is_bold = true;
+                }
+                else if (str_iequals(tag_name, "caption")) { emit_br(); center_depth++; is_bold = true; }
                 else if (str_iequals(tag_name, "blockquote")) { emit_br(); blockquote_depth++; }
                 else if (str_iequals(tag_name, "ul") || str_iequals(tag_name, "dir") || str_iequals(tag_name, "menu")) { emit_br(); list_type[list_depth] = 0; list_depth++; }
                 else if (str_iequals(tag_name, "ol")) { emit_br(); list_type[list_depth] = 1; list_index[list_depth] = 1; list_depth++; }
@@ -1186,17 +1279,19 @@ static void parse_html_incremental(const char *html, int safe_len) {
                     el->w = ui_get_string_width_scaled(el->content, current_scale); el->h = ui_get_font_height_scaled(current_scale); el->color = current_color; el->centered = EFF_CENTER; el->bold = is_bold; el->italic = is_italic; el->underline = is_underline; el->scale = current_scale; el->list_depth = list_depth; el->blockquote_depth = blockquote_depth;
                 }
                 else if (str_iequals(tag_name, "b") || str_iequals(tag_name, "strong")) is_bold = true;
-                else if (str_iequals(tag_name, "i") || str_iequals(tag_name, "em") || str_iequals(tag_name, "cite") || str_iequals(tag_name, "var")) is_italic = true;
-                else if (str_iequals(tag_name, "u")) is_underline = true;
+                else if (str_iequals(tag_name, "i") || str_iequals(tag_name, "em") || str_iequals(tag_name, "cite") || str_iequals(tag_name, "var") || str_iequals(tag_name, "dfn")) is_italic = true;
+                else if (str_iequals(tag_name, "u") || str_iequals(tag_name, "s") || str_iequals(tag_name, "strike")) is_underline = true;
                 else if (str_iequals(tag_name, "address")) emit_br();
-                else if (str_iequals(tag_name, "tt") || str_iequals(tag_name, "code") || str_iequals(tag_name, "samp") || str_iequals(tag_name, "kbd")) {
+                else if (str_iequals(tag_name, "tt") || str_iequals(tag_name, "code") || str_iequals(tag_name, "samp") || str_iequals(tag_name, "kbd") || str_iequals(tag_name, "xmp") || str_iequals(tag_name, "listing")) {
                     if (inc_font_ptr < MAX_FONT_STACK) {
                         inc_font_stack[inc_font_ptr].color = current_color;
                         inc_font_stack[inc_font_ptr].scale = current_scale;
                         inc_font_ptr++;
                     }
                     current_scale = 14.0f;
+                    if (str_iequals(tag_name, "xmp") || str_iequals(tag_name, "listing")) { emit_br(); is_pre = true; }
                 }
+                else if (str_iequals(tag_name, "plaintext")) { emit_br(); is_plaintext = true; is_pre = true; current_scale = 14.0f; }
                 else if (tag_name[0] == 'h' && tag_name[1] >= '1' && tag_name[1] <= '6') {
                     emit_br(); emit_br(); is_bold = true;
                     if (tag_name[1] == '1') base_scale = 32.0f; else if (tag_name[1] == '2') base_scale = 24.0f; else if (tag_name[1] == '3') base_scale = 20.0f; else base_scale = 18.0f;

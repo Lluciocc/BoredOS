@@ -45,18 +45,12 @@ void syscall_init(void) {
     efer |= 1; // SCE bit is bit 0
     wrmsr(MSR_EFER, efer);
 
-    // STAR MSR setup:
-    // Bits 32-47: Syscall CS and SS. CS = STAR[47:32], SS = STAR[47:32] + 8 (Kernel CS = 0x08)
-    // Bits 48-63: Sysret CS and SS. CS = STAR[63:48] + 16, SS = STAR[63:48] + 8.
-    // User Data must be Base+8, User Code must be Base+16.
-    // Our GDT: User Data = 0x1B, User Code = 0x23. 
-    // Therefore Base = 0x13.
+
     uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x13 << 48);
     wrmsr(MSR_STAR, star);
 
     wrmsr(MSR_LSTAR, (uint64_t)syscall_entry);
 
-    // Mask Interrupts on SYSCALL (Clear IF bit in RFLAGS during syscall execution)
     wrmsr(MSR_FMASK, 0x200);
 }
 
@@ -849,6 +843,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     paging_map_page(proc->pml4_phys, page, v2p(phys_addr), 0x07); // PT_PRESENT | PT_RW | PT_USER
                     phys_addr += 4096;
                 }
+                proc->used_memory += (end_page - start_page);
             }
         }
         
@@ -1120,7 +1115,19 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             if (!out) return 0;
             
             extern process_t processes[];
-            extern int process_count;
+            
+            // Dynamically calculate kernel usage as: Total System Used - User Process Sum
+            MemStats stats = memory_get_stats();
+            size_t total_used = stats.used_memory;
+            size_t user_used = 0;
+            for (int i = 0; i < 16; i++) {
+                if (processes[i].pid != 0xFFFFFFFF && processes[i].pid != 0) {
+                    user_used += processes[i].used_memory;
+                }
+            }
+            if (total_used > user_used) processes[0].used_memory = total_used - user_used;
+            else processes[0].used_memory = 0;
+            
             int count = 0;
             for (int i = 0; i < 16; i++) { // MAX_PROCESSES is 16
                 if (processes[i].pid != 0xFFFFFFFF) {
@@ -1129,19 +1136,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     mem_memcpy(out[count].name, processes[i].name, 64);
                     out[count].ticks = processes[i].ticks;
                     
-                    // Memory estimation: heap + stacks
-                    size_t mem = 0;
-                    if (processes[i].heap_end > processes[i].heap_start)
-                        mem += (processes[i].heap_end - processes[i].heap_start);
-                    
-                    if (processes[i].pid == 0) {
-                        mem = 32768; 
-                    } else {
-                        if (processes[i].is_user) mem += 262144; // User stack
-                        mem += 32768; // Kernel stack
-                    }
-                    
-                    out[count].used_memory = mem;
+                    out[count].used_memory = processes[i].used_memory;
                     
                     count++;
                     if (count >= max_procs) break;

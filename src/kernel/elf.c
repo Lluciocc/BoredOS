@@ -9,15 +9,9 @@
 
 extern void serial_print(const char *s);
 extern void serial_write(const char *str);
-static void print_hex(uint64_t n) {
-    char buf[17];
-    char* x = "0123456789ABCDEF";
-    buf[16] = 0;
-    for (int i=15; i>=0; i--) { buf[i] = x[n & 0xF]; n >>= 4; }
-    serial_write(buf);
-}
 
-uint64_t elf_load(const char *path, uint64_t user_pml4) {
+uint64_t elf_load(const char *path, uint64_t user_pml4, size_t *out_load_size) {
+    if (out_load_size) *out_load_size = 0;
     FAT32_FileHandle *file = fat32_open(path, "r");
     if (!file || !file->valid) {
         serial_write("[ELF] Error: Failed to open file ");
@@ -113,6 +107,7 @@ uint64_t elf_load(const char *path, uint64_t user_pml4) {
                 uint64_t phys_addr = v2p((uint64_t)bulk_phys + (p * 4096));
                 paging_map_page(user_pml4, vaddr, phys_addr, 0x07);
             }
+            if (out_load_size) *out_load_size += total_needed;
         }
     }
 
