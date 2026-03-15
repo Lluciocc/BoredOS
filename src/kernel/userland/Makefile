@@ -5,7 +5,7 @@ CC = x86_64-elf-gcc
 AS = nasm
 LD = x86_64-elf-ld
 
-CFLAGS = -Wall -Wextra -std=gnu11 -ffreestanding -O2 -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -m64 -march=x86-64 -mno-red-zone -Ilibc
+CFLAGS = -Wall -Wextra -std=gnu11 -ffreestanding -O2 -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -m64 -march=x86-64 -mno-red-zone -I. -Ilibc
 LDFLAGS = -m elf_x86_64 -nostdlib -static -no-pie -Ttext=0x40000000 --no-dynamic-linker -z text -z max-page-size=0x1000 -e _start
 
 BIN_DIR = bin
@@ -13,11 +13,15 @@ BIN_DIR = bin
 LIBC_SOURCES = $(wildcard libc/*.c)
 LIBC_OBJS = $(patsubst libc/%.c, $(BIN_DIR)/%.o, $(LIBC_SOURCES)) $(BIN_DIR)/crt0.o
 
-APP_SOURCES = $(filter-out stb_image.c, $(wildcard *.c))
-APP_ELFS = $(patsubst %.c, $(BIN_DIR)/%.elf, $(APP_SOURCES))
+VPATH = cli gui sys games libc
+vpath %.c cli gui sys games libc
 
-DOOM_SOURCES = $(wildcard doom/*.c)
-DOOM_OBJS = $(patsubst doom/%.c, $(BIN_DIR)/%.o, $(DOOM_SOURCES))
+APP_SOURCES_FULL = $(wildcard cli/*.c gui/*.c sys/*.c games/*.c *.c)
+APP_SOURCES = $(filter-out stb_image.c, $(APP_SOURCES_FULL))
+APP_ELFS = $(patsubst %.c, $(BIN_DIR)/%.elf, $(notdir $(APP_SOURCES)))
+
+DOOM_SOURCES = $(wildcard games/doom/*.c)
+DOOM_OBJS = $(patsubst games/doom/%.c, $(BIN_DIR)/%.o, $(DOOM_SOURCES))
 
 all: $(BIN_DIR) $(APP_ELFS) $(BIN_DIR)/doom.elf
 
@@ -48,8 +52,8 @@ $(BIN_DIR)/browser.elf: $(LIBC_OBJS) $(BIN_DIR)/browser.o $(BIN_DIR)/stb_image.o
 $(BIN_DIR)/screenshot.elf: $(LIBC_OBJS) $(BIN_DIR)/screenshot.o $(BIN_DIR)/stb_image.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
-$(BIN_DIR)/%.o: doom/%.c
-	$(CC) $(CFLAGS) -Wno-error -Idoom -c $< -o $@
+$(BIN_DIR)/%.o: games/doom/%.c
+	$(CC) $(CFLAGS) -Wno-error -Igames/doom -c $< -o $@
 
 $(BIN_DIR)/doom.elf: $(LIBC_OBJS) $(DOOM_OBJS) $(BIN_DIR)/stb_image.o
 	$(LD) $(LDFLAGS) $^ -o $@

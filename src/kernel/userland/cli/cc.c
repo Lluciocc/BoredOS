@@ -3,7 +3,7 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include <stdlib.h>
 #include <syscall.h>
-#include "../vm.h"
+#include "../../mem/vm.h"
 
 // --- Compiler Limits ---
 #define MAX_SOURCE 65536
