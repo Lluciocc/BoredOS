@@ -25,9 +25,6 @@ C_SOURCES = $(wildcard $(SRC_DIR)/core/*.c) \
             $(wildcard $(SRC_DIR)/net/nic/*.c) \
             $(wildcard $(SRC_DIR)/fs/*.c) \
             $(wildcard $(SRC_DIR)/wm/*.c) \
-            $(SRC_DIR)/cmd.c \
-            $(SRC_DIR)/stb_image.c \
-            $(SRC_DIR)/lwip_port.c \
             $(wildcard $(SRC_DIR)/net/lwip/core/*.c) \
             $(wildcard $(SRC_DIR)/net/lwip/core/ipv4/*.c) \
 			$(SRC_DIR)/net/lwip/netif/ethernet.c \
@@ -42,9 +39,6 @@ OBJ_FILES = $(patsubst $(SRC_DIR)/core/%.c, $(BUILD_DIR)/%.o, $(wildcard $(SRC_D
             $(patsubst $(SRC_DIR)/net/nic/%.c, $(BUILD_DIR)/%.o, $(wildcard $(SRC_DIR)/net/nic/*.c)) \
             $(patsubst $(SRC_DIR)/fs/%.c, $(BUILD_DIR)/%.o, $(wildcard $(SRC_DIR)/fs/*.c)) \
             $(patsubst $(SRC_DIR)/wm/%.c, $(BUILD_DIR)/%.o, $(wildcard $(SRC_DIR)/wm/*.c)) \
-            $(BUILD_DIR)/cmd.o \
-            $(BUILD_DIR)/stb_image.o \
-            $(BUILD_DIR)/lwip_port.o \
             $(patsubst $(SRC_DIR)/net/lwip/%.c, $(BUILD_DIR)/lwip/%.o, $(filter $(SRC_DIR)/net/lwip/%.c, $(C_SOURCES))) \
             $(patsubst $(SRC_DIR)/arch/%.asm, $(BUILD_DIR)/%.o, $(ASM_SOURCES))
 
@@ -75,9 +69,9 @@ limine-setup:
 		rm -rf limine; \
 		git clone https://github.com/limine-bootloader/limine.git --branch=v$(LIMINE_VERSION)-binary --depth=1 limine; \
 	fi
-	@if [ ! -f $(SRC_DIR)/limine.h ]; then \
+	@if [ ! -f $(SRC_DIR)/core/limine.h ]; then \
 		echo "Copying limine.h..."; \
-		cp limine/limine.h $(SRC_DIR)/limine.h; \
+		cp limine/limine.h $(SRC_DIR)/core/limine.h; \
 	fi
 	@echo "Building Limine host utility..."; \
 	$(MAKE) -C limine
