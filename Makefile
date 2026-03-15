@@ -10,7 +10,7 @@ LD = x86_64-elf-ld
 NASM = nasm
 XORRISO = xorriso
 
-SRC_DIR = src/kernel
+SRC_DIR = src
 BUILD_DIR = build
 ISO_DIR = iso_root
 
