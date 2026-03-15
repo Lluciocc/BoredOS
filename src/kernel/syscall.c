@@ -1175,6 +1175,20 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 return 0;
             }
             return -1;
+        } else if (cmd == 48) { // SYSTEM_CMD_NETWORK_GET_NIC_NAME
+            char *user_buf = (char *)arg2;
+            if (!user_buf) return -1;
+            char name_buf[64];
+            extern int network_get_nic_name(char *name_out);
+            if (network_get_nic_name(name_buf) == 0) {
+                extern void mem_memcpy(void *dest, const void *src, size_t len);
+                size_t len = 0;
+                while (name_buf[len] && len < 63) len++;
+                name_buf[len] = 0;
+                mem_memcpy(user_buf, name_buf, len + 1);
+                return 0;
+            }
+            return -1;
         }
         return -1;
     }

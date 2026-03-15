@@ -109,7 +109,16 @@ int network_init(void) {
 
 int network_get_mac_address(mac_address_t* mac) {
     if (!lwip_initialized) return -1;
-    for (int i = 0; i < 6; i++) mac->bytes[i] = nic_netif.hwaddr[i];
+    return nic_get_mac_address(mac->bytes);
+}
+
+int network_get_nic_name(char* name_out) {
+    if (!lwip_initialized) return -1;
+    extern const char* nic_get_active_name(void);
+    const char* n = nic_get_active_name();
+    if (!n) return -1;
+    while (*n) *name_out++ = *n++;
+    *name_out = 0;
     return 0;
 }
 

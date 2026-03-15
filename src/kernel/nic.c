@@ -5,7 +5,6 @@
 #include "pci.h"
 #include "kutils.h"
 
-// Forward declarations for driver inits
 extern int e1000_init(pci_device_t* pci_dev);
 extern int rtl8139_init(pci_device_t* pci_dev);
 extern int virtio_net_init(pci_device_t* pci_dev);
@@ -21,6 +20,11 @@ extern int rtl8139_get_mac(uint8_t* mac_out);
 extern int virtio_net_send_packet(const void* data, size_t length);
 extern int virtio_net_receive_packet(void* buffer, size_t buffer_size);
 extern int virtio_net_get_mac(uint8_t* mac_out);
+
+extern int rtl8111_init(pci_device_t* pci_dev);
+extern int rtl8111_send_packet(const void* data, size_t length);
+extern int rtl8111_receive_packet(void* buffer, size_t buffer_size);
+extern int rtl8111_get_mac(uint8_t* mac_out);
 
 static nic_driver_t active_nic_driver = {0};
 static int nic_initialized = 0;
@@ -61,12 +65,30 @@ static int register_virtio_net(pci_device_t* dev) {
     return -1;
 }
 
+static int register_rtl8111(pci_device_t* dev) {
+    if (rtl8111_init(dev) == 0) {
+        active_nic_driver.name = "rtl8111";
+        active_nic_driver.init = rtl8111_init;
+        active_nic_driver.send_packet = rtl8111_send_packet;
+        active_nic_driver.receive_packet = rtl8111_receive_packet;
+        active_nic_driver.get_mac_address = rtl8111_get_mac;
+        return 0;
+    }
+    return -1;
+}
+
 int nic_init(void) {
     if (nic_initialized) return 0;
 
     pci_device_t pci_dev;
 
-    // Try finding RTL8139 (Vendor: 0x10EC, Device: 0x8139)
+    if (pci_find_device(0x10EC, 0x8168, &pci_dev)) {
+        if (register_rtl8111(&pci_dev) == 0) {
+            nic_initialized = 1;
+            return 0;
+        }
+    }
+
     if (pci_find_device(0x10EC, 0x8139, &pci_dev)) {
         if (register_rtl8139(&pci_dev) == 0) {
             nic_initialized = 1;
@@ -74,8 +96,7 @@ int nic_init(void) {
         }
     }
 
-    // Try finding Virtio-Net (Vendor: 0x1AF4, Device: 0x1000 for legacy or 0x1041 for modern)
-    // Here we mainly support legacy VirtIO Network (0x1000)
+
     if (pci_find_device(0x1AF4, 0x1000, &pci_dev)) {
         if (register_virtio_net(&pci_dev) == 0) {
             nic_initialized = 1;
@@ -83,7 +104,6 @@ int nic_init(void) {
         }
     }
     
-    // Modern VirtIO NET is 0x1041
     if (pci_find_device(0x1AF4, 0x1041, &pci_dev)) {
         if (register_virtio_net(&pci_dev) == 0) {
             nic_initialized = 1;
@@ -91,7 +111,6 @@ int nic_init(void) {
         }
     }
 
-    // Try finding E1000 (Vendor: 0x8086, Device: 0x100E)
     if (pci_find_device(0x8086, 0x100E, &pci_dev)) {
         if (register_e1000(&pci_dev) == 0) {
             nic_initialized = 1;
@@ -99,7 +118,7 @@ int nic_init(void) {
         }
     }
 
-    return -1; // No supported NIC found
+    return -1; 
 }
 
 nic_driver_t* nic_get_driver(void) {
@@ -120,4 +139,9 @@ int nic_receive_packet(void* buffer, size_t buffer_size) {
 int nic_get_mac_address(uint8_t* mac_out) {
     if (!nic_initialized || !active_nic_driver.get_mac_address) return -1;
     return active_nic_driver.get_mac_address(mac_out);
+}
+
+const char* nic_get_active_name(void) {
+    if (!nic_initialized || !active_nic_driver.name) return NULL;
+    return active_nic_driver.name;
 }

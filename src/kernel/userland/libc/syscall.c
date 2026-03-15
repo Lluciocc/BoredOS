@@ -150,6 +150,10 @@ int sys_network_get_mac(net_mac_address_t *mac) {
     return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_MAC, (uint64_t)mac);
 }
 
+int sys_network_get_nic_name(char *name_out) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_NIC_NAME, (uint64_t)name_out);
+}
+
 int sys_network_get_ip(net_ipv4_address_t *ip) {
     return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_NETWORK_GET_IP, (uint64_t)ip);
 }

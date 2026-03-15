@@ -206,6 +206,14 @@ static void cmd_netinfo(void) {
     }
     net_mac_address_t mac;
     net_ipv4_address_t ip, gw, dns;
+    char nic_name[64];
+    
+    if (sys_network_get_nic_name(nic_name) == 0) {
+        printf("NIC: %s\n", nic_name);
+    } else {
+        printf("NIC: Unknown\n");
+    }
+
     sys_network_get_mac(&mac);
     printf("MAC: %X:%X:%X:%X:%X:%X\n", mac.bytes[0], mac.bytes[1], mac.bytes[2], mac.bytes[3], mac.bytes[4], mac.bytes[5]);
     

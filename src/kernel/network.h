@@ -61,6 +61,7 @@ typedef struct {
 
 int network_init(void);
 int network_get_mac_address(mac_address_t* mac);
+int network_get_nic_name(char* name_out);
 int network_get_ipv4_address(ipv4_address_t* ip);
 int network_set_ipv4_address(const ipv4_address_t* ip);
 int network_send_frame(const void* data, size_t length);

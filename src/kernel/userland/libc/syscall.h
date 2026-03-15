@@ -59,6 +59,7 @@
 #define SYSTEM_CMD_NETWORK_IS_INIT 27
 #define SYSTEM_CMD_NETWORK_HAS_IP 30
 #define SYSTEM_CMD_GET_SHELL_CONFIG 28
+#define SYSTEM_CMD_NETWORK_GET_NIC_NAME 48
 #define SYSTEM_CMD_SET_TEXT_COLOR 29
 #define SYSTEM_CMD_SET_WALLPAPER_PATH 31
 #define SYSTEM_CMD_TCP_CONNECT 33
@@ -130,6 +131,7 @@ typedef struct { uint8_t bytes[4]; } net_ipv4_address_t;
 int sys_network_init(void);
 int sys_network_dhcp_acquire(void);
 int sys_network_get_mac(net_mac_address_t *mac);
+int sys_network_get_nic_name(char *name_out);
 int sys_network_get_ip(net_ipv4_address_t *ip);
 int sys_network_set_ip(const net_ipv4_address_t *ip);
 int sys_network_get_stat(int stat_type);
