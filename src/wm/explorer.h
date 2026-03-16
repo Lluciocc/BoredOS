@@ -15,7 +15,7 @@ extern Window win_cmd;
 extern Window win_notepad;
 extern Window win_markdown;
 
-#define EXPLORER_MAX_FILES 64
+#define EXPLORER_INITIAL_CAPACITY 256
 #define DIALOG_INPUT_MAX 256
 
 typedef struct {
@@ -26,7 +26,8 @@ typedef struct {
 } ExplorerItem;
 
 typedef struct {
-    ExplorerItem items[EXPLORER_MAX_FILES];
+    ExplorerItem *items;
+    int items_capacity;
     int item_count;
     int selected_item;
     char current_path[FAT32_MAX_PATH];

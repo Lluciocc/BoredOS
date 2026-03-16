@@ -93,6 +93,32 @@ void serial_write_hex(uint64_t n) {
 }
 
 // Kernel Entry Point
+
+static void fat32_mkdir_recursive(const char *path) {
+    char temp[256];
+    int i = 0;
+    
+    // Skip initial slash
+    if (path[0] == '/') {
+        temp[0] = '/';
+        i = 1;
+    }
+    
+    while (path[i] && i < 255) {
+        temp[i] = path[i];
+        if (path[i] == '/') {
+            temp[i] = '\0';
+            fat32_mkdir(temp);
+            temp[i] = '/';
+        }
+        i++;
+    }
+    if (i > 0 && temp[i-1] != '/') {
+        temp[i] = '\0';
+        fat32_mkdir(temp);
+    }
+}
+
 void kmain(void) {
     init_serial();
     serial_write("\n[DEBUG] Entering kmain...\n");
@@ -158,6 +184,7 @@ void kmain(void) {
     fat32_mkdir("/Library/images/gif");
     fat32_mkdir("/Library/Fonts");
     fat32_mkdir("/Library/DOOM");
+    fat32_mkdir("/docs");
 
     if (module_request.response == NULL) {
         serial_write("[DEBUG] ERROR: Limine Module Response is NULL!\n");
@@ -171,6 +198,17 @@ void kmain(void) {
             const char *clean_path = mod->path;
             if (fs_starts_with(clean_path, "boot():")) clean_path += 7;
             else if (fs_starts_with(clean_path, "boot:///")) clean_path += 8;
+            
+            char dir_path[256];
+            int last_slash = -1;
+            for (int j = 0; clean_path[j]; j++) {
+                if (clean_path[j] == '/') last_slash = j;
+            }
+            if (last_slash > 0) {
+                for (int j = 0; j < last_slash; j++) dir_path[j] = clean_path[j];
+                dir_path[last_slash] = '\0';
+                fat32_mkdir_recursive(dir_path);
+            }
             
             FAT32_FileHandle *fh = fat32_open(clean_path, "w");
             if (fh && fh->valid) {

@@ -174,6 +174,16 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 		fi \
 	done
 	
+	mkdir -p $(ISO_DIR)/docs
+	@for f in $$(find docs -name '*.md'); do \
+		if [ -f "$$f" ]; then \
+			dir=$$(dirname "$$f"); \
+			mkdir -p $(ISO_DIR)/"$$dir"; \
+			cp "$$f" $(ISO_DIR)/"$$dir"/; \
+			echo "    module_path: boot():/$$f" >> $(ISO_DIR)/limine.conf; \
+		fi \
+	done
+	
 	cp limine/limine-bios.sys $(ISO_DIR)/
 	cp limine/limine-bios-cd.bin $(ISO_DIR)/
 	cp limine/limine-uefi-cd.bin $(ISO_DIR)/

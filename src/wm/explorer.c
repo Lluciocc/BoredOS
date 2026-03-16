@@ -314,10 +314,18 @@ static void dialog_confirm_create_folder(Window *win) {
 
 bool explorer_delete_permanently(const char *path) {
     if (fat32_is_directory(path)) {
-        FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(64 * sizeof(FAT32_FileInfo));
+        int capacity = 64;
+        FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(capacity * sizeof(FAT32_FileInfo));
         if (!entries) return false;
 
-        int count = fat32_list_directory(path, entries, 64);
+        int count = fat32_list_directory(path, entries, capacity);
+        while (count == capacity) {
+            capacity *= 2;
+            FAT32_FileInfo *new_entries = (FAT32_FileInfo*)krealloc(entries, capacity * sizeof(FAT32_FileInfo));
+            if (!new_entries) { kfree(entries); return false; }
+            entries = new_entries;
+            count = fat32_list_directory(path, entries, capacity);
+        }
         
         for (int i = 0; i < count; i++) {
             if (explorer_strcmp(entries[i].name, ".") == 0 || explorer_strcmp(entries[i].name, "..") == 0) continue;
@@ -420,10 +428,18 @@ bool explorer_clipboard_has_content(void) {
 static bool explorer_copy_recursive(const char *src_path, const char *dest_path) {
     if (fat32_is_directory(src_path)) {
         if (!fat32_mkdir(dest_path)) return false;
-        FAT32_FileInfo *files = (FAT32_FileInfo*)kmalloc(64 * sizeof(FAT32_FileInfo));
+        int capacity = 64;
+        FAT32_FileInfo *files = (FAT32_FileInfo*)kmalloc(capacity * sizeof(FAT32_FileInfo));
         if (!files) return false;
         
-        int count = fat32_list_directory(src_path, files, 64);
+        int count = fat32_list_directory(src_path, files, capacity);
+        while (count == capacity) {
+            capacity *= 2;
+            FAT32_FileInfo *new_files = (FAT32_FileInfo*)krealloc(files, capacity * sizeof(FAT32_FileInfo));
+            if (!new_files) { kfree(files); return false; }
+            files = new_files;
+            count = fat32_list_directory(src_path, files, capacity);
+        }
         for (int i = 0; i < count; i++) {
             if (explorer_strcmp(files[i].name, ".") == 0 || explorer_strcmp(files[i].name, "..") == 0) continue;
             
@@ -646,13 +662,29 @@ static void explorer_load_directory(Window *win, const char *path) {
 
     state->item_count = 0;
     
-    FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(EXPLORER_MAX_FILES * sizeof(FAT32_FileInfo));
+    int capacity = EXPLORER_INITIAL_CAPACITY;
+    FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(capacity * sizeof(FAT32_FileInfo));
     if (!entries) return;
 
-    int count = fat32_list_directory(path, entries, EXPLORER_MAX_FILES);
+    int count = fat32_list_directory(path, entries, capacity);
+    while (count == capacity) {
+        capacity *= 2;
+        FAT32_FileInfo *new_entries = (FAT32_FileInfo*)krealloc(entries, capacity * sizeof(FAT32_FileInfo));
+        if (!new_entries) { kfree(entries); return; }
+        entries = new_entries;
+        count = fat32_list_directory(path, entries, capacity);
+    }
+    
+    if (state->items_capacity < count) {
+        int new_cap = count < EXPLORER_INITIAL_CAPACITY ? EXPLORER_INITIAL_CAPACITY : count;
+        ExplorerItem *new_items = (ExplorerItem*)krealloc(state->items, new_cap * sizeof(ExplorerItem));
+        if (!new_items) { kfree(entries); return; }
+        state->items = new_items;
+        state->items_capacity = new_cap;
+    }
     
     int temp_count = 0;
-    for (int i = 0; i < count && temp_count < EXPLORER_MAX_FILES; i++) {
+    for (int i = 0; i < count; i++) {
         if (explorer_strcmp(entries[i].name, ".color") == 0) {
             continue;
         }
@@ -1820,6 +1852,8 @@ Window* explorer_create_window(const char *path) {
     win->handle_right_click = explorer_handle_right_click;
     win->data = state;
     
+    state->items = NULL;
+    state->items_capacity = 0;
     state->selected_item = -1;
     state->last_clicked_item = -1;
     state->explorer_scroll_row = 0;
@@ -1854,6 +1888,8 @@ void explorer_init(void) {
     win_explorer.handle_right_click = explorer_handle_right_click;
     win_explorer.data = state;
     
+    state->items = NULL;
+    state->items_capacity = 0;
     state->selected_item = -1;
     state->last_clicked_item = -1;
     state->explorer_scroll_row = 0;
