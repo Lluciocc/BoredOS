@@ -26,7 +26,7 @@ To run BoredOS successfully (either in emulation or on bare metal), your target 
 -   **CPU**: An `x86_64` (64-bit) compatible processor.
 -   **Memory**: Approximately `~256 MB` of RAM.
 -   **Display**: A VGA-compatible display (required for the GUI Window Manager).
--   **Networking (Optional)**: A compatible Network Interface Card (NIC) is required if you want to use the networking stack (e.g., an Intel E1000 or similar supported by the `net/nic/` drivers). Networking is not strictly required for the OS to boot or run offline applications.
+-   **Networking (Optional)**: A compatible Network Interface Card (NIC) is required if you want to use the networking stack (e.g., an Intel E1000 or similar supported by the [`net/nic/`](../../src/net/nic/) drivers). Networking is not strictly required for the OS to boot or run offline applications.
 
 
 ## Running in Emulation
