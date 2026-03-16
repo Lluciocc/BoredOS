@@ -49,10 +49,9 @@ struct virtqueue {
     struct vq_used* used;
     uint16_t q_size;
     uint16_t last_used_idx;
-    uint16_t last_avail_idx; // Software tracking of idx
+    uint16_t last_avail_idx;
 };
 
-// Virtio Network header (typically 12 bytes if VIRTIO_NET_F_MRG_RXBUF is NOT set, 10 bytes legacy without MRG)
 struct virtio_net_hdr {
     uint8_t flags;
     uint8_t gso_type;
@@ -60,7 +59,6 @@ struct virtio_net_hdr {
     uint16_t gso_size;
     uint16_t csum_start;
     uint16_t csum_offset;
-    // uint16_t num_buffers; // if MRG_RXBUF enabled
 } __attribute__((packed));
 
 static uint16_t io_base = 0;
@@ -70,7 +68,6 @@ static uint8_t mac_addr[6];
 static struct virtqueue rx_vq;
 static struct virtqueue tx_vq;
 
-// Memory buffers for queues
 static uint8_t rx_ring_mem[16384] __attribute__((aligned(4096)));
 static uint8_t tx_ring_mem[16384] __attribute__((aligned(4096)));
 
@@ -86,8 +83,7 @@ static void virtqueue_init(struct virtqueue* vq, uint8_t* mem, uint16_t qsize) {
     vq->desc = (struct vq_desc*)mem;
     vq->avail = (struct vq_avail*)(mem + qsize * sizeof(struct vq_desc));
     
-    // used ring is aligned to 4096 after avail
-    uintptr_t avail_end = (uintptr_t)vq->avail + sizeof(struct vq_avail) + sizeof(uint16_t); // avail_event
+    uintptr_t avail_end = (uintptr_t)vq->avail + sizeof(struct vq_avail) + sizeof(uint16_t);
     uintptr_t used_start = (avail_end + 4095) & ~4095;
     vq->used = (struct vq_used*)used_start;
     
@@ -99,11 +95,9 @@ int virtio_net_init(pci_device_t* pci_dev) {
 
     uint32_t bar0 = pci_read_config(pci_dev->bus, pci_dev->device, pci_dev->function, 0x10);
     if (!(bar0 & 1)) {
-        // We only support legacy I/O virtio
         return -1;
     }
     
-    // Enable Bus Master + I/O Space
     uint32_t command = pci_read_config(pci_dev->bus, pci_dev->device, pci_dev->function, 0x04);
     pci_write_config(pci_dev->bus, pci_dev->device, pci_dev->function, 0x04, command | (1 << 2) | (1 << 0));
 
@@ -113,17 +107,13 @@ int virtio_net_init(pci_device_t* pci_dev) {
     serial_write("[VIRTIO-NET] I/O Base: 0x");
     char hex_buf[32]; k_itoa_hex(io_base, hex_buf); serial_write(hex_buf); serial_write("\n");
 
-    // Reset device
     outb(io_base + VIRTIO_PCI_STATUS, 0);
     
-    // Acknowledge + Driver
     outb(io_base + VIRTIO_PCI_STATUS, 1 | 2);
 
-    // Read features (negotiate MAC)
     uint32_t features = inl(io_base + VIRTIO_PCI_HOST_FEATURES);
-    outl(io_base + VIRTIO_PCI_GUEST_FEATURES, features & 0x01000020); // MAC + STATUS
+    outl(io_base + VIRTIO_PCI_GUEST_FEATURES, features & 0x01000020); 
 
-    // Setup RX Virtqueue (Index 0)
     outw(io_base + VIRTIO_PCI_QUEUE_SEL, 0);
     uint16_t rx_qsize = inw(io_base + VIRTIO_PCI_QUEUE_SIZE);
     if (rx_qsize == 0) return -1;
@@ -131,7 +121,6 @@ int virtio_net_init(pci_device_t* pci_dev) {
     virtqueue_init(&rx_vq, rx_ring_mem, rx_qsize);
     outl(io_base + VIRTIO_PCI_QUEUE_PFN, v2p((uint64_t)(uintptr_t)rx_ring_mem) / 4096);
 
-    // Pre-fill RX ring with buffers
     for (int i = 0; i < rx_qsize; i++) {
         rx_vq.desc[i].addr = v2p((uint64_t)(uintptr_t)rx_buffers[i]);
         rx_vq.desc[i].len = 2048;
@@ -143,14 +132,12 @@ int virtio_net_init(pci_device_t* pci_dev) {
     rx_vq.avail->idx = rx_qsize;
     rx_vq.last_avail_idx = rx_qsize;
 
-    // Setup TX Virtqueue (Index 1)
     outw(io_base + VIRTIO_PCI_QUEUE_SEL, 1);
     uint16_t tx_qsize = inw(io_base + VIRTIO_PCI_QUEUE_SIZE);
     if (tx_qsize > 256) tx_qsize = 256;
     virtqueue_init(&tx_vq, tx_ring_mem, tx_qsize);
     outl(io_base + VIRTIO_PCI_QUEUE_PFN, v2p((uint64_t)(uintptr_t)tx_ring_mem) / 4096);
 
-    // Read MAC
     for (int i = 0; i < 6; i++) {
         mac_addr[i] = inb(io_base + VIRTIO_PCI_CONFIG + i);
     }
@@ -164,10 +151,8 @@ int virtio_net_init(pci_device_t* pci_dev) {
     }
     serial_write("\n");
 
-    // Device OK
     outb(io_base + VIRTIO_PCI_STATUS, 1 | 2 | 4);
 
-    // Kick RX Queue
     outw(io_base + VIRTIO_PCI_QUEUE_NOTIFY, 0);
 
     virtio_initialized = 1;
@@ -178,33 +163,40 @@ int virtio_net_send_packet(const void* data, size_t length) {
     if (!virtio_initialized) return -1;
     if (length > 1514) return -1;
 
-    uint16_t head = tx_vq.last_avail_idx % tx_vq.q_size;
-    uint16_t d_idx = head * 2; // We use 2 descriptors per packet (Header, Data)
+    size_t send_len = length;
+    if (send_len < 60) send_len = 60;
 
-    // Setup header
+    volatile struct vq_used* used = tx_vq.used;
+    uint32_t timeout = 10000000;
+    while ((uint16_t)(tx_vq.last_avail_idx - used->idx) >= (tx_vq.q_size / 2)) {
+        if (--timeout == 0) return -1;
+        __asm__ __volatile__ ("pause");
+    }
+
+    uint16_t head = tx_vq.last_avail_idx % (tx_vq.q_size / 2);
+    uint16_t d_idx = head * 2;
+
     k_memset(&tx_hdr[head], 0, sizeof(struct virtio_net_hdr));
     tx_vq.desc[d_idx].addr = v2p((uint64_t)(uintptr_t)&tx_hdr[head]);
     tx_vq.desc[d_idx].len = sizeof(struct virtio_net_hdr);
     tx_vq.desc[d_idx].flags = VRING_DESC_F_NEXT;
     tx_vq.desc[d_idx].next = d_idx + 1;
 
-    // Setup data
     uint8_t* src = (uint8_t*)data;
     for (size_t i = 0; i < length; i++) tx_buffers[head][i] = src[i];
+    for (size_t i = length; i < send_len; i++) tx_buffers[head][i] = 0;
     
     tx_vq.desc[d_idx + 1].addr = v2p((uint64_t)(uintptr_t)tx_buffers[head]);
-    tx_vq.desc[d_idx + 1].len = length;
-    tx_vq.desc[d_idx + 1].flags = 0; // Not NEXT, Not WRITE
+    tx_vq.desc[d_idx + 1].len = send_len;
+    tx_vq.desc[d_idx + 1].flags = 0; 
     
     tx_vq.avail->ring[tx_vq.avail->idx % tx_vq.q_size] = d_idx;
 
-    __asm__ __volatile__ ("mfence"); // Memory barrier
+    __asm__ __volatile__ ("mfence");
     tx_vq.avail->idx++;
     __asm__ __volatile__ ("mfence");
     
     tx_vq.last_avail_idx++;
-
-    // Notify device
     outw(io_base + VIRTIO_PCI_QUEUE_NOTIFY, 1);
 
     return 0;
@@ -213,16 +205,15 @@ int virtio_net_send_packet(const void* data, size_t length) {
 int virtio_net_receive_packet(void* buffer, size_t buffer_size) {
     if (!virtio_initialized) return 0;
 
-    if (rx_vq.last_used_idx == rx_vq.used->idx) {
-        return 0; // No new packets
+    volatile struct vq_used* used = rx_vq.used;
+    if (rx_vq.last_used_idx == used->idx) {
+        return 0;
     }
 
     uint16_t u_idx = rx_vq.last_used_idx % rx_vq.q_size;
-    uint32_t d_idx = rx_vq.used->ring[u_idx].id;
-    uint32_t len = rx_vq.used->ring[u_idx].len;
+    uint32_t d_idx = used->ring[u_idx].id;
+    uint32_t len = used->ring[u_idx].len;
 
-    // The length includes the virtio_net_hdr (10 bytes)
-    // We must strip it for the caller
     uint16_t net_len = 0;
     if (len > sizeof(struct virtio_net_hdr)) {
         net_len = len - sizeof(struct virtio_net_hdr);
@@ -236,7 +227,6 @@ int virtio_net_receive_packet(void* buffer, size_t buffer_size) {
         }
     }
 
-    // Put buffer back directly in avail ring
     rx_vq.avail->ring[rx_vq.avail->idx % rx_vq.q_size] = d_idx;
     
     __asm__ __volatile__ ("mfence");
