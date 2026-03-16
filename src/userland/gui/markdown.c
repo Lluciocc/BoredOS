@@ -31,14 +31,34 @@ typedef enum {
     MD_LINE_CODE
 } MDLineType;
 
+#define MD_MAX_LINKS 8
+#define COLOR_LINK       0xFF569CD6
+
+typedef struct {
+    char url[256];
+    int start_char;
+    int end_char;
+} MDLink;
+
 typedef struct {
     char content[256];
     int length;
     MDLineType type;
     int indent_level;
+    MDLink links[MD_MAX_LINKS];
+    int link_count;
 } MDLine;
 
-static MDLine lines[MD_MAX_LINES];
+#define MD_MAX_CLICK_LINKS 128
+typedef struct {
+    int x, y, w, h;
+    char url[256];
+} ClickLink;
+static ClickLink click_links[MD_MAX_CLICK_LINKS];
+static int click_link_count = 0;
+
+static MDLine *lines = NULL;
+static int line_capacity = 0;
 static int line_count = 0;
 static int scroll_top = 0;
 static char open_filename[256] = "";
@@ -67,15 +87,17 @@ static int md_strncpy(char *dest, const char *src, int n) {
     return i;
 }
 
-static void md_parse_line(const char *raw_line, char *output, MDLineType *type, int *indent) {
+static void md_parse_line(const char *raw_line, MDLine *line_out) {
     int i = 0;
     int out_idx = 0;
-    *indent = 0;
-    *type = MD_LINE_NORMAL;
+    int indent = 0;
+    MDLineType type = MD_LINE_NORMAL;
+    line_out->link_count = 0;
+    char *output = line_out->content;
     
     while (raw_line[i] == ' ' || raw_line[i] == '\t') {
-        if (raw_line[i] == '\t') *indent += 2;
-        else *indent += 1;
+        if (raw_line[i] == '\t') indent += 2;
+        else indent += 1;
         i++;
     }
     
@@ -87,17 +109,17 @@ static void md_parse_line(const char *raw_line, char *output, MDLineType *type, 
         }
         if (raw_line[i] == ' ') i++;
         
-        if (hash_count == 1) *type = MD_LINE_HEADING1;
-        else if (hash_count == 2) *type = MD_LINE_HEADING2;
-        else if (hash_count <= 6) *type = MD_LINE_HEADING3;
+        if (hash_count == 1) type = MD_LINE_HEADING1;
+        else if (hash_count == 2) type = MD_LINE_HEADING2;
+        else if (hash_count <= 6) type = MD_LINE_HEADING3;
     } else if (raw_line[i] == '-' || raw_line[i] == '*') {
         if ((raw_line[i] == '-' || raw_line[i] == '*') && (raw_line[i+1] == ' ' || raw_line[i+1] == '\t')) {
-            *type = MD_LINE_LIST;
+            type = MD_LINE_LIST;
             i += 2;
             while (raw_line[i] == ' ' || raw_line[i] == '\t') i++;
         }
     } else if (raw_line[i] == '>') {
-        *type = MD_LINE_BLOCKQUOTE;
+        type = MD_LINE_BLOCKQUOTE;
         i++;
         if (raw_line[i] == ' ') i++;
     }
@@ -105,56 +127,70 @@ static void md_parse_line(const char *raw_line, char *output, MDLineType *type, 
     while (raw_line[i] && out_idx < 255) {
         if (raw_line[i] == '*' && raw_line[i+1] == '*') {
             i += 2;
-            while (raw_line[i] && !(raw_line[i] == '*' && raw_line[i+1] == '*') && out_idx < 255) {
-                output[out_idx++] = raw_line[i++];
-            }
-            if (raw_line[i] == '*' && raw_line[i+1] == '*') i += 2;
             continue;
         }
-        if ((raw_line[i] == '*' || raw_line[i] == '_') && out_idx > 0 && raw_line[i-1] != '\\') {
-            char delim = raw_line[i];
+        if ((raw_line[i] == '*' || raw_line[i] == '_') && (i == 0 || raw_line[i-1] != '\\')) {
             i++;
-            while (raw_line[i] && raw_line[i] != delim && out_idx < 255) {
-                output[out_idx++] = raw_line[i++];
-            }
-            if (raw_line[i] == delim) i++;
             continue;
         }
         if (raw_line[i] == '`') {
             i++;
-            while (raw_line[i] && raw_line[i] != '`' && out_idx < 255) {
-                output[out_idx++] = raw_line[i++];
-            }
-            if (raw_line[i] == '`') i++;
             continue;
         }
         if (raw_line[i] == '[') {
+            int link_start_char = out_idx;
             i++;
             while (raw_line[i] && raw_line[i] != ']' && out_idx < 255) {
                 output[out_idx++] = raw_line[i++];
             }
+            int link_end_char = out_idx;
             if (raw_line[i] == ']') i++;
+            char url[256]; url[0] = 0;
             if (raw_line[i] == '(') {
-                while (raw_line[i] && raw_line[i] != ')') i++;
+                i++;
+                int u_idx = 0;
+                while (raw_line[i] && raw_line[i] != ')' && u_idx < 255) {
+                    url[u_idx++] = raw_line[i++];
+                }
+                url[u_idx] = 0;
                 if (raw_line[i] == ')') i++;
+                
+                if (line_out->link_count < MD_MAX_LINKS && link_end_char > link_start_char) {
+                    MDLink *link = &line_out->links[line_out->link_count++];
+                    link->start_char = link_start_char;
+                    link->end_char = link_end_char;
+                    md_strcpy(link->url, url);
+                }
             }
             continue;
         }
         output[out_idx++] = raw_line[i++];
     }
     output[out_idx] = 0;
+    line_out->type = type;
+    line_out->indent_level = indent;
 }
 
 static void md_clear_all(void) {
-    for (int i = 0; i < MD_MAX_LINES; i++) {
-        lines[i].content[0] = 0;
-        lines[i].length = 0;
-        lines[i].type = MD_LINE_NORMAL;
-        lines[i].indent_level = 0;
+    if (lines) {
+        for (int i = 0; i < line_count; i++) {
+            lines[i].content[0] = 0;
+            lines[i].length = 0;
+            lines[i].type = MD_LINE_NORMAL;
+            lines[i].indent_level = 0;
+            lines[i].link_count = 0;
+        }
     }
     line_count = 0;
     scroll_top = 0;
     open_filename[0] = 0;
+}
+
+static void ensure_line_capacity(int line) {
+    if (line >= line_capacity) {
+        line_capacity = (line_capacity == 0) ? 256 : line_capacity * 2;
+        lines = realloc(lines, sizeof(MDLine) * line_capacity);
+    }
 }
 
 void markdown_open_file(const char *filename) {
@@ -164,25 +200,48 @@ void markdown_open_file(const char *filename) {
     int fd = sys_open(filename, "r");
     if (fd < 0) return;
     
-    static char buffer[MD_MAX_CONTENT];
-    int bytes_read = sys_read(fd, buffer, sizeof(buffer) - 1);
+    int buf_cap = 16384;
+    int buf_size = 0;
+    char *buffer = malloc(buf_cap);
+    if (!buffer) { sys_close(fd); return; }
+    
+    while (1) {
+        int r = sys_read(fd, buffer + buf_size, buf_cap - buf_size - 1);
+        if (r <= 0) break;
+        buf_size += r;
+        if (buf_size >= buf_cap - 1) {
+            buf_cap *= 2;
+            char *new_buf = realloc(buffer, buf_cap);
+            if (!new_buf) break;
+            buffer = new_buf;
+        }
+    }
     sys_close(fd);
     
-    if (bytes_read <= 0) return;
-    buffer[bytes_read] = 0;
+    if (buf_size <= 0) {
+        free(buffer);
+        return;
+    }
+    buffer[buf_size] = 0;
+    
+    if (!lines) {
+        line_capacity = 256;
+        lines = malloc(sizeof(MDLine) * line_capacity);
+    }
     
     int line = 0;
     int col = 0;
     char raw_line[256] = "";
     bool in_code_block = false;
     
-    for (int i = 0; i < bytes_read && line < MD_MAX_LINES; i++) {
+    for (int i = 0; i < buf_size; i++) {
         char ch = buffer[i];
         if (ch == '\n') {
             raw_line[col] = 0;
             if (raw_line[0] == '`' && raw_line[1] == '`' && raw_line[2] == '`') {
                 in_code_block = !in_code_block;
             } else {
+                ensure_line_capacity(line);
                 if (in_code_block) {
                     md_strcpy(lines[line].content, raw_line);
                     lines[line].length = md_strlen(raw_line);
@@ -190,14 +249,8 @@ void markdown_open_file(const char *filename) {
                     lines[line].indent_level = 0;
                     line++;
                 } else {
-                    char parsed_content[256];
-                    MDLineType type;
-                    int indent;
-                    md_parse_line(raw_line, parsed_content, &type, &indent);
-                    md_strcpy(lines[line].content, parsed_content);
-                    lines[line].length = md_strlen(parsed_content);
-                    lines[line].type = type;
-                    lines[line].indent_level = indent;
+                    md_parse_line(raw_line, &lines[line]);
+                    lines[line].length = md_strlen(lines[line].content);
                     line++;
                 }
             }
@@ -208,28 +261,26 @@ void markdown_open_file(const char *filename) {
         }
     }
     
-    if (col > 0 && line < MD_MAX_LINES) {
+    if (col > 0) {
         raw_line[col] = 0;
         if (raw_line[0] == '`' && raw_line[1] == '`' && raw_line[2] == '`') {
-        } else if (in_code_block) {
-            md_strcpy(lines[line].content, raw_line);
-            lines[line].length = md_strlen(raw_line);
-            lines[line].type = MD_LINE_CODE;
-            lines[line].indent_level = 0;
-            line++;
         } else {
-            char parsed_content[256];
-            MDLineType type;
-            int indent;
-            md_parse_line(raw_line, parsed_content, &type, &indent);
-            md_strcpy(lines[line].content, parsed_content);
-            lines[line].length = md_strlen(parsed_content);
-            lines[line].type = type;
-            lines[line].indent_level = indent;
-            line++;
+            ensure_line_capacity(line);
+            if (in_code_block) {
+                md_strcpy(lines[line].content, raw_line);
+                lines[line].length = md_strlen(raw_line);
+                lines[line].type = MD_LINE_CODE;
+                lines[line].indent_level = 0;
+                line++;
+            } else {
+                md_parse_line(raw_line, &lines[line]);
+                lines[line].length = md_strlen(lines[line].content);
+                line++;
+            }
         }
     }
     line_count = line;
+    free(buffer);
 }
 
 static void md_draw_text_bold(ui_window_t win, int x, int y, const char *text, uint32_t color) {
@@ -238,6 +289,8 @@ static void md_draw_text_bold(ui_window_t win, int x, int y, const char *text, u
 }
 
 static void md_paint(ui_window_t win) {
+    ui_draw_rect(win, 0, 0, win_w, win_h, COLOR_DARK_BG);
+    click_link_count = 0;
     int offset_x = 4;
     int offset_y = 0;
     int content_width = win_w - 8;
@@ -250,28 +303,28 @@ static void md_paint(ui_window_t win) {
     int btn_x_up = offset_x + content_width - 50;
     int btn_y = offset_y + 2;
     ui_draw_rounded_rect_filled(win, btn_x_up, btn_y, 20, 16, 4, COLOR_DARK_TITLEBAR);
-    ui_draw_string(win, btn_x_up + 6, btn_y, "^", COLOR_DARK_TEXT);
+    ui_draw_string(win, btn_x_up + 6, btn_y + 4, "^", COLOR_DARK_TEXT);
     ui_draw_rounded_rect_filled(win, btn_x_up + 24, btn_y, 20, 16, 4, COLOR_DARK_TITLEBAR);
     ui_draw_string(win, btn_x_up + 30, btn_y, "v", COLOR_DARK_TEXT);
     
     int content_start_y = offset_y + 24;
-    int content_start_x = offset_x + 4;
-    int usable_content_width = content_width - 8 - 20;
-    int usable_content_height = content_height - 28;
-    int max_display_lines = usable_content_height / MD_LINE_HEIGHT;
+    int content_start_x = offset_x + 8;
+    int usable_content_width = win_w - 24;
+    int usable_content_height = win_h - content_start_y - 4;
     
-    ui_draw_rounded_rect_filled(win, 4, content_start_y, win_w - 24, usable_content_height, 6, COLOR_DARK_BG);
+    ui_draw_rounded_rect_filled(win, 4, content_start_y, win_w - 8, usable_content_height, 6, COLOR_DARK_BG);
     
-    int display_line = 0;
+    int current_y = content_start_y + 4;
     int i = scroll_top;
     
-    while (i < line_count && display_line < max_display_lines) {
+    while (i < line_count && current_y < content_start_y + usable_content_height) {
         MDLine *line = &lines[i];
         
         int line_height = MD_LINE_HEIGHT;
         int extra_spacing = 0;
         uint32_t text_color = COLOR_DARK_TEXT;
         bool use_bold = false;
+        float text_scale = 15.0f;
         
         switch (line->type) {
             case MD_LINE_HEADING1:
@@ -279,17 +332,20 @@ static void md_paint(ui_window_t win) {
                 text_color = 0xFF87CEEB;
                 use_bold = true;
                 extra_spacing = 4;
+                text_scale = 30.0f;
                 break;
             case MD_LINE_HEADING2:
                 line_height = MD_LINE_HEIGHT + 6;
                 text_color = 0xFF4A90E2;
                 use_bold = true;
                 extra_spacing = 2;
+                text_scale = 24.0f;
                 break;
             case MD_LINE_HEADING3:
                 line_height = MD_LINE_HEIGHT + 2;
                 text_color = 0xFF87CEEB;
                 use_bold = false;
+                text_scale = 18.0f;
                 break;
             case MD_LINE_BLOCKQUOTE:
                 text_color = 0xFFA0A0A0;
@@ -302,32 +358,65 @@ static void md_paint(ui_window_t win) {
                 break;
         }
         
-        if (display_line + (line_height / MD_LINE_HEIGHT) > max_display_lines) break;
+        if (current_y + line_height > content_start_y + usable_content_height) break;
         
-        int x_offset = content_start_x + (line->indent_level * 4);
+        int start_x = content_start_x + (line->indent_level * 4);
         int available_width = usable_content_width - (line->indent_level * 4);
-        int max_chars_per_line = available_width / MD_CHAR_WIDTH;
-        if (max_chars_per_line < 1) max_chars_per_line = 1;
         
+        if (line->type == MD_LINE_LIST) {
+            start_x += 12;
+            available_width -= 12;
+        }
+        
+        int x_offset = start_x;
+        int local_display_line = 0;
         const char *text = line->content;
         int text_len = line->length;
         int char_idx = 0;
-        int local_display_line = 0;
-        int wrapped_line_count = 0;
+        
+        if (line->type == MD_LINE_LIST && text_len > 0 && text[0] == ' ') {
+            char_idx++;
+        }
         
         while (char_idx < text_len || (text_len == 0 && local_display_line == 0)) {
-            int line_y = content_start_y + display_line * MD_LINE_HEIGHT + (local_display_line * MD_LINE_HEIGHT);
+            int limit = 0;
+            int cur_w = 0;
+            int test_idx = char_idx;
+            while (test_idx < text_len) {
+                char tmp[2] = {text[test_idx], 0};
+                int char_w = (text_scale != 15.0f) ? ui_get_string_width_scaled(tmp, text_scale) : MD_CHAR_WIDTH;
+                if (x_offset - start_x + cur_w + char_w > available_width && limit > 0) break;
+                cur_w += char_w;
+                limit++;
+                test_idx++;
+            }
+            if (limit < 1) limit = 1;
+            
+            bool hit_max_width = (test_idx < text_len);
+            
+            int next_boundary = text_len;
+            for (int l = 0; l < line->link_count; l++) {
+                 if (line->links[l].start_char > char_idx && line->links[l].start_char < next_boundary) next_boundary = line->links[l].start_char;
+                 if (line->links[l].end_char > char_idx && line->links[l].end_char < next_boundary) next_boundary = line->links[l].end_char;
+            }
+            
+            bool hit_boundary = false;
+            if (next_boundary - char_idx <= limit && next_boundary > char_idx) {
+                limit = next_boundary - char_idx;
+                hit_boundary = true;
+                hit_max_width = false;
+            }
             
             char line_segment[256];
             int segment_len = 0;
             int segment_start = char_idx;
             
-            while (char_idx < text_len && segment_len < max_chars_per_line) {
+            while (segment_len < limit && char_idx < text_len) {
                 line_segment[segment_len++] = text[char_idx++];
             }
             line_segment[segment_len] = 0;
             
-            if (char_idx < text_len && segment_len > 0) {
+            if (hit_max_width && !hit_boundary) {
                 int last_space = -1;
                 for (int j = segment_len - 1; j >= 0; j--) {
                     if (line_segment[j] == ' ') {
@@ -342,41 +431,69 @@ static void md_paint(ui_window_t win) {
                 }
             }
             
-            if (line->type == MD_LINE_CODE && segment_len > 0) {
-                ui_draw_rect(win, x_offset - 2, line_y - 2, (segment_len * MD_CHAR_WIDTH) + 4, 12, COLOR_BLACK);
-            }
-
-            if (local_display_line == 0) {
-                switch (line->type) {
-                    case MD_LINE_LIST:
-                        ui_draw_rect(win, x_offset, line_y + MD_LINE_HEIGHT/2 - 1, 2, 2, COLOR_BLACK);
-                        x_offset += 12;
-                        if (segment_len > 0 && line_segment[0] == ' ') {
-                            for (int j = 0; j < segment_len - 1; j++) line_segment[j] = line_segment[j + 1];
-                            segment_len--;
-                        }
-                        break;
-                    case MD_LINE_BLOCKQUOTE:
-                        ui_draw_rect(win, x_offset - 4, line_y, 2, line_height, 0xFF404080);
-                        break;
-                    default: break;
+            if (x_offset == start_x && local_display_line == 0) {
+                if (line->type == MD_LINE_LIST) {
+                    ui_draw_rect(win, start_x - 12, current_y + MD_LINE_HEIGHT/2 - 1, 2, 2, COLOR_BLACK);
+                } else if (line->type == MD_LINE_BLOCKQUOTE) {
+                    ui_draw_rect(win, start_x - 4, current_y, 2, line_height, 0xFF404080);
                 }
             }
             
             if (segment_len > 0) {
-                if (use_bold) {
-                    md_draw_text_bold(win, x_offset, line_y + extra_spacing, line_segment, text_color);
-                } else {
-                    ui_draw_string(win, x_offset, line_y, line_segment, text_color);
+                int link_idx = -1;
+                for (int l = 0; l < line->link_count; l++) {
+                    if (segment_start >= line->links[l].start_char && segment_start < line->links[l].end_char) {
+                        link_idx = l;
+                        break;
+                    }
                 }
+                uint32_t draw_color = (link_idx != -1) ? COLOR_LINK : text_color;
+                
+                if (line->type == MD_LINE_CODE) {
+                    int seg_w = (text_scale != 15.0f) ? ui_get_string_width_scaled(line_segment, text_scale) : segment_len * MD_CHAR_WIDTH;
+                    ui_draw_rect(win, x_offset - 2, current_y - 2, seg_w + 4, 12, COLOR_BLACK);
+                }
+                
+                if (text_scale != 15.0f) {
+                    ui_draw_string_scaled(win, x_offset, current_y + extra_spacing, line_segment, draw_color, text_scale);
+                    if (use_bold) ui_draw_string_scaled(win, x_offset + 1, current_y + extra_spacing, line_segment, draw_color, text_scale);
+                } else {
+                    if (use_bold) {
+                        md_draw_text_bold(win, x_offset, current_y + extra_spacing, line_segment, draw_color);
+                    } else {
+                        ui_draw_string(win, x_offset, current_y, line_segment, draw_color);
+                    }
+                }
+                
+                int text_w = (text_scale != 15.0f) ? ui_get_string_width_scaled(line_segment, text_scale) : segment_len * MD_CHAR_WIDTH;
+                
+                if (link_idx != -1) {
+                    int ul_y = current_y + extra_spacing + (int)text_scale - 2;
+                    if (text_scale == 15.0f) ul_y = current_y + extra_spacing + MD_LINE_HEIGHT - 3;
+                    ui_draw_rect(win, x_offset, ul_y, text_w, 1, draw_color);
+                    
+                    if (click_link_count < MD_MAX_CLICK_LINKS) {
+                        ClickLink *cl = &click_links[click_link_count++];
+                        cl->x = x_offset;
+                        cl->y = current_y;
+                        cl->w = text_w;
+                        cl->h = line_height;
+                        md_strcpy(cl->url, line->links[link_idx].url);
+                    }
+                }
+                
+                x_offset += text_w;
             }
             
-            local_display_line++;
-            wrapped_line_count++;
-            if (char_idx >= text_len) break;
+            if (char_idx < text_len && !hit_boundary) {
+                x_offset = start_x;
+                current_y += line_height;
+                local_display_line++;
+            } else if (char_idx >= text_len) {
+                current_y += line_height;
+                local_display_line++;
+            }
         }
-        
-        display_line += (wrapped_line_count > 0 ? wrapped_line_count : 1);
         i++;
     }
 }
@@ -395,6 +512,34 @@ static void md_handle_key(char c, bool pressed) {
 }
 
 static void md_handle_click(int x, int y) {
+    for (int i = 0; i < click_link_count; i++) {
+        if (x >= click_links[i].x && x < click_links[i].x + click_links[i].w &&
+            y >= click_links[i].y && y < click_links[i].y + click_links[i].h) {
+            
+            char full_path[512];
+            int last_slash = -1;
+            for (int k = 0; open_filename[k]; k++) {
+                if (open_filename[k] == '/') last_slash = k;
+            }
+            if (last_slash >= 0) {
+                int k;
+                for (k = 0; k <= last_slash; k++) full_path[k] = open_filename[k];
+                full_path[k] = 0;
+            } else {
+                full_path[0] = 0;
+            }
+            
+            char *d = full_path;
+            while (*d) d++;
+            const char *s = click_links[i].url;
+            while (*s) *d++ = *s++;
+            *d = 0;
+            
+            markdown_open_file(full_path);
+            return;
+        }
+    }
+
     int content_width = win_w - 8;
     int btn_x_up = 4 + content_width - 50;
     int btn_y = 2;
@@ -418,30 +563,40 @@ int main(int argc, char **argv) {
     ui_window_t win = ui_window_create("Markdown Viewer", 150, 180, win_w, win_h);
     if (!win) return 1;
 
+    ui_window_set_resizable(win, true);
+
     md_clear_all();
     if (argc > 1) {
         markdown_open_file(argv[1]);
     }
 
     gui_event_t ev;
+    bool needs_repaint = false;
     while (1) {
-        if (ui_get_event(win, &ev)) {
-            if (ev.type == GUI_EVENT_PAINT) {
-                md_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
+        while (ui_get_event(win, &ev)) {
+            if (ev.type == 11) { // GUI_EVENT_RESIZE
+                win_w = ev.arg1;
+                win_h = ev.arg2;
+                needs_repaint = true;
+            } else if (ev.type == GUI_EVENT_PAINT) {
+                needs_repaint = true;
             } else if (ev.type == GUI_EVENT_CLICK) {
                 md_handle_click(ev.arg1, ev.arg2);
-                md_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
+                needs_repaint = true;
             } else if (ev.type == GUI_EVENT_KEY) {
                 md_handle_key((char)ev.arg1, true);
-                md_paint(win);
-                ui_mark_dirty(win, 0, 0, win_w, win_h - 20);
+                needs_repaint = true;
             } else if (ev.type == GUI_EVENT_KEYUP) {
                 md_handle_key((char)ev.arg1, false);
             } else if (ev.type == GUI_EVENT_CLOSE) {
                 sys_exit(0);
             }
+        }
+        
+        if (needs_repaint) {
+            md_paint(win);
+            ui_mark_dirty(win, 0, 0, win_w, win_h);
+            needs_repaint = false;
         } else {
             sleep(10);
         }
