@@ -251,3 +251,7 @@ void sys_yield(void) {
     syscall1(SYS_SYSTEM, SYSTEM_CMD_YIELD);
 }
 
+int sys_get_os_info(os_info_t *info) {
+    return (int)syscall5(SYS_SYSTEM, SYSTEM_CMD_GET_OS_INFO, (uint64_t)info, 0, 0, 0);
+}
+

@@ -1258,6 +1258,12 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 return 0;
             }
             return -1;
+        } else if (cmd == 49) { // SYSTEM_CMD_GET_OS_INFO
+            os_info_t *info = (os_info_t *)arg2;
+            if (!info) return -1;
+            extern void get_os_info(os_info_t *info);
+            get_os_info(info);
+            return 0;
         }
         return -1;
     }

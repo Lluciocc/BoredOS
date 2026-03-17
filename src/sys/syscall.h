@@ -10,6 +10,17 @@
 typedef struct Window Window;
 typedef struct registers_t registers_t;
 
+typedef struct {
+    char os_name[64];
+    char os_version[64];
+    char os_codename[64];
+    char kernel_name[64];
+    char kernel_version[64];
+    char build_date[64];
+    char build_time[64];
+    char build_arch[64];
+} os_info_t;
+
 // MSRs used for syscalls in x86_64
 #define MSR_EFER       0xC0000080
 #define MSR_STAR       0xC0000081
@@ -46,6 +57,7 @@ typedef struct registers_t registers_t;
 #define SYSTEM_CMD_GET_CPU_MODEL 45
 #define SYSTEM_CMD_SLEEP 46
 #define SYSTEM_CMD_SET_RESOLUTION 47
+#define SYSTEM_CMD_GET_OS_INFO 49
 
 void syscall_init(void);
 uint64_t syscall_handler_c(registers_t *regs);

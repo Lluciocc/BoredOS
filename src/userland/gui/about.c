@@ -84,10 +84,9 @@ static void draw_ascii_logo(ui_window_t win, int x, int y) {
 }
 
 static void about_paint(ui_window_t win) {
-    int w = 340;
-    int h = 240;
+    int w = 380;
+    int h = 260;
     
-    // Clear background to prevent alpha-blended text from accumulating on repaints
     ui_draw_rect(win, 0, 0, w, h, 0xFF1E1E1E);
     
     int offset_x = 15;
@@ -96,19 +95,51 @@ static void about_paint(ui_window_t win) {
     draw_ascii_logo(win, 14, offset_y);
     
     int fh = ui_get_font_height();
-    ui_draw_string(win, offset_x, offset_y + 105, "BoredOS 'Retrowave'", 0xFFFFFFFF);
-    ui_draw_string(win, offset_x, offset_y + 105 + fh, "BoredOS Version 1.72", 0xFFFFFFFF);
-    ui_draw_string(win, offset_x, offset_y + 105 + fh*2, "Kernel Version 3.1.2", 0xFFFFFFFF);
+    os_info_t os_info;
+    sys_get_os_info(&os_info);
+    
+    char os_name_str[128];
+    os_name_str[0] = 0;
+    strcat(os_name_str, os_info.os_name);
+    strcat(os_name_str, " '");
+    strcat(os_name_str, os_info.os_codename);
+    strcat(os_name_str, "'");
+
+    char os_version_str[128];
+    os_version_str[0] = 0;
+    strcat(os_version_str, os_info.os_name);
+    strcat(os_version_str, " Version ");
+    strcat(os_version_str, os_info.os_version);
+    
+    char kernel_version_str[128];
+    kernel_version_str[0] = 0;
+    strcat(kernel_version_str, os_info.kernel_name);
+    strcat(kernel_version_str, " Version ");
+    strcat(kernel_version_str, os_info.kernel_version);
+    strcat(kernel_version_str, " ");
+    strcat(kernel_version_str, os_info.build_arch);
+
+    char build_date_str[128];
+    build_date_str[0] = 0;
+    strcat(build_date_str, "Build Date: ");
+    strcat(build_date_str, os_info.build_date);
+    strcat(build_date_str, " ");
+    strcat(build_date_str, os_info.build_time);
+
+    ui_draw_string(win, offset_x, offset_y + 105, os_name_str, 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 105 + fh, os_version_str, 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 105 + fh*2, kernel_version_str, 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 105 + fh*3, build_date_str, 0xFFFFFFFF);
     
     // Copyright
-    ui_draw_string(win, offset_x, offset_y + 105 + fh*3, "(C) 2026 boreddevnl.", 0xFFFFFFFF);
-    ui_draw_string(win, offset_x, offset_y + 105 + fh*4, "All rights reserved.", 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 105 + fh*4, "(C) 2026 boreddevnl.", 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, offset_y + 105 + fh*5, "All rights reserved.", 0xFFFFFFFF);
     
     ui_mark_dirty(win, 0, 0, w, h);
 }
 
 int main(void) {
-    ui_window_t win_about = ui_window_create("About BoredOS", 250, 180, 340, 240);
+    ui_window_t win_about = ui_window_create("About BoredOS", 250, 180, 380, 260);
     
     about_paint(win_about);
     
@@ -121,7 +152,6 @@ int main(void) {
                 sys_exit(0);
             }
         } else {
-            // Avoid high CPU usage
             sleep(10);
         }
     }

@@ -75,6 +75,7 @@
 #define SYSTEM_CMD_SET_RAW_MODE 41
 #define SYSTEM_CMD_TCP_RECV_NB 42
 #define SYSTEM_CMD_YIELD 43
+#define SYSTEM_CMD_GET_OS_INFO 49
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);
@@ -90,6 +91,19 @@ int sys_write(int fd, const char *buf, int len);
 void *sys_sbrk(int incr);
 void sys_kill(int pid);
 int sys_system(int cmd, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4);
+
+typedef struct {
+    char os_name[64];
+    char os_version[64];
+    char os_codename[64];
+    char kernel_name[64];
+    char kernel_version[64];
+    char build_date[64];
+    char build_time[64];
+    char build_arch[64];
+} os_info_t;
+
+int sys_get_os_info(os_info_t *info);
 
 // FS API
 int sys_open(const char *path, const char *mode);

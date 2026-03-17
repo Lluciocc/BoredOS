@@ -237,13 +237,29 @@ int main(int argc, char **argv) {
     if (config.separator[0]) {
         strcpy(info_lines[info_line_count++], config.separator);
     }
+    os_info_t os_info;
+    sys_get_os_info(&os_info);
+
     if (config.os_label[0]) {
         strcpy(info_lines[info_line_count], config.os_label);
-        strcat(info_lines[info_line_count++], ": BoredOS V1.72 'Retrowave'");
+        strcat(info_lines[info_line_count], ": ");
+        strcat(info_lines[info_line_count], os_info.os_name);
+        strcat(info_lines[info_line_count], " V");
+        strcat(info_lines[info_line_count], os_info.os_version);
+        strcat(info_lines[info_line_count], " '");
+        strcat(info_lines[info_line_count], os_info.os_codename);
+        strcat(info_lines[info_line_count], "'");
+        info_line_count++;
     }
     if (config.kernel_label[0]) {
         strcpy(info_lines[info_line_count], config.kernel_label);
-        strcat(info_lines[info_line_count++], ": Boredkernel V3.1.2 x86_64");
+        strcat(info_lines[info_line_count], ": ");
+        strcat(info_lines[info_line_count], os_info.kernel_name);
+        strcat(info_lines[info_line_count], " V");
+        strcat(info_lines[info_line_count], os_info.kernel_version);
+        strcat(info_lines[info_line_count], " ");
+        strcat(info_lines[info_line_count], os_info.build_arch);
+        info_line_count++;
     }
     if (config.uptime_label[0]) {
         uint64_t ticks = sys_system(16, 0, 0, 0, 0);
