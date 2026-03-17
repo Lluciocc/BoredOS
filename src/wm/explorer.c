@@ -87,6 +87,25 @@ static int explorer_strcmp(const char *s1, const char *s2) {
     return *(const unsigned char*)s1 - *(const unsigned char*)s2;
 }
 
+static int explorer_strcasecmp(const char *s1, const char *s2) {
+    while (*s1 && *s2) {
+        char c1 = *s1;
+        char c2 = *s2;
+        if (c1 >= 'A' && c1 <= 'Z') c1 += 32;
+        if (c2 >= 'A' && c2 <= 'Z') c2 += 32;
+        if (c1 != c2) {
+            return (unsigned char)c1 - (unsigned char)c2;
+        }
+        s1++;
+        s2++;
+    }
+    char c1 = *s1;
+    char c2 = *s2;
+    if (c1 >= 'A' && c1 <= 'Z') c1 += 32;
+    if (c2 >= 'A' && c2 <= 'Z') c2 += 32;
+    return (unsigned char)c1 - (unsigned char)c2;
+}
+
 void explorer_strcat(char *dest, const char *src) {
     while (*dest) dest++;
     explorer_strcpy(dest, src);
@@ -702,6 +721,24 @@ static void explorer_load_directory(Window *win, const char *path) {
     
     state->item_count = temp_count;
     
+    for (int i = 0; i < temp_count - 1; i++) {
+        for (int j = 0; j < temp_count - i - 1; j++) {
+            bool swap = false;
+            if (state->items[j].is_directory == state->items[j+1].is_directory) {
+                if (explorer_strcasecmp(state->items[j].name, state->items[j+1].name) > 0) {
+                    swap = true;
+                }
+            } else if (!state->items[j].is_directory && state->items[j+1].is_directory) {
+                swap = true;
+            }
+            if (swap) {
+                ExplorerItem temp = state->items[j];
+                state->items[j] = state->items[j+1];
+                state->items[j+1] = temp;
+            }
+        }
+    }
+
     kfree(entries);
     if (path_changed) {
         state->selected_item = -1;
