@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "limine.h"
 #include "platform.h"
+#include "spinlock.h"
 
 // --- Internal State ---
 // memory_pool is no longer a single pointer, as we now manage multiple regions.
@@ -16,6 +17,7 @@ static size_t total_allocated = 0;
 static size_t peak_allocated = 0;
 static uint32_t allocation_counter = 0;
 static bool initialized = false;
+static spinlock_t mm_lock = SPINLOCK_INIT;
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint32_t n);
@@ -174,8 +176,7 @@ static void remove_block_at(int idx) {
 void* kmalloc_aligned(size_t size, size_t alignment) {
     if (!initialized || size == 0) return NULL;
     
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    uint64_t rflags = spinlock_acquire_irqsave(&mm_lock);
 
     if (alignment == 0) alignment = 8;
     size = (size + 7) & ~7ULL; // Ensure size is multiple of 8
@@ -245,12 +246,12 @@ void* kmalloc_aligned(size_t size, size_t alignment) {
             if (total_allocated > peak_allocated) peak_allocated = total_allocated;
 
             mem_memset(ptr, 0, size);
-            asm volatile("push %0; popfq" : : "r"(rflags));
+            spinlock_release_irqrestore(&mm_lock, rflags);
             return ptr;
         }
     }
 
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&mm_lock, rflags);
     return NULL;
 }
 
@@ -261,8 +262,7 @@ void* kmalloc(size_t size) {
 void kfree(void *ptr) {
     if (ptr == NULL || !initialized) return;
     
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    uint64_t rflags = spinlock_acquire_irqsave(&mm_lock);
 
     int block_idx = -1;
     for (int i = 0; i < block_count; i++) {
@@ -273,7 +273,7 @@ void kfree(void *ptr) {
     }
 
     if (block_idx == -1) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&mm_lock, rflags);
         return;
     }
 
@@ -301,7 +301,7 @@ void kfree(void *ptr) {
         }
     }
 
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&mm_lock, rflags);
 }
 
 void* krealloc(void *ptr, size_t new_size) {

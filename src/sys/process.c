@@ -10,6 +10,7 @@
 #include "memory_manager.h"
 #include "elf.h"
 #include "wm.h"
+#include "spinlock.h"
 
 extern void cmd_write(const char *str);
 extern void serial_write(const char *str);
@@ -20,6 +21,7 @@ int process_count = 0;
 static process_t* current_process = NULL;
 static uint32_t next_pid = 0;
 static void *free_kernel_stack_later = NULL;
+static spinlock_t runqueue_lock = SPINLOCK_INIT;
 
 void process_init(void) {
     for (int i = 0; i < MAX_PROCESSES; i++) {
@@ -132,11 +134,10 @@ void process_create(void* entry_point, bool is_user) {
     new_proc->fpu_initialized = true;
     
     // Add to linked list (Critical Section)
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
     new_proc->next = current_process->next;
     current_process->next = new_proc;
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&runqueue_lock, rflags);
 }
 
 process_t* process_create_elf(const char* filepath, const char* args_str) {
@@ -316,11 +317,10 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     new_proc->fpu_initialized = true;
 
     // Add to linked list (Critical Section)
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
     new_proc->next = current_process->next;
     current_process->next = new_proc;
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&runqueue_lock, rflags);
     
     serial_write("[PROCESS] Spawned ELF Executable: ");
     serial_write(filepath);
@@ -411,8 +411,7 @@ static void process_cleanup_inner(process_t *proc) {
 void process_terminate(process_t *to_delete) {
     if (!to_delete || to_delete->pid == 0xFFFFFFFF || to_delete->pid == 0) return;
 
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
 
     process_cleanup_inner(to_delete);
 
@@ -424,7 +423,7 @@ void process_terminate(process_t *to_delete) {
 
     if (prev == to_delete) {
         // Only one process (should be kernel), cannot terminate.
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
         return;
     }
 
@@ -459,15 +458,14 @@ void process_terminate(process_t *to_delete) {
     to_delete->kernel_stack_alloc = NULL;
     to_delete->pml4_phys = 0;
 
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&runqueue_lock, rflags);
 }
 
 uint64_t process_terminate_current(void) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
 
     if (!current_process || current_process->pid == 0) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
         return 0;
     }
     
@@ -484,7 +482,7 @@ uint64_t process_terminate_current(void) {
     
     if (prev == current_process) {
         // Only one process (should be kernel), cannot terminate.
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
         return to_delete->rsp;
     }
 
@@ -520,7 +518,7 @@ uint64_t process_terminate_current(void) {
     to_delete->pml4_phys = 0;
     
     uint64_t next_rsp = current_process->rsp;
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&runqueue_lock, rflags);
     return next_rsp;
 }
 

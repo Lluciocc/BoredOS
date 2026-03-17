@@ -48,4 +48,11 @@ struct gdt_ptr {
 void gdt_init(void);
 void tss_set_stack(uint64_t kernel_stack);
 
+// SMP: Initialize per-CPU TSS entries. Call after smp detects cpu_count.
+void gdt_init_ap_tss(uint32_t cpu_count);
+// SMP: Load the TSS for a specific CPU (called from AP entry).
+void gdt_load_ap_tss(uint32_t cpu_id);
+// SMP: Set kernel stack for a specific CPU's TSS.
+void tss_set_stack_cpu(uint32_t cpu_id, uint64_t kernel_stack);
+
 #endif

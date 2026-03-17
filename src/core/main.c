@@ -19,6 +19,8 @@
 #include "memory_manager.h"
 #include "platform.h"
 #include "wallpaper.h"
+#include "smp.h"
+#include "work_queue.h"
 
 // --- Limine Requests ---
 __attribute__((used, section(".requests")))
@@ -42,11 +44,19 @@ static volatile struct limine_module_request module_request = {
     .revision = 0
 };
 
+__attribute__((used, section(".requests")))
+static volatile struct limine_smp_request smp_request = {
+    .id = LIMINE_SMP_REQUEST,
+    .revision = 0,
+    .flags = 0
+};
+
 __attribute__((used, section(".requests_start")))
 static volatile struct limine_request *const requests_start_marker[] = {
     (struct limine_request *)&framebuffer_request,
     (struct limine_request *)&memmap_request,
     (struct limine_request *)&module_request,
+    (struct limine_request *)&smp_request,
     NULL
 };
 
@@ -231,10 +241,21 @@ void kmain(void) {
     ps2_init();
     asm("sti");
 
+    // Initialize SMP — bring up all CPU cores
+    if (smp_request.response != NULL) {
+        uint32_t online = smp_init(smp_request.response);
+        serial_write("[DEBUG] SMP init complete, CPUs online: ");
+        serial_write_num(online);
+        serial_write("\n");
+    } else {
+        serial_write("[DEBUG] No SMP response from bootloader\n");
+        // Still init as single-CPU
+        smp_init(NULL);
+    }
+
     wm_init();
 
     asm volatile("sti");
-
 
     while (1) {
         wm_process_input();

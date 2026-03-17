@@ -8,6 +8,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "wm.h"
+#include "spinlock.h"
+
+// Global lock for FAT32 operations (SMP safety)
+static spinlock_t fat32_lock = SPINLOCK_INIT;
 
 
 #define MAX_FILES 256
@@ -1218,8 +1222,8 @@ char fat32_get_current_drive(void) {
 }
 
 FAT32_FileHandle* fat32_open(const char *path, const char *mode) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
 
     const char *p = path;
     char drive = parse_drive_from_path(&p);
@@ -1234,13 +1238,13 @@ FAT32_FileHandle* fat32_open(const char *path, const char *mode) {
         handle = realfs_open(drive, p, mode);
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return handle;
 }
 
 void fat32_close(FAT32_FileHandle *handle) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     if (handle && handle->valid) {
         if (handle->drive != 'A' && handle->mode != 0) {  // Both read and write modes for real drives
             Disk *d = disk_get_by_letter(handle->drive);
@@ -1265,14 +1269,14 @@ void fat32_close(FAT32_FileHandle *handle) {
         }
         handle->valid = false;
     }
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
 }
 
 int fat32_read(FAT32_FileHandle *handle, void *buffer, int size) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     if (!handle || !handle->valid || handle->mode != 0) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return -1;
     }
     
@@ -1283,15 +1287,15 @@ int fat32_read(FAT32_FileHandle *handle, void *buffer, int size) {
         ret = realfs_read(handle, buffer, size);
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return ret;
 }
 
 int fat32_write(FAT32_FileHandle *handle, const void *buffer, int size) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     if (!handle || !handle->valid || (handle->mode != 1 && handle->mode != 2)) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return -1;
     }
     
@@ -1302,15 +1306,15 @@ int fat32_write(FAT32_FileHandle *handle, const void *buffer, int size) {
         ret = realfs_write(handle, buffer, size);
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return ret;
 }
 
 int fat32_seek(FAT32_FileHandle *handle, int offset, int whence) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     if (!handle || !handle->valid) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return -1;
     }
     
@@ -1349,7 +1353,7 @@ int fat32_seek(FAT32_FileHandle *handle, int offset, int whence) {
         }
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return new_position;
 }
 
@@ -1487,13 +1491,13 @@ bool fat32_mkdir(const char *path) {
     const char *p = path;
     char drive = parse_drive_from_path(&p);
     
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
 
     if (drive != 'A') {
         bool res = realfs_mkdir(drive, p);
         wm_notify_fs_change();
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return res;
     }
 
@@ -1501,18 +1505,18 @@ bool fat32_mkdir(const char *path) {
     fat32_normalize_path(p, normalized);
     
     if (ramfs_find_file(normalized)) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return false; 
     }
     
     if (!check_desktop_limit(normalized)) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return false;
     }
     
     FileEntry *entry = ramfs_find_free_entry();
     if (!entry) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return false;
     }
     
@@ -1525,33 +1529,33 @@ bool fat32_mkdir(const char *path) {
     entry->attributes = ATTR_DIRECTORY;
     
     wm_notify_fs_change();
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return true;
 }
 
 bool fat32_rmdir(const char *path) {
     if (parse_drive_from_path(&path) != 'A') return false;
     
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     char normalized[FAT32_MAX_PATH];
     fat32_normalize_path(path, normalized);
     
     FileEntry *entry = ramfs_find_file(normalized);
     if (!entry || !(entry->attributes & ATTR_DIRECTORY)) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        spinlock_release_irqrestore(&fat32_lock, rflags);
         return false;
     }
     
     entry->used = false;
     wm_notify_fs_change();
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return true;
 }
 
 bool fat32_delete(const char *path) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     
     const char *p = path;
     char drive = parse_drive_from_path(&p);
@@ -1565,7 +1569,7 @@ bool fat32_delete(const char *path) {
         
         FileEntry *entry = ramfs_find_file(normalized);
         if (!entry || (entry->attributes & ATTR_DIRECTORY)) {
-            asm volatile("push %0; popfq" : : "r"(rflags));
+            spinlock_release_irqrestore(&fat32_lock, rflags);
             return false;
         }
         
@@ -1577,13 +1581,13 @@ bool fat32_delete(const char *path) {
         result = realfs_delete(drive, p);
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return result;
 }
 
 int fat32_get_info(const char *path, FAT32_FileInfo *info) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     
     const char *p = path;
     char drive = parse_drive_from_path(&p);
@@ -1619,13 +1623,13 @@ int fat32_get_info(const char *path, FAT32_FileInfo *info) {
         }
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return result;
 }
 
 bool fat32_exists(const char *path) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     
     const char *p = path;
     char drive = parse_drive_from_path(&p);
@@ -1644,7 +1648,7 @@ bool fat32_exists(const char *path) {
         }
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return exists;
 }
 
@@ -1653,13 +1657,13 @@ bool fat32_rename(const char *old_path, const char *new_path) {
     if (parse_drive_from_path(&old_path) != 'A') return false;
     if (parse_drive_from_path(&new_path) != 'A') return false;
 
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     FileEntry *entry = ramfs_find_file(old_path); // Need to normalize inside find? yes ramfs_find calls normalize
-    if (!entry) { asm volatile("push %0; popfq" : : "r"(rflags)); return false; }
+    if (!entry) { spinlock_release_irqrestore(&fat32_lock, rflags); return false; }
     
     // Check destination
-    if (ramfs_find_file(new_path)) { asm volatile("push %0; popfq" : : "r"(rflags)); return false; }
+    if (ramfs_find_file(new_path)) { spinlock_release_irqrestore(&fat32_lock, rflags); return false; }
 
     size_t old_len = fs_strlen(old_path);
     // Logic from original rename...
@@ -1689,13 +1693,13 @@ bool fat32_rename(const char *old_path, const char *new_path) {
         }
     }
     wm_notify_fs_change();
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return true;
 }
 
 bool fat32_is_directory(const char *path) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     
     const char *p = path;
     char drive = parse_drive_from_path(&p);
@@ -1718,13 +1722,13 @@ bool fat32_is_directory(const char *path) {
         }
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return is_dir;
 }
 
 int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entries) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     
     const char *p = path;
     char drive = parse_drive_from_path(&p);
@@ -1749,13 +1753,13 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
         count = realfs_list_directory(drive, p, entries, max_entries);
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return count;
 }
 
 bool fat32_chdir(const char *path) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     
     const char *p = path;
     char drive = parse_drive_from_path(&p);
@@ -1767,11 +1771,11 @@ bool fat32_chdir(const char *path) {
              current_dir[1] = 0;
              // If just switching drive (e.g. "B:"), return true
              if (p[0] == 0) {
-                 asm volatile("push %0; popfq" : : "r"(rflags));
+                 spinlock_release_irqrestore(&fat32_lock, rflags);
                  return true;
              }
          } else {
-             asm volatile("push %0; popfq" : : "r"(rflags));
+             spinlock_release_irqrestore(&fat32_lock, rflags);
              return false;
          }
     }
@@ -1787,17 +1791,17 @@ bool fat32_chdir(const char *path) {
 
              }
          }
-         asm volatile("push %0; popfq" : : "r"(rflags));
+         spinlock_release_irqrestore(&fat32_lock, rflags);
          return true;
     }
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
     return false;
 }
 
 void fat32_get_current_dir(char *buffer, int size) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    // SMP: Use FAT32 spinlock
+    uint64_t rflags = spinlock_acquire_irqsave(&fat32_lock);
     
     int len = 0;
     buffer[0] = current_drive;
@@ -1811,5 +1815,5 @@ void fat32_get_current_dir(char *buffer, int size) {
         buffer[len + i] = current_dir[i];
     }
     buffer[len + dir_len] = 0;
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    spinlock_release_irqrestore(&fat32_lock, rflags);
 }
