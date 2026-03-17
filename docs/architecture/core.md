@@ -1,10 +1,15 @@
-# Core Architecture
+<div align="center">
+  <h1>Core Architecture</h1>
+  <p><em>Overview of BoredOS kernel layout, boot process, and userspace transition.</em></p>
+</div>
+
+---
 
 BoredOS is a 64-bit hobbyist operating system designed for the x86_64 architecture. While it features kernel-space drivers and a built-in window manager, it supports fully-isolated userspace applications and includes a networking stack.
 
 This document serves as an overview of the core architecture and the layout of the kernel source code.
 
-## Source Code Layout (`src/`)
+## 📂 Source Code Layout (`src/`)
 
 The OS heavily relies on module separation. The `src/` directory is logically split into several domains:
 
@@ -18,7 +23,7 @@ The OS heavily relies on module separation. The `src/` directory is logically sp
 - **`wm/`**: The graphical subsystem. It handles drawing primitives, window structures, font rendering, and double-buffering.
 - **`userland/`**: Out-of-kernel components. This includes the custom SDK/compiler environment (`libc/`) and user applications (`cli/`, `gui/`, `games/`).
 
-## Boot Process
+## 🚀 Boot Process
 
 BoredOS uses **Limine** as its primary bootloader.
 
@@ -28,12 +33,19 @@ BoredOS uses **Limine** as its primary bootloader.
 4.  **Driver Initialization**: PCI buses are scanned, finding the network card or disk controllers. The filesystem is mounted.
 5.  **Window Manager**: The UI is drawn on top of the Limine-provided framebuffer.
 
-## Userland Transition
+> [!NOTE]
+> The kernel parses memory maps dynamically, meaning it adjusts optimally to the RAM provided by the environment or emulator.
+
+## 🛡️ Userland Transition
 
 The OS supports privilege separation (Ring 0 vs. Ring 3). When an application (like `browser.elf` or `viewer.elf`) is launched, the kernel:
+
 1.  Loads the ELF file from the filesystem using the ELF parser in `sys/elf.c`.
 2.  Allocates a new virtual address space (Page Directory) for the process.
 3.  Maps the executable segments according to the ELF headers.
 4.  Switches to User Mode (Ring 3) via the `iretq` instruction, jumping into the application's entry point (`crt0.asm`).
 
-Programs then interact with the core kernel using system calls (`syscall.c`).
+> [!IMPORTANT]
+> Programs then interact with the core kernel using system calls (`syscall.c`). Isolated processes cannot directly access hardware or kernel memory structures without faulting.
+
+---

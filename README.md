@@ -1,97 +1,84 @@
-# BoredOS
+# BoredOS 
 
 <div align="center">
   <img src="boredos.svg" alt="BoredOS Logo" width="450" />
+  <p><em>A modern x86_64 hobbyist operating system built from the ground up.</em></p>
+
+  [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+  ![Platform: x86_64](https://img.shields.io/badge/Platform-x86_64-lightgrey)
+  ![Status: Active](https://img.shields.io/badge/Status-Active-brightgreen)
 </div>
-BoredOS is a simple x86_64 hobbyist operating system. 
-It features a DE (and WM), a FAT32 filesystem, customizable UI and much much more!
+
+---
+
+BoredOS is a functional x86_64 operating system featuring a custom Desktop Environment (DE), a dedicated Window Manager (BoredWM), and a FAT32 filesystem. It balances low-level kernel exploration with a surprisingly capable userspace.
 
 ![Screenshot](screenshot.jpg)
-*this screenshot might be outdated*
+> [!NOTE]
+> *The screenshot above may represent a previous build and is subject to change as the UI evolves.*
 
-## Features
-- userspace
-- JPG image support
-- Disk manager
-- Drag and drop mouse centered UI
-- Customizable UI
-- Basic Networking Stack
-- Bored WM
-- FAT32 filesystem
-- 64-bit long mode support
-- Multiboot2 compliant
-- Text editor
-- Markdown Viewer
-- Minesweeper
-- Markdown Viewer
-- GUI Text editor
-- Paint application
-- IDT
-- Ability to run on actual x86_64 hardware
-- CLI
-- (Limited) C Compiler
+---
 
-## Documentation
+## 🚀 Features
 
-BoredOS has comprehensive documentation available in the [`docs/`](docs/) directory covering architecture, the build system, and application development SDKs.
+### ⚙️ System Architecture
+* **64-bit Long Mode:** Fully utilizing the x86_64 architecture.
+* **Multiboot2 Compliant:** Bootable on real hardware and modern emulators.
+* **Kernel Core:** Interrupt Descriptor Table (IDT) management and a robust syscall interface.
+* **Filesystem:** Full **FAT32** support for persistent and in-memory storage.
+* **Networking:** Includes the lwIP networking stack.
 
--   **[Index / Table of Contents](docs/README.md)**
--   **[Architecture Overview](docs/architecture/core.md)**
--   **[Building and Running](docs/build/usage.md)**
--   **[Application Development Guide](docs/appdev/custom_apps.md)**
+### 📺 Graphical User Interface
+* **BoredWM:** A custom Window Manager with drag-and-drop, mouse-centered interaction.
+* **Customization:** Adjustable UI to suit your aesthetic.
+* **Media Support:** Built-in image decoding.
 
+### 🛠️ Included Applications
+* **Productivity:** GUI Text Editor calculator, Markdown Viewer, a simple browser and BoredWord.
+* **Creativity:** A Paint application.
+* **Utilities:** Terminal,Task Manager, File Explorer, Clock and a (limited) C Compiler.
+* **Games:** Minesweeper and DOOM.
 
+---
 
+## 📚 Documentation
 
+Explore the internal workings of BoredOS via our comprehensive guides in the [`docs/`](docs/) directory.
 
-###
-###
+* 📖 **[Documentation Index](docs/README.md)** – Start here.
+* 🏗️ **[Architecture Overview](docs/architecture/core.md)** – Deep dive into the kernel.
+* 🔨 **[Building and Running](docs/build/usage.md)** – Setup your build environment.
+* 🚀 **[AppDev SDK](docs/appdev/custom_apps.md)** – Build your own apps for BoredOS.
 
-<h2 align="left">Help me brew some coffee! ☕️</h2>
+---
 
-###
+## ☕ Support the Journey
 
-<p align="left">
-  If you enjoy this project, and like what i'm doing here, consider buying me a coffee!
-  <br><br>
-  <a href="https://buymeacoffee.com/boreddevnl" target="_blank">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50" style="border-radius: 8px;" />
-  </a>
-</p>
+If you find this project interesting or helpful, consider fueling the development with a coffee!
 
-###
+<a href="https://buymeacoffee.com/boreddevnl" target="_blank">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50" style="border-radius: 8px;" />
+</a>
 
 
-## This project was previously labeled as "BrewKernel"
-Brewkernel was a text only very simple (and messy) project i started 3 years ago. It was my first work in OSDev and i absolutely loved it. It sadly just got too messy and i myself couldn't understand my own code anymore. About a year ago i started work on BoredOS, and pushed a *"working"* version of it a few days ago as of writing this *(Feb. 10 2026)* 
-Brewkernel has already been deprecated and will not be accepting any pull requests or fix any issues as it is now a public archive.
-Thanks to everyone who helped me with Brewkernel, even if it were just ideas, and intend to keep working on this for the forseeable future!
+---
 
-## License
+## ⚠️ Project Disclaimer & Heritage
 
-Copyright (C) 2024-2026 boreddevnl
+**BoredOS** is the successor to **BrewKernel**, a text-only project initiated in 2023. 
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+While BrewKernel served as the foundational learning ground for this OS, it has been officially **deprecated and archived**. It no longer receives updates, bug fixes, or pull request reviews. BoredOS represents a complete architectural reboot, applying years of lessons learned to create a cleaner, more modular, and more capable 64-bit system.
 
-NOTICE
-------
+> [!IMPORTANT]
+> Please ensure all issues, discussions, and contributions are directed to this repository. Legacy BrewKernel code is preserved for historical purposes only and is not compatible with BoredOS.
 
-This product includes software developed by Chris ("boreddevnl") as part of the BoredOS (Previously Brewkernel/BrewOS) project.
+---
 
-Copyright (C) 2024–2026 Chris / boreddevnl (previously boreddevhq)
+## ⚖️ License
 
-All source files in this repository contain copyright and license
-headers that must be preserved in redistributions and derivative works.
+**Copyright (C) 2024-2026 boreddevnl**
 
-If you distribute or modify this project (in whole or in part),
-you MUST:
+Distributed under the **GNU General Public License v3**. See the `LICENSE` file for details. 
 
-  - Retain all copyright and license headers at the top of each file.
-  - Include this NOTICE file along with any redistributions or
-    derivative works.
-  - Provide clear attribution to the original author in documentation
-    or credits where appropriate.
-
-The above attribution requirements are informational and intended to
-ensure proper credit is given. They do not alter or supersede the
-terms of the GNU General Public License (GPL), which governs this work.
+> [!IMPORTANT]
+> This product includes software developed by Chris ("boreddevnl"). You must retain all copyright headers and include the original attribution in any redistributions or derivative works. See the `NOTICE` file for more details.

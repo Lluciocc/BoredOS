@@ -1,12 +1,17 @@
-# UI API (`libui.h`)
+<div align="center">
+  <h1>UI API (<code>libui.h</code>)</h1>
+  <p><em>Interact with the BoredOS Window Manager (WM).</em></p>
+</div>
+
+---
 
 For an application to be visible on the screen, it must interact with the BoredOS Window Manager (WM). The tools required for this are located in `src/userland/libc/libui.h` and `libui.c`.
 
-## Core Concepts
+## 🧠 Core Concepts
 
 The UI library sends requests (via `SYS_GUI`) to the kernel to reserve an area on the screen (a `Window`) and then issues commands to color specific pixels within that area. The kernel is responsible for compositing this area over other windows.
 
-## Example: Creating a Window
+## 🪟 Example: Creating a Window
 
 First, include the library and define an event structure:
 
@@ -29,7 +34,7 @@ int main(void) {
 }
 ```
 
-## Drawing Primitives
+## 🎨 Drawing Primitives
 
 The library offers functions to mutate the window's internal buffer. After issuing drawing commands, you **must** instruct the kernel to push the changes onto the screen.
 
@@ -49,7 +54,7 @@ Available rendering methods:
 -   `ui_draw_string(id, string, x, y, color)`: Render text using the kernel's built-in font.
 -   `ui_update_region(id, x, y, w, h)`: A targeted version of `ui_swap_buffers` that only updates a specific area, saving performance.
 
-## Handling the Event Loop
+## 🔄 Handling the Event Loop
 
 Graphical applications are event-driven. They stay alive inside a `while (1)` loop, periodically asking the kernel if the user clicked the mouse or pressed a key inside their window.
 
@@ -83,3 +88,5 @@ Graphical applications are event-driven. They stay alive inside a `while (1)` lo
         syscall1(SYSTEM_CMD_YIELD, 0);
     }
 ```
+
+---
