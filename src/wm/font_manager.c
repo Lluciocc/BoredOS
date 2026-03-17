@@ -17,12 +17,10 @@ float kfabsf(float x) {
 }
 
 float kpowf(float b, float e) {
-    // Very simplified pow for stb_truetype's needs
     if (e == 0) return 1.0f;
     if (e == 1) return b;
     if (e == 0.5f) return ksqrtf(b);
     
-    // Fallback/log-based would be complex, let's see if this suffices
     float res = 1.0f;
     for (int i = 0; i < (int)e; i++) res *= b;
     return res;
@@ -33,13 +31,11 @@ float kfmodf(float x, float y) {
 }
 
 float kcosf(float x) {
-    // Taylor series for cos(x) around 0
     float x2 = x * x;
     return 1.0f - (x2 / 2.0f) + (x2 * x2 / 24.0f) - (x2 * x2 * x2 / 720.0f);
 }
 
 float kacosf(float x) {
-    // Very rough approximation for acos(x)
     if (x >= 1.0f) return 0;
     if (x <= -1.0f) return 3.14159f;
     return 1.57079f - x - (x*x*x)/6.0f;
@@ -59,6 +55,15 @@ static inline uint32_t alpha_blend(uint32_t bg, uint32_t fg, uint8_t alpha) {
 
 static ttf_font_t *default_font = NULL;
 
+#define MAX_LOADED_FONTS 8
+typedef struct {
+    char path[128];
+    ttf_font_t *font;
+} loaded_font_t;
+
+static loaded_font_t loaded_fonts[MAX_LOADED_FONTS];
+static int loaded_font_count = 0;
+
 #define FONT_CACHE_SIZE 2048
 typedef struct {
     char c;
@@ -67,15 +72,22 @@ typedef struct {
     unsigned char *bitmap;
 } font_cache_entry_t;
 
-// Cache is disabled for now due to race conditions and collisions
-// static font_cache_entry_t g_font_cache[FONT_CACHE_SIZE];
 
 bool font_manager_init(void) {
-    // We'll load a default font later if available
     return true;
 }
 
 ttf_font_t* font_manager_load(const char *path, float size) {
+    (void)size; 
+    
+    for(int i=0; i<loaded_font_count; i++) {
+        int match = 1;
+        for(int j=0; path[j] || loaded_fonts[i].path[j]; j++) {
+            if (path[j] != loaded_fonts[i].path[j]) { match = 0; break; }
+        }
+        if (match) return loaded_fonts[i].font;
+    }
+    
     FAT32_FileHandle *fh = fat32_open(path, "r");
     if (!fh || !fh->valid) {
         serial_write("[FONT] Failed to open font file: ");
@@ -126,6 +138,13 @@ ttf_font_t* font_manager_load(const char *path, float size) {
     stbtt_GetFontVMetrics(info, &font->ascent, &font->descent, &font->line_gap);
 
     if (!default_font) default_font = font;
+    
+    if (loaded_font_count < MAX_LOADED_FONTS) {
+        int i=0; while(path[i] && i<127) { loaded_fonts[loaded_font_count].path[i] = path[i]; i++; }
+        loaded_fonts[loaded_font_count].path[i] = 0;
+        loaded_fonts[loaded_font_count].font = font;
+        loaded_font_count++;
+    }
 
     return font;
 }
@@ -145,16 +164,16 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uin
     unsigned char *bitmap = NULL;
     int w, h, xoff, yoff;
     
-    float real_scale = stbtt_ScaleForPixelHeight(info, scale); // Convert pixel size back to stbtt scale
+    float real_scale = stbtt_ScaleForPixelHeight(info, scale);
     
     int codepoint = (unsigned char)c;
-    if (codepoint == 128) codepoint = 0x2014; // &mdash; (—)
-    if (codepoint == 129) codepoint = 0x2013; // &ndash; (–)
-    if (codepoint == 130) codepoint = 0x2022; // &bull; (•)
-    if (codepoint == 131) codepoint = 0x2026; // &hellip; (…)
-    if (codepoint == 132) codepoint = 0x2122; // &trade; (™)
-    if (codepoint == 133) codepoint = 0x20AC; // &euro; (€)
-    if (codepoint == 134) codepoint = 0x00B7; // &middot; (·)
+    if (codepoint == 128) codepoint = 0x2014; 
+    if (codepoint == 129) codepoint = 0x2013; 
+    if (codepoint == 130) codepoint = 0x2022; 
+    if (codepoint == 131) codepoint = 0x2026; 
+    if (codepoint == 132) codepoint = 0x2122; 
+    if (codepoint == 133) codepoint = 0x20AC; 
+    if (codepoint == 134) codepoint = 0x00B7;
     
     bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, codepoint, &w, &h, &xoff, &yoff);
 
@@ -164,6 +183,46 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uin
                 unsigned char alpha = bitmap[row * w + col];
                 if (alpha > 0) {
                     int px = x + col + xoff;
+                    int py = y + row + yoff;
+                    uint32_t bg = graphics_get_pixel(px, py);
+                    put_pixel_fn(px, py, alpha_blend(bg, color, alpha));
+                }
+            }
+        }
+        stbtt_FreeBitmap(bitmap, NULL);
+    }
+}
+
+void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, char c, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t)) {
+    if (!font) font = default_font;
+    if (!font) return;
+
+    stbtt_fontinfo *info = (stbtt_fontinfo *)font->info;
+    
+    unsigned char *bitmap = NULL;
+    int w, h, xoff, yoff;
+    
+    float real_scale = stbtt_ScaleForPixelHeight(info, scale);
+    
+    int codepoint = (unsigned char)c;
+    if (codepoint == 128) codepoint = 0x2014;
+    if (codepoint == 129) codepoint = 0x2013;
+    if (codepoint == 130) codepoint = 0x2022;
+    if (codepoint == 131) codepoint = 0x2026;
+    if (codepoint == 132) codepoint = 0x2122;
+    if (codepoint == 133) codepoint = 0x20AC;
+    if (codepoint == 134) codepoint = 0x00B7;
+    
+    bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, codepoint, &w, &h, &xoff, &yoff);
+
+    if (bitmap) {
+        for (int row = 0; row < h; row++) {
+            int slant_offset = (int)((h - row) * slope);
+
+            for (int col = 0; col < w; col++) {
+                unsigned char alpha = bitmap[row * w + col];
+                if (alpha > 0) {
+                    int px = x + col + xoff + slant_offset;
                     int py = y + row + yoff;
                     uint32_t bg = graphics_get_pixel(px, py);
                     put_pixel_fn(px, py, alpha_blend(bg, color, alpha));
@@ -211,15 +270,14 @@ int font_manager_get_string_width_scaled(ttf_font_t *font, const char *s, float 
     while (*s) {
         int advance, lsb;
         int codepoint = (unsigned char)*s;
-        if (codepoint == 128) codepoint = 0x2014; // &mdash; (—)
-        if (codepoint == 129) codepoint = 0x2013; // &ndash; (–)
-        if (codepoint == 130) codepoint = 0x2022; // &bull; (•)
-        if (codepoint == 131) codepoint = 0x2026; // &hellip; (…)
-        if (codepoint == 132) codepoint = 0x2122; // &trade; (™)
-        if (codepoint == 133) codepoint = 0x20AC; // &euro; (€)
-        if (codepoint == 134) codepoint = 0x00B7; // &middot; (·)
+        if (codepoint == 128) codepoint = 0x2014; 
+        if (codepoint == 129) codepoint = 0x2013; 
+        if (codepoint == 130) codepoint = 0x2022; 
+        if (codepoint == 131) codepoint = 0x2026; 
+        if (codepoint == 132) codepoint = 0x2122; 
+        if (codepoint == 133) codepoint = 0x20AC; 
+        if (codepoint == 134) codepoint = 0x00B7; 
         stbtt_GetCodepointHMetrics(info, codepoint, &advance, &lsb);
-        // Round per-character to match draw_string's accumulation
         width += (int)(advance * real_scale + 0.5f);
         s++;
     }

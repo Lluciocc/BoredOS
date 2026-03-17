@@ -6,6 +6,7 @@
 extern uint64_t syscall3(uint64_t sys_num, uint64_t arg1, uint64_t arg2, uint64_t arg3);
 extern uint64_t syscall4(uint64_t sys_num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4);
 extern uint64_t syscall5(uint64_t sys_num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
+extern uint64_t syscall6(uint64_t sys_num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6);
 
 // sys_gui uses syscall #3
 #define SYS_GUI 3
@@ -69,6 +70,16 @@ void ui_draw_string_scaled(ui_window_t win, int x, int y, const char *str, uint3
     uint32_t scale_bits = *(uint32_t*)&scale;
     uint64_t packed_arg5 = ((uint64_t)scale_bits << 32) | (color & 0xFFFFFFFF);
     syscall5(SYS_GUI, GUI_CMD_DRAW_STRING_SCALED, (uint64_t)win, coords, (uint64_t)str, packed_arg5);
+}
+
+void ui_draw_string_scaled_sloped(ui_window_t win, int x, int y, const char *str, uint32_t color, float scale, float slope) {
+    uint64_t coords = ((uint64_t)x & 0xFFFFFFFF) | ((uint64_t)y << 32);
+    // Pack color into lower 32, scale (as uint32_t representation) into upper 32
+    uint32_t scale_bits = *(uint32_t*)&scale;
+    uint32_t slope_bits = *(uint32_t*)&slope;
+    uint64_t packed_arg5 = ((uint64_t)scale_bits << 32) | (color & 0xFFFFFFFF);
+    
+    syscall6(SYS_GUI, GUI_CMD_DRAW_STRING_SCALED_SLOPED, (uint64_t)win, coords, (uint64_t)str, packed_arg5, (uint64_t)slope_bits);
 }
 
 uint32_t ui_get_string_width_scaled(const char *str, float scale) {

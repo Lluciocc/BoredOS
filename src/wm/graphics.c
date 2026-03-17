@@ -6,6 +6,7 @@
 #include "font.h"
 #include "io.h"
 #include "font_manager.h"
+#include "../mem/memory_manager.h"
 
 static struct limine_framebuffer *g_fb = NULL;
 static uint32_t g_bg_color = 0xFF696969;
@@ -329,6 +330,128 @@ void draw_rounded_rect_filled(int x, int y, int w, int h, int radius, uint32_t c
     }
 }
 
+static uint32_t blend_color_alpha(uint32_t bottom, uint32_t top, int alpha) {
+    if (alpha <= 0) return bottom;
+    if (alpha >= 255) return top;
+    
+    int rb = (bottom >> 16) & 0xFF;
+    int gb = (bottom >> 8)  & 0xFF;
+    int bb = bottom         & 0xFF;
+    
+    int rt = (top >> 16)    & 0xFF;
+    int gt = (top >> 8)     & 0xFF;
+    int bt = top            & 0xFF;
+    
+    int rr = rb + (((rt - rb) * alpha) >> 8);
+    int gg = gb + (((gt - gb) * alpha) >> 8);
+    int bb_new = bb + (((bt - bb) * alpha) >> 8);
+    
+    return (rr << 16) | (gg << 8) | bb_new;
+}
+
+void draw_rounded_rect_blurred(int x, int y, int w, int h, int radius, uint32_t tint_color, int blur_radius, int alpha) {
+    if (!g_fb) return;
+    int sw = get_screen_width();
+    int sh = get_screen_height();
+    
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > sw) w = sw - x;
+    if (y + h > sh) h = sh - y;
+    if (w <= 0 || h <= 0) return;
+
+    if (radius > w / 2) radius = w / 2;
+    if (radius > h / 2) radius = h / 2;
+    if (radius < 1) radius = 1;
+    
+    uint32_t *tmp_buf = (uint32_t *)kmalloc(w * h * sizeof(uint32_t));
+    if (!tmp_buf) {
+        draw_rounded_rect_filled(x, y, w, h, radius, tint_color);
+        return;
+    }
+    
+    for (int r = 0; r < h; r++) {
+        int g_y = y + r;
+        for (int c = 0; c < w; c++) {
+            int g_x = x + c;
+            
+            int r_sum = 0, g_sum = 0, b_sum = 0, count = 0;
+            int start_kx = g_x - blur_radius;
+            int end_kx = g_x + blur_radius;
+            if (start_kx < 0) start_kx = 0;
+            if (end_kx >= sw) end_kx = sw - 1;
+            
+            for (int kx = start_kx; kx <= end_kx; kx++) {
+                uint32_t pixel = g_back_buffer[g_y * sw + kx];
+                r_sum += (pixel >> 16) & 0xFF;
+                g_sum += (pixel >> 8) & 0xFF;
+                b_sum += pixel & 0xFF;
+                count++;
+            }
+            if(count == 0) count = 1;
+            uint32_t out_pixel = ((r_sum / count) << 16) | ((g_sum / count) << 8) | (b_sum / count);
+            tmp_buf[r * w + c] = out_pixel;
+        }
+    }
+    
+    for (int c = 0; c < w; c++) {
+        for (int r = 0; r < h; r++) {
+            int g_y = y + r;
+            int g_x = x + c;
+            
+            if (g_clip_enabled) {
+                if (g_x < g_clip_x || g_x >= g_clip_x + g_clip_w ||
+                    g_y < g_clip_y || g_y >= g_clip_y + g_clip_h) {
+                    continue;
+                }
+            }
+
+            bool in_corner = false;
+            int dx = 0, dy = 0;
+            if (c < radius && r < radius) {
+                dx = radius - c - 1; dy = radius - r - 1;
+                in_corner = true;
+            } else if (c >= w - radius && r < radius) {
+                dx = c - (w - radius); dy = radius - r - 1;
+                in_corner = true;
+            } else if (c < radius && r >= h - radius) {
+                dx = radius - c - 1; dy = r - (h - radius);
+                in_corner = true;
+            } else if (c >= w - radius && r >= h - radius) {
+                dx = c - (w - radius); dy = r - (h - radius);
+                in_corner = true;
+            }
+            
+            if (in_corner) {
+                if (dx*dx + dy*dy >= radius*radius) {
+                    continue;
+                }
+            }
+            
+            int r_sum = 0, g_sum = 0, b_sum = 0, count = 0;
+            int start_kr = r - blur_radius;
+            int end_kr = r + blur_radius;
+            if (start_kr < 0) start_kr = 0;
+            if (end_kr >= h) end_kr = h - 1;
+            
+            for (int kr = start_kr; kr <= end_kr; kr++) {
+                uint32_t pixel = tmp_buf[kr * w + c];
+                r_sum += (pixel >> 16) & 0xFF;
+                g_sum += (pixel >> 8) & 0xFF;
+                b_sum += pixel & 0xFF;
+                count++;
+            }
+            if(count == 0) count = 1;
+            uint32_t blurred_pixel = ((r_sum / count) << 16) | ((g_sum / count) << 8) | (b_sum / count);
+            
+            uint32_t final_pixel = blend_color_alpha(blurred_pixel, tint_color, alpha);
+            g_back_buffer[g_y * sw + g_x] = final_pixel;
+        }
+    }
+    
+    kfree(tmp_buf);
+}
+
 void draw_char(int x, int y, char c, uint32_t color) {
     if (g_current_ttf) {
         font_manager_render_char(g_current_ttf, x, y, c, color, put_pixel);
@@ -461,6 +584,37 @@ void draw_string_scaled(int x, int y, const char *s, uint32_t color, float scale
         }
         s++;
     }
+}
+
+void draw_string_sloped(int x, int y, const char *s, uint32_t color, float slope) {
+    if (g_current_ttf) draw_string_scaled_sloped(x, y, s, color, g_current_ttf->pixel_height, slope);
+    else draw_string_scaled(x, y, s, color, 15.0f); // Fast fallback if no ttf
+}
+
+void draw_string_scaled_sloped(int x, int y, const char *s, uint32_t color, float scale, float slope) {
+    if (!s) return;
+    int cur_x = x;
+    
+    if (g_current_ttf) {
+        int baseline = y + font_manager_get_font_ascent_scaled(g_current_ttf, scale) - 2;
+        int line_height = font_manager_get_font_line_height_scaled(g_current_ttf, scale);
+        
+        while (*s) {
+            if (*s == '\n') {
+                cur_x = x;
+                baseline += line_height;
+            } else {
+                font_manager_render_char_sloped(g_current_ttf, cur_x, baseline, *s, color, scale, slope, put_pixel);
+                char buf[2] = {*s, 0};
+                cur_x += font_manager_get_string_width_scaled(g_current_ttf, buf, scale);
+            }
+            s++;
+        }
+        return;
+    }
+
+    // Fallback to normal draw_string_scaled if no TTF
+    draw_string_scaled(x, y, s, color, scale);
 }
 
 void draw_desktop_background(void) {

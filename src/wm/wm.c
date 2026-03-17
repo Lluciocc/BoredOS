@@ -129,6 +129,7 @@ int desktop_max_cols = 23;
 int mouse_speed = 10;       
 static int mouse_accum_x = 0;
 static int mouse_accum_y = 0;
+Window *active_mouse_capture_win = NULL;
 
 // Helper to check if string ends with suffix
 static bool str_ends_with(const char *str, const char *suffix) {
@@ -491,6 +492,33 @@ void draw_document_icon(int x, int y, const char *label) {
     draw_rounded_rect_filled(4, 4, 40, 40, 8, 0xFFFFFFFF);
     draw_rounded_rect_filled(8, 8, 32, 32, 4, 0xFFF5F5F5);
     draw_rect(14, 17, 20, 2, 0xFFBBBBBB);
+    draw_rect(14, 25, 20, 2, 0xFFBBBBBB);
+    draw_rect(14, 33, 14, 2, 0xFFBBBBBB);
+    
+    graphics_set_render_target(NULL, 0, 0);
+    int dx = x + 24, dy = y + 12;
+    for (int ty = 0; ty < 32; ty++) {
+        for (int tx = 0; tx < 32; tx++) {
+            int src_x = tx * 48 / 32;
+            int src_y = ty * 48 / 32;
+            uint32_t c1 = icon_buf[src_y * 48 + src_x];
+            if (c1 != 0xFFFF00FF) put_pixel(dx + tx, dy + ty, c1);
+        }
+    }
+    
+    draw_icon_label(x, y, label);
+}
+
+void draw_pdf_icon(int x, int y, const char *label) {
+    uint32_t icon_buf[48 * 48];
+    for (int i = 0; i < 48 * 48; i++) icon_buf[i] = 0xFFFF00FF;
+    graphics_set_render_target(icon_buf, 48, 48);
+    
+    // Document shape
+    draw_rounded_rect_filled(4, 4, 40, 40, 8, 0xFFFFFFFF);
+    // Red banner
+    draw_rounded_rect_filled(8, 8, 32, 14, 4, 0xFFDF2020);
+    // PDF text roughly (simplified to lines for now)
     draw_rect(14, 25, 20, 2, 0xFFBBBBBB);
     draw_rect(14, 33, 14, 2, 0xFFBBBBBB);
     
@@ -912,6 +940,23 @@ static long long isqrt(long long n) {
     return x;
 }
 
+static void draw_dock_word(int x, int y) {
+    // Rich blue document style
+    draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFF4A90E2);
+    draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFF5D9CE6);
+    draw_rounded_rect_filled(x + 1, y + 24, 46, 23, 9, 0xFF3A80D2);
+    
+    // White document page in center
+    draw_rounded_rect_filled(x + 8, y + 8, 32, 32, 4, 0xFFFFFFFF);
+    // Blue header edge
+    draw_rounded_rect_filled(x + 8, y + 8, 32, 8, 4, 0xFF2868B8);
+    
+    // Text lines using dark grey
+    draw_rect(x + 14, y + 22, 20, 2, 0xFF666666);
+    draw_rect(x + 14, y + 27, 20, 2, 0xFF666666);
+    draw_rect(x + 14, y + 32, 14, 2, 0xFF666666);
+}
+
 static void draw_dock_notepad(int x, int y) {
     draw_rounded_rect_filled(x, y, 48, 48, 10, 0xFFCC9A00);
     draw_rounded_rect_filled(x + 1, y + 1, 46, 28, 9, 0xFFFFD700);
@@ -1225,7 +1270,21 @@ void wm_paint(void) {
     asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
 
     DirtyRect dirty = graphics_get_dirty_rect();
+    
     if (dirty.active) {
+        int d_h = 60;
+        int d_y = sh - d_h - 6;
+        int d_item_sz = 48;
+        int d_space = 10;
+        int d_tw = 10 * (d_item_sz + d_space);
+        int d_bg_x = (sw - d_tw) / 2 - 12;
+        int d_bg_w = d_tw + 24;
+        
+        if (!(dirty.x >= d_bg_x + d_bg_w || dirty.x + dirty.w <= d_bg_x ||
+              dirty.y >= d_y + d_h || dirty.y + dirty.h <= d_y)) {
+            graphics_mark_dirty(d_bg_x - 10, d_y - 10, d_bg_w + 20, d_h + 20);
+            dirty = graphics_get_dirty_rect();
+        }
         graphics_set_clipping(dirty.x, dirty.y, dirty.w, dirty.h);
     } else {
         graphics_clear_clipping();
@@ -1274,6 +1333,7 @@ void wm_paint(void) {
                 draw_image_icon(icon->x, icon->y, full_path);
                 draw_icon_label(icon->x, icon->y, icon->name);
             }
+            else if (str_ends_with(icon->name, ".pdf")) draw_pdf_icon(icon->x, icon->y, icon->name);
             else draw_document_icon(icon->x, icon->y, icon->name);
         }
     }
@@ -1324,10 +1384,12 @@ void wm_paint(void) {
     int dock_y = sh - dock_h - 6;   
     int dock_item_size = 48;
     int dock_spacing = 10;
-    int total_dock_width = 10 * (dock_item_size + dock_spacing);
+    int total_dock_width = 11 * (dock_item_size + dock_spacing);
     int dock_bg_x = (sw - total_dock_width) / 2 - 12;   
     int dock_bg_w = total_dock_width + 24;
-    draw_rounded_rect_filled(dock_bg_x, dock_y, dock_bg_w, dock_h, 18, COLOR_DOCK_BG);
+    
+    // Draw blurred dock background with reduced radius and tint
+    draw_rounded_rect_blurred(dock_bg_x, dock_y, dock_bg_w, dock_h, 18, COLOR_DOCK_BG, 5, 140);
     
     int dock_x = (sw - total_dock_width) / 2;
     int dock_item_y = dock_y + 6;
@@ -1351,7 +1413,8 @@ void wm_paint(void) {
     draw_dock_taskman(dock_x, dock_item_y);
     dock_x += dock_item_size + dock_spacing;
     draw_dock_clock(dock_x, dock_item_y);
-    // Editor removed from dock
+    dock_x += dock_item_size + dock_spacing;
+    draw_dock_word(dock_x, dock_item_y);
     
     // Desktop Context Menu (with rounded corners)
     if (desktop_menu_visible) {
@@ -1532,6 +1595,10 @@ void wm_remove_window(Window *win) {
             all_windows[i] = all_windows[i + 1];
         }
         window_count--;
+        
+        if (active_mouse_capture_win == win) {
+            active_mouse_capture_win = NULL;
+        }
         
         // Mark for redraw while protected
         force_redraw = true;
@@ -1905,7 +1972,7 @@ void wm_handle_right_click(int x, int y) {
         int dock_y = sh - dock_h - 6;  
         int dock_item_size = 48;
         int dock_spacing = 10;
-        int total_dock_width = 10 * (dock_item_size + dock_spacing);
+        int total_dock_width = 11 * (dock_item_size + dock_spacing);
         int dock_bg_x = (sw - total_dock_width) / 2 - 12;
         int dock_bg_w = total_dock_width + 24;
         
@@ -1926,6 +1993,7 @@ void wm_handle_right_click(int x, int y) {
                 else if (item == 7) start_menu_pending_app = "Browser";
                 else if (item == 8) start_menu_pending_app = "Task Manager";
                 else if (item == 9) start_menu_pending_app = "Clock";
+                else if (item == 10) start_menu_pending_app = "Word Processor";
             }
         } else {
             wm_handle_click(mx, my);
@@ -2048,6 +2116,10 @@ void wm_handle_right_click(int x, int y) {
                 Window *existing = wm_find_window_by_title("Txtedit");
                 if (existing) wm_bring_to_front(existing);
                 else process_create_elf("/bin/txtedit.elf", NULL);
+            } else if (str_starts_with(start_menu_pending_app, "Word Processor")) {
+                Window *existing = wm_find_window_by_title("Word Processor");
+                if (existing) wm_bring_to_front(existing);
+                else process_create_elf("/bin/word.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Terminal")) {
                 cmd_reset(); wm_bring_to_front(&win_cmd);
             } else if (str_starts_with(start_menu_pending_app, "Calculator")) {
@@ -2160,6 +2232,8 @@ void wm_handle_right_click(int x, int y) {
                         process_create_elf("/bin/paint.elf", path);
                     } else if (str_ends_with(icon->name, ".md")) {
                         process_create_elf("/bin/markdown.elf", path);
+                    } else if (str_ends_with(icon->name, ".pdf")) {
+                        process_create_elf("/bin/word.elf", path);
                     } else if (is_image_file(icon->name)) {
                         process_create_elf("/bin/viewer.elf", path);
                     } else {
@@ -2385,46 +2459,57 @@ void wm_handle_right_click(int x, int y) {
             }
         }
         if (topmost && topmost->data) {
+            active_mouse_capture_win = topmost;
             if (my >= topmost->y + 20)
                 syscall_send_mouse_down_event(topmost, mx - topmost->x, my - topmost->y - 20);
+        } else {
+            active_mouse_capture_win = NULL;
         }
     }
     
     if (!left && prev_left) {
-        // Left button released - send MOUSE_UP event to topmost window
-        Window *topmost = NULL;
-        int topmost_z = -1;
-        for (int w = 0; w < window_count; w++) {
-            Window *win = all_windows[w];
-            if (win->visible && rect_contains(win->x, win->y, win->w, win->h, mx, my)) {
-                if (win->z_index > topmost_z) {
-                    topmost = win;
-                    topmost_z = win->z_index;
+        // Left button released - send MOUSE_UP event to captured or topmost window
+        Window *target = active_mouse_capture_win;
+        if (!target) {
+            int topmost_z = -1;
+            for (int w = 0; w < window_count; w++) {
+                Window *win = all_windows[w];
+                if (win->visible && rect_contains(win->x, win->y, win->w, win->h, mx, my)) {
+                    if (win->z_index > topmost_z) {
+                        target = win;
+                        topmost_z = win->z_index;
+                    }
                 }
             }
         }
-        if (topmost && topmost->data) {
-            if (my >= topmost->y + 20)
-                syscall_send_mouse_up_event(topmost, mx - topmost->x, my - topmost->y - 20);
+        
+        if (target && target->data) {
+            int rel_y = my - target->y - 20;
+            // Provide coordinates clamped if escaping bounds slightly on UP? Usually raw is fine.
+            syscall_send_mouse_up_event(target, mx - target->x, rel_y);
         }
+        active_mouse_capture_win = NULL;
     }
     
     if (dx != 0 || dy != 0) {
-        // Mouse moved - send MOUSE_MOVE event to topmost window
-        Window *topmost = NULL;
-        int topmost_z = -1;
-        for (int w = 0; w < window_count; w++) {
-            Window *win = all_windows[w];
-            if (win->visible && rect_contains(win->x, win->y, win->w, win->h, mx, my)) {
-                if (win->z_index > topmost_z) {
-                    topmost = win;
-                    topmost_z = win->z_index;
+        // Mouse moved - send MOUSE_MOVE event to captured window (if dragging) or topmost
+        Window *target = active_mouse_capture_win;
+        if (!target) {
+            int topmost_z = -1;
+            for (int w = 0; w < window_count; w++) {
+                Window *win = all_windows[w];
+                if (win->visible && rect_contains(win->x, win->y, win->w, win->h, mx, my)) {
+                    if (win->z_index > topmost_z) {
+                        target = win;
+                        topmost_z = win->z_index;
+                    }
                 }
             }
         }
-        if (topmost && topmost->data) {
-            if (my >= topmost->y + 20)
-                syscall_send_mouse_move_event(topmost, mx - topmost->x, my - topmost->y - 20, buttons);
+        
+        if (target && target->data) {
+            int rel_y = my - target->y - 20;
+            syscall_send_mouse_move_event(target, mx - target->x, rel_y, buttons);
         }
     }
     

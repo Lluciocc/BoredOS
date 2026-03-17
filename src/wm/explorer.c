@@ -750,6 +750,8 @@ static void explorer_open_target(const char *path) {
     } else {
         if (explorer_str_ends_with(path, ".elf")) {
             process_create_elf(path, NULL);
+        } else if (explorer_str_ends_with(path, ".pdf")) {
+            process_create_elf("A:/bin/word.elf", path);
         } else if (explorer_is_markdown_file(path)) {
             process_create_elf("A:/bin/markdown.elf", path);
         } else if (explorer_str_ends_with(path, ".pnt")) {
@@ -842,6 +844,8 @@ static void explorer_draw_file_icon(int x, int y, bool is_dir, uint32_t color, c
         if (full_path[explorer_strlen(full_path) - 1] != '/') explorer_strcat(full_path, "/");
         explorer_strcat(full_path, filename);
         draw_image_icon(x + 5, y + 5, full_path);
+    } else if (explorer_str_ends_with(filename, ".pdf")) {
+        draw_pdf_icon(x + 5, y + 5, "");
     } else if (explorer_str_ends_with(filename, ".elf")) {
         draw_elf_icon(x + 5, y + 5, "");
     } else {

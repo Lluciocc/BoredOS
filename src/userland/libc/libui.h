@@ -21,6 +21,7 @@
 #define GUI_CMD_GET_FONT_HEIGHT_SCALED 13
 #define GUI_CMD_WINDOW_SET_TITLE 15
 #define GUI_CMD_SET_FONT         16
+#define GUI_CMD_DRAW_STRING_SCALED_SLOPED 18
 
 // Event Types
 #define GUI_EVENT_NONE        0
@@ -62,6 +63,7 @@ void ui_get_screen_size(uint64_t *out_w, uint64_t *out_h);
 void ui_draw_string_bitmap(ui_window_t win, int x, int y, const char *str, uint32_t color);
 
 void ui_draw_string_scaled(ui_window_t win, int x, int y, const char *str, uint32_t color, float scale);
+void ui_draw_string_scaled_sloped(ui_window_t win, int x, int y, const char *str, uint32_t color, float scale, float slope);
 uint32_t ui_get_string_width_scaled(const char *str, float scale);
 uint32_t ui_get_font_height_scaled(float scale);
 void ui_window_set_title(ui_window_t win, const char *title);

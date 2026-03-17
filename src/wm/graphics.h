@@ -21,10 +21,13 @@ uint32_t graphics_get_pixel(int x, int y);
 void draw_rect(int x, int y, int w, int h, uint32_t color);
 void draw_rounded_rect(int x, int y, int w, int h, int radius, uint32_t color);
 void draw_rounded_rect_filled(int x, int y, int w, int h, int radius, uint32_t color);
+void draw_rounded_rect_blurred(int x, int y, int w, int h, int radius, uint32_t tint_color, int blur_radius, int alpha);
 void draw_char(int x, int y, char c, uint32_t color);
 void draw_char_bitmap(int x, int y, char c, uint32_t color);
 void draw_string(int x, int y, const char *s, uint32_t color);
 void draw_string_scaled(int x, int y, const char *s, uint32_t color, float scale);
+void draw_string_sloped(int x, int y, const char *s, uint32_t color, float slope);
+void draw_string_scaled_sloped(int x, int y, const char *s, uint32_t color, float scale, float slope);
 void draw_desktop_background(void);
 void graphics_set_bg_color(uint32_t color);
 void graphics_set_bg_pattern(const uint32_t *pattern);  // 128x128 pattern

@@ -499,6 +499,83 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 
                 asm volatile("push %0; popfq" : : "r"(rflags));
             }
+        } else if (cmd == 18) { // GUI_CMD_DRAW_STRING_SCALED_SLOPED
+            Window *win = (Window *)arg2;
+            uint64_t coords = arg3;
+            int ux = coords & 0xFFFFFFFF;
+            int uy = coords >> 32;
+            const char *user_str = (const char *)arg4;
+            
+            // Unpack color, scale, slope from arg5
+            uint64_t packed1 = arg5;
+            uint32_t color = packed1 & 0xFFFFFFFF;
+            uint32_t scale_bits = packed1 >> 32;
+            float scale = *(float*)&scale_bits;
+            
+            // Slope is passed via arg6 in the system call, but syscall5 only takes 5 args.
+            // Oh right, we only have syscall5. Let's make a packed struct or just use a generic pointer for coords.
+            // Even better, let's just make it a pointer to a struct.
+            // Wait, I will just use `regs->r9` (arg6) directly since the syscall handler has access to all registers:
+            uint64_t arg6 = regs->r9;
+            uint32_t slope_bits = arg6 & 0xFFFFFFFF;
+            float slope = *(float*)&slope_bits;
+            
+            if (win && user_str) {
+                extern void draw_string_scaled_sloped(int x, int y, const char *str, uint32_t color, float scale, float slope);
+                extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
+                
+                // Copy string safely to kernel stack buffer
+                char kernel_str[256];
+                int i = 0;
+                while (i < 255 && user_str[i]) {
+                    kernel_str[i] = user_str[i];
+                    i++;
+                }
+                kernel_str[i] = 0;
+
+                uint64_t rflags;
+                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                
+                ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
+
+                if (win->pixels) {
+                    if (ux >= -100 && ux < win->w && uy >= -100 && uy < (win->h - 20)) {
+                        graphics_set_render_target(win->pixels, win->w, win->h - 20);
+                        if (font) {
+                            int baseline = uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
+                            int cur_x = ux;
+                            const char *s = kernel_str;
+                            while (*s) {
+                                extern void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, char c, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
+                                font_manager_render_char_sloped(font, cur_x, baseline, *s, color, scale, slope, put_pixel);
+                                char buf[2] = {*s, 0};
+                                cur_x += font_manager_get_string_width_scaled(font, buf, scale);
+                                s++;
+                            }
+                        } else {
+                            draw_string_scaled_sloped(ux, uy, kernel_str, color, scale, slope);
+                        }
+                        graphics_set_render_target(NULL, 0, 0);
+                    }
+                } else {
+                    if (font) {
+                        int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
+                        int cur_x = win->x + ux;
+                        const char *s = kernel_str;
+                        while (*s) {
+                            extern void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, char c, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
+                            font_manager_render_char_sloped(font, cur_x, baseline, *s, color, scale, slope, put_pixel);
+                            char buf[2] = {*s, 0};
+                            cur_x += font_manager_get_string_width_scaled(font, buf, scale);
+                            s++;
+                        }
+                    } else {
+                        draw_string_scaled_sloped(win->x + ux, win->y + uy, kernel_str, color, scale, slope);
+                    }
+                }
+                
+                asm volatile("push %0; popfq" : : "r"(rflags));
+            }
         } else if (cmd == GUI_CMD_DRAW_IMAGE) {
             Window *win = (Window *)arg2;
             uint64_t *u_params = (uint64_t *)arg3;
