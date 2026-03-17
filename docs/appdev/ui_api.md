@@ -1,92 +1,103 @@
 <div align="center">
   <h1>UI API (<code>libui.h</code>)</h1>
-  <p><em>Interact with the BoredOS Window Manager (WM).</em></p>
+  <p><em>Comprehensive manual for interacting with the Window Manager.</em></p>
 </div>
 
 ---
 
-For an application to be visible on the screen, it must interact with the BoredOS Window Manager (WM). The tools required for this are located in `src/userland/libc/libui.h` and `libui.c`.
+The UI library (`libui.h`) is the sole mechanism for Graphical Userland Applications to draw to the screen and receive input events in BoredOS. It wraps `SYS_GUI` kernel calls.
 
-## 🧠 Core Concepts
+## 🪟 Window Management
 
-The UI library sends requests (via `SYS_GUI`) to the kernel to reserve an area on the screen (a `Window`) and then issues commands to color specific pixels within that area. The kernel is responsible for compositing this area over other windows.
+A "Window" is a reserved drawing canvas managed by the compositor.
 
-## 🪟 Example: Creating a Window
-
-First, include the library and define an event structure:
-
-```c
-#include <libui.h>
-#include <stdlib.h>
-
-int main(void) {
-    // 1. Create the window
-    // Arguments: Title, Width, Height, Flags (e.g. 0 for bordered window)
-    int window_id = ui_create_window("Hello World App", 400, 300, 0);
-
-    if (window_id < 0) {
-        printf("Failed to create window!\n");
-        return 1;
-    }
-
-    // ... Event loop will go here ...
-    return 0;
-}
-```
+*   `ui_window_t ui_window_create(const char *title, int x, int y, int w, int h);`
+    Creates a new window at `(x, y)` with dimensions `w`x`h`. Returns a window handle.
+    **Flags** are currently embedded in the syscall; standard windows include decorations (titlebar, borders).
+*   `void ui_window_set_title(ui_window_t win, const char *title);`
+    Dynamically update the text displayed in the window's titlebar.
+*   `void ui_window_set_resizable(ui_window_t win, bool resizable);`
+    Enable or disable the user's ability to resize the window by dragging its edges.
+*   `void ui_get_screen_size(uint64_t *out_w, uint64_t *out_h);`
+    Query the global screen resolution of the display.
 
 ## 🎨 Drawing Primitives
 
-The library offers functions to mutate the window's internal buffer. After issuing drawing commands, you **must** instruct the kernel to push the changes onto the screen.
+All drawing functions write to an off-screen buffer associated with the window. **You must call `ui_mark_dirty()` to instruct the compositor to push your changes to the physical screen.**
+
+*   `void ui_draw_rect(ui_window_t win, int x, int y, int w, int h, uint32_t color);`
+    Draw a solid filled rectangle.
+*   `void ui_draw_rounded_rect_filled(ui_window_t win, int x, int y, int w, int h, int radius, uint32_t color);`
+    Fill a rectangle with rounded corners of a specified `radius`.
+*   `void ui_draw_image(ui_window_t win, int x, int y, int w, int h, uint32_t *image_data);`
+    Blit a raw ARGB pixel buffer (`image_data`) directly into the window canvas.
+*   `void ui_mark_dirty(ui_window_t win, int x, int y, int w, int h);`
+    Mark a specific rectangular region of the window as "dirty". The Window Manager will redraw this area on the next compositing pass.
+
+> [!TIP]
+> Colors are defined as 32-bit unsigned integers in **ARGB** format: `0xAARRGGBB`.
+> E.g., `0xFF000000` is opaque black, `0xFFFF0000` is opaque red.
+
+## 🔤 Text Rendering
+
+BoredOS provides multiple text rendering methodologies, including a default system font and scaled/bitmap alternatives.
+
+*   `void ui_draw_string(ui_window_t win, int x, int y, const char *str, uint32_t color);`
+    Draw text using the default system typeface.
+*   `void ui_draw_string_bitmap(ui_window_t win, int x, int y, const char *str, uint32_t color);`
+    Draw text using a secondary fast bitmap font renderer.
+*   `void ui_draw_string_scaled(ui_window_t win, int x, int y, const char *str, uint32_t color, float scale);`
+    Draw text scaled up or down by a floating-point multiplier.
+*   `void ui_draw_string_scaled_sloped(ui_window_t win, int x, int y, const char *str, uint32_t color, float scale, float slope);`
+    Draw scaled text with an italic-like slope/shear applied.
+*   `void ui_set_font(ui_window_t win, const char *path);`
+    Load and set a custom `.ttf` or bitmap font from the filesystem for this window.
+
+### Font Metrics
+Used for calculating layout bounds before drawing:
+*   `uint32_t ui_get_string_width(const char *str);`
+*   `uint32_t ui_get_font_height(void);`
+*   `uint32_t ui_get_string_width_scaled(const char *str, float scale);`
+*   `uint32_t ui_get_font_height_scaled(float scale);`
+
+## 🔄 Event Handling
+
+Applications must continuously poll for events inside an infinite `$while(1)` loop.
+
+*   `bool ui_get_event(ui_window_t win, gui_event_t *ev);`
+    Returns `true` if an event was waiting in the queue, populating the `ev` structure. Returns `false` if the queue is empty.
+
+> [!IMPORTANT]
+> Because `ui_get_event` is non-blocking, you must call `sys_yield();` inside your event loop if no event was received, otherwise your app will consume 100% of the CPU timeslice.
+
+### Graphical Event Structure
 
 ```c
-// Fill the entire window with a solid blue background
-// Arguments: Window ID, X, Y, Width, Height, ARGB Color value
-ui_fill_rect(window_id, 0, 0, 400, 300, 0xFF0000FF);
-
-// Tell the kernel to commit the drawing commands to the screen
-ui_swap_buffers(window_id);
+typedef struct {
+    int type; // Specifies the event class (see below)
+    int arg1; // Generic argument 1
+    int arg2; // Generic argument 2
+    int arg3; // Generic argument 3
+} gui_event_t;
 ```
 
-Available rendering methods:
--   `ui_fill_rect(id, x, y, w, h, color)`: Draw a solid rectangle.
--   `ui_draw_rect(id, x, y, w, h, color)`: Draw an outline of a rectangle.
--   `ui_draw_line(id, x0, y0, x1, y1, color)`: Bresenham line algorithm.
--   `ui_draw_string(id, string, x, y, color)`: Render text using the kernel's built-in font.
--   `ui_update_region(id, x, y, w, h)`: A targeted version of `ui_swap_buffers` that only updates a specific area, saving performance.
+### Event Types & Arguments
 
-## 🔄 Handling the Event Loop
+| Event Constant | `type` ID | Trigger | `arg1` | `arg2` | `arg3` |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GUI_EVENT_NONE` | `0` | Empty event | - | - | - |
+| `GUI_EVENT_PAINT` | `1` | Window needs redrawing | - | - | - |
+| `GUI_EVENT_CLICK` | `2` | Mouse click down | X Coord | Y Coord | Button State |
+| `GUI_EVENT_RIGHT_CLICK` | `3` | Mouse right-click down | X Coord | Y Coord | Button State |
+| `GUI_EVENT_CLOSE` | `4` | User clicked 'X' button | - | - | - |
+| `GUI_EVENT_KEY` | `5` | Keyboard key pressed | Keycode | Modifiers | - |
+| `GUI_EVENT_KEYUP` | `10` | Keyboard key released | Keycode | Modifiers | - |
+| `GUI_EVENT_MOUSE_DOWN` | `6` | Generic mouse button down | X Coord | Y Coord | Button State |
+| `GUI_EVENT_MOUSE_UP` | `7` | Generic mouse button release | X Coord | Y Coord | Button State |
+| `GUI_EVENT_MOUSE_MOVE` | `8` | Mouse cursor moved | X Coord | Y Coord | - |
+| `GUI_EVENT_MOUSE_WHEEL` | `9` | Scroll wheel rotated | Scroll Delta | - | - |
+| `GUI_EVENT_RESIZE` | `11` | Window dimensions changed| New Width | New Height | - |
 
-Graphical applications are event-driven. They stay alive inside a `while (1)` loop, periodically asking the kernel if the user clicked the mouse or pressed a key inside their window.
-
-```c
-    ui_event_t event;
-
-    // Main UI Loop
-    while (1) {
-        // ui_poll_event is non-blocking. It returns 1 if an event occurred, 0 otherwise.
-        if (ui_poll_event(&event)) {
-            
-            // The WM dispatch sets event.window_id 
-            // We only care about events meant for our specific window
-            if (event.window_id == window_id) {
-
-                if (event.type == UI_EVENT_MOUSE_DOWN) {
-                    printf("User clicked at X:%d Y:%d\n", event.mouse_x, event.mouse_y);
-                    
-                    // Respond visually to the click
-                    ui_fill_rect(window_id, event.mouse_x, event.mouse_y, 10, 10, 0xFFFF0000); // Red dot
-                    ui_swap_buffers(window_id);
-                } 
-                else if (event.type == UI_EVENT_WINDOW_CLOSE) {
-                    // Start tearing down the application safely
-                    break;
-                }
-            }
-        }
-        
-        // Prevent 100% CPU usage by yielding execution time back to the OS scheduler
-        syscall1(SYSTEM_CMD_YIELD, 0);
-    }
-```
+*(Note: Coordinate arguments (`arg1`, `arg2`) for mouse events are typically relative to the top-left corner of the window's client area).*
 
 ---

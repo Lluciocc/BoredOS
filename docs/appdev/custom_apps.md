@@ -7,6 +7,9 @@
 
 This guide explains how to write a new "Hello World" application locally, compile it as an `.elf` binary into the `bin/` folder, and launch it inside BoredOS.
 
+> [!TIP]
+> **Looking for working code?** Check out the [Examples Directory](examples/README.md) for full source code demonstrating basic CLI, Windows, Animations, and TCP Networking.
+
 ## 📝 Step 1: Write the C Source
 
 Applications reside entirely in the `src/userland/` directory. Create a new file, for example, `src/userland/gui/hello.c`.
