@@ -44,11 +44,14 @@ typedef struct {
 
 bool font_manager_init(void);
 ttf_font_t* font_manager_load(const char *path, float size);
-void font_manager_render_char(ttf_font_t *font, int x, int y, char c, uint32_t color, void (*put_pixel_fn)(int, int, uint32_t));
-void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uint32_t color, float scale, void (*put_pixel_fn)(int, int, uint32_t));
-void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, char c, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
+void font_manager_set_fallback_font(ttf_font_t *font);
+uint32_t utf8_decode(const char **s);
+void font_manager_render_char(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, void (*put_pixel_fn)(int, int, uint32_t));
+void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, void (*put_pixel_fn)(int, int, uint32_t));
+void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
 int font_manager_get_string_width(ttf_font_t *font, const char *s);
 int font_manager_get_string_width_scaled(ttf_font_t *font, const char *s, float scale);
+int font_manager_get_codepoint_width_scaled(ttf_font_t *font, uint32_t codepoint, float scale);
 
 int font_manager_get_font_height_scaled(ttf_font_t *font, float scale);
 int font_manager_get_font_ascent_scaled(ttf_font_t *font, float scale);

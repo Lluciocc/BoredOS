@@ -55,6 +55,7 @@ void graphics_init_fonts(void) {
     if (!g_current_ttf) {
         serial_write("[FONT] Falling back to bitmap font\n");
     }
+    font_manager_set_fallback_font(font_manager_load("/Library/Fonts/Emoji/NotoEmoji-VariableFont_wght.ttf", 15.0f));
 }
 
 void graphics_update_resolution(int width, int height, int bpp, void* fb_addr, int color_mode) {
@@ -540,7 +541,10 @@ int graphics_get_string_width_scaled(const char *s, float scale) {
         return font_manager_get_string_width_scaled(g_current_ttf, s, scale);
     }
     int len = 0;
-    while (s && s[len]) len++;
+    while (s && *s) {
+        utf8_decode(&s);
+        len++;
+    }
     return len * 8; // Fallback bitmap width
 }
 
@@ -559,30 +563,28 @@ void draw_string_scaled(int x, int y, const char *s, uint32_t color, float scale
         int line_height = font_manager_get_font_line_height_scaled(g_current_ttf, scale);
         
         while (*s) {
-            if (*s == '\n') {
+            uint32_t codepoint = utf8_decode(&s);
+            if (codepoint == '\n') {
                 cur_x = x;
                 baseline += line_height;
             } else {
-                font_manager_render_char_scaled(g_current_ttf, cur_x, baseline, *s, color, scale, put_pixel);
-                // Advance by same rounded width that font_manager_get_string_width uses
-                char buf[2] = {*s, 0};
-                cur_x += font_manager_get_string_width_scaled(g_current_ttf, buf, scale);
+                font_manager_render_char_scaled(g_current_ttf, cur_x, baseline, codepoint, color, scale, put_pixel);
+                cur_x += font_manager_get_codepoint_width_scaled(g_current_ttf, codepoint, scale);
             }
-            s++;
         }
         return;
     }
 
     int cur_y = y;
     while (*s) {
-        if (*s == '\n') {
+        uint32_t codepoint = utf8_decode(&s);
+        if (codepoint == '\n') {
             cur_x = x;
             cur_y += 10;
         } else {
-            draw_char(cur_x, cur_y, *s, color);
+            draw_char(cur_x, cur_y, (codepoint < 128) ? (char)codepoint : '?', color);
             cur_x += 8;
         }
-        s++;
     }
 }
 
@@ -600,15 +602,14 @@ void draw_string_scaled_sloped(int x, int y, const char *s, uint32_t color, floa
         int line_height = font_manager_get_font_line_height_scaled(g_current_ttf, scale);
         
         while (*s) {
-            if (*s == '\n') {
+            uint32_t codepoint = utf8_decode(&s);
+            if (codepoint == '\n') {
                 cur_x = x;
                 baseline += line_height;
             } else {
-                font_manager_render_char_sloped(g_current_ttf, cur_x, baseline, *s, color, scale, slope, put_pixel);
-                char buf[2] = {*s, 0};
-                cur_x += font_manager_get_string_width_scaled(g_current_ttf, buf, scale);
+                font_manager_render_char_sloped(g_current_ttf, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
+                cur_x += font_manager_get_codepoint_width_scaled(g_current_ttf, codepoint, scale);
             }
-            s++;
         }
         return;
     }

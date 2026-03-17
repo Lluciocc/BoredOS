@@ -200,6 +200,15 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 		fi \
 	done
 	
+	mkdir -p $(ISO_DIR)/Library/Fonts/Emoji
+	@for f in $(SRC_DIR)/fonts/Emoji/*.ttf; do \
+		if [ -f "$$f" ]; then \
+			basename=$$(basename "$$f"); \
+			cp "$$f" $(ISO_DIR)/Library/Fonts/Emoji/; \
+			echo "    module_path: boot():/Library/Fonts/Emoji/$$basename" >> $(ISO_DIR)/limine.conf; \
+		fi \
+	done
+	
 	@if [ -f README.md ]; then \
 		cp README.md $(ISO_DIR)/; \
 		echo "    module_path: boot():/README.md" >> $(ISO_DIR)/limine.conf; \

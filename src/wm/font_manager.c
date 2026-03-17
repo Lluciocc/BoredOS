@@ -54,6 +54,11 @@ static inline uint32_t alpha_blend(uint32_t bg, uint32_t fg, uint8_t alpha) {
 }
 
 static ttf_font_t *default_font = NULL;
+static ttf_font_t *fallback_font = NULL;
+
+void font_manager_set_fallback_font(ttf_font_t *font) {
+    fallback_font = font;
+}
 
 #define MAX_LOADED_FONTS 8
 typedef struct {
@@ -149,13 +154,49 @@ ttf_font_t* font_manager_load(const char *path, float size) {
     return font;
 }
 
-void font_manager_render_char(ttf_font_t *font, int x, int y, char c, uint32_t color, void (*put_pixel_fn)(int, int, uint32_t)) {
-    if (!font) font = default_font;
-    if (!font) return;
-    font_manager_render_char_scaled(font, x, y, c, color, font->pixel_height, put_pixel_fn);
+uint32_t utf8_decode(const char **s) {
+    const unsigned char *u = (const unsigned char *)*s;
+    if (!*u) return 0;
+    
+    if (u[0] < 0x80) {
+        *s = (const char *)(u + 1);
+        return u[0];
+    }
+    
+    if ((u[0] & 0xE0) == 0xC0 && (u[1] & 0xC0) == 0x80) {
+        *s = (const char *)(u + 2);
+        return ((u[0] & 0x1F) << 6) | (u[1] & 0x3F);
+    }
+    
+    if ((u[0] & 0xF0) == 0xE0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80) {
+        *s = (const char *)(u + 3);
+        return ((u[0] & 0x0F) << 12) | ((u[1] & 0x3F) << 6) | (u[2] & 0x3F);
+    }
+    
+    if ((u[0] & 0xF8) == 0xF0 && (u[1] & 0xC0) == 0x80 && (u[2] & 0xC0) == 0x80 && (u[3] & 0xC0) == 0x80) {
+        *s = (const char *)(u + 4);
+        return ((u[0] & 0x07) << 18) | ((u[1] & 0x3F) << 12) | ((u[2] & 0x3F) << 6) | (u[3] & 0x3F);
+    }
+    
+    uint32_t codepoint = u[0];
+    *s = (const char *)(u + 1);
+    if (codepoint == 128) return 0x2014;
+    if (codepoint == 129) return 0x2013;
+    if (codepoint == 130) return 0x2022;
+    if (codepoint == 131) return 0x2026;
+    if (codepoint == 132) return 0x2122;
+    if (codepoint == 133) return 0x20AC;
+    if (codepoint == 134) return 0x00B7;
+    return codepoint;
 }
 
-void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uint32_t color, float scale, void (*put_pixel_fn)(int, int, uint32_t)) {
+void font_manager_render_char(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, void (*put_pixel_fn)(int, int, uint32_t)) {
+    if (!font) font = default_font;
+    if (!font) return;
+    font_manager_render_char_scaled(font, x, y, codepoint, color, font->pixel_height, put_pixel_fn);
+}
+
+void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, void (*put_pixel_fn)(int, int, uint32_t)) {
     if (!font) font = default_font;
     if (!font) return;
 
@@ -166,15 +207,11 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uin
     
     float real_scale = stbtt_ScaleForPixelHeight(info, scale);
     
-    int codepoint = (unsigned char)c;
-    if (codepoint == 128) codepoint = 0x2014; 
-    if (codepoint == 129) codepoint = 0x2013; 
-    if (codepoint == 130) codepoint = 0x2022; 
-    if (codepoint == 131) codepoint = 0x2026; 
-    if (codepoint == 132) codepoint = 0x2122; 
-    if (codepoint == 133) codepoint = 0x20AC; 
-    if (codepoint == 134) codepoint = 0x00B7;
-    
+    if (stbtt_FindGlyphIndex(info, codepoint) == 0 && fallback_font) {
+        info = (stbtt_fontinfo *)fallback_font->info;
+        real_scale = stbtt_ScaleForPixelHeight(info, scale);
+    }
+
     bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, codepoint, &w, &h, &xoff, &yoff);
 
     if (bitmap) {
@@ -193,7 +230,7 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, char c, uin
     }
 }
 
-void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, char c, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t)) {
+void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t)) {
     if (!font) font = default_font;
     if (!font) return;
 
@@ -204,15 +241,11 @@ void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, char c, uin
     
     float real_scale = stbtt_ScaleForPixelHeight(info, scale);
     
-    int codepoint = (unsigned char)c;
-    if (codepoint == 128) codepoint = 0x2014;
-    if (codepoint == 129) codepoint = 0x2013;
-    if (codepoint == 130) codepoint = 0x2022;
-    if (codepoint == 131) codepoint = 0x2026;
-    if (codepoint == 132) codepoint = 0x2122;
-    if (codepoint == 133) codepoint = 0x20AC;
-    if (codepoint == 134) codepoint = 0x00B7;
-    
+    if (stbtt_FindGlyphIndex(info, codepoint) == 0 && fallback_font) {
+        info = (stbtt_fontinfo *)fallback_font->info;
+        real_scale = stbtt_ScaleForPixelHeight(info, scale);
+    }
+
     bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, codepoint, &w, &h, &xoff, &yoff);
 
     if (bitmap) {
@@ -269,17 +302,33 @@ int font_manager_get_string_width_scaled(ttf_font_t *font, const char *s, float 
     int width = 0;
     while (*s) {
         int advance, lsb;
-        int codepoint = (unsigned char)*s;
-        if (codepoint == 128) codepoint = 0x2014; 
-        if (codepoint == 129) codepoint = 0x2013; 
-        if (codepoint == 130) codepoint = 0x2022; 
-        if (codepoint == 131) codepoint = 0x2026; 
-        if (codepoint == 132) codepoint = 0x2122; 
-        if (codepoint == 133) codepoint = 0x20AC; 
-        if (codepoint == 134) codepoint = 0x00B7; 
-        stbtt_GetCodepointHMetrics(info, codepoint, &advance, &lsb);
-        width += (int)(advance * real_scale + 0.5f);
-        s++;
+        uint32_t codepoint = utf8_decode(&s);
+        stbtt_fontinfo *current_info = info;
+        float current_scale = real_scale;
+        
+        if (stbtt_FindGlyphIndex(current_info, codepoint) == 0 && fallback_font) {
+            current_info = (stbtt_fontinfo *)fallback_font->info;
+            current_scale = stbtt_ScaleForPixelHeight(current_info, scale);
+        }
+        
+        stbtt_GetCodepointHMetrics(current_info, codepoint, &advance, &lsb);
+        width += (int)(advance * current_scale + 0.5f);
     }
     return width;
+}
+
+int font_manager_get_codepoint_width_scaled(ttf_font_t *font, uint32_t codepoint, float scale) {
+    if (!font) font = default_font;
+    if (!font) return 0;
+    stbtt_fontinfo *info = (stbtt_fontinfo *)font->info;
+    float real_scale = stbtt_ScaleForPixelHeight(info, scale);
+    
+    if (stbtt_FindGlyphIndex(info, codepoint) == 0 && fallback_font) {
+        info = (stbtt_fontinfo *)fallback_font->info;
+        real_scale = stbtt_ScaleForPixelHeight(info, scale);
+    }
+    
+    int advance, lsb;
+    stbtt_GetCodepointHMetrics(info, codepoint, &advance, &lsb);
+    return (int)(advance * real_scale + 0.5f);
 }
