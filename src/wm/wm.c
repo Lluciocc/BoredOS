@@ -2070,19 +2070,33 @@ void wm_handle_right_click(int x, int y) {
             }
             // 2. Check Explorer Items
             if (!is_dragging_file) {
-                bool is_dir;
-                if (explorer_get_file_at(drag_start_x, drag_start_y, drag_file_path, &is_dir)) {
-                    is_dragging_file = true;
-                    drag_icon_type = is_dir ? 1 : 0;
-                    drag_src_win = NULL;
-                    
-                    // Find which explorer window was clicked to clear its state
-                    for (int w = 0; w < window_count; w++) {
-                        Window *win = all_windows[w];
-                        if (win->visible && rect_contains(win->x, win->y, win->w, win->h, drag_start_x, drag_start_y)) {
-                            if (str_starts_with(win->title, "Files")) {
-                                drag_src_win = win;
-                                explorer_clear_click_state(win);
+                Window *topmost_at_drag = NULL;
+                int tops_z = -1;
+                for (int w = 0; w < window_count; w++) {
+                    Window *w_ptr = all_windows[w];
+                    if (w_ptr->visible && rect_contains(w_ptr->x, w_ptr->y, w_ptr->w, w_ptr->h, drag_start_x, drag_start_y)) {
+                        if (w_ptr->z_index > tops_z) {
+                            topmost_at_drag = w_ptr;
+                            tops_z = w_ptr->z_index;
+                        }
+                    }
+                }
+                
+                if (!topmost_at_drag || str_starts_with(topmost_at_drag->title, "Files")) {
+                    bool is_dir;
+                    if (explorer_get_file_at(drag_start_x, drag_start_y, drag_file_path, &is_dir)) {
+                        is_dragging_file = true;
+                        drag_icon_type = is_dir ? 1 : 0;
+                        drag_src_win = NULL;
+                        
+                        // Find which explorer window was clicked to clear its state
+                        for (int w = 0; w < window_count; w++) {
+                            Window *win = all_windows[w];
+                            if (win->visible && rect_contains(win->x, win->y, win->w, win->h, drag_start_x, drag_start_y)) {
+                                if (str_starts_with(win->title, "Files")) {
+                                    drag_src_win = win;
+                                    explorer_clear_click_state(win);
+                                }
                             }
                         }
                     }
@@ -2435,6 +2449,9 @@ void wm_handle_right_click(int x, int y) {
                     }
                 }
             }
+        }
+        
+        if (is_dragging_file) {
             is_dragging_file = false;
             force_redraw = true;
         }

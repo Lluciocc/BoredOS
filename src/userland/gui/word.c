@@ -41,6 +41,10 @@ static _Bool selection_started = 0;
 static int sel_start_para = -1, sel_start_run = -1, sel_start_pos = -1;
 static int sel_end_para = -1, sel_end_run = -1, sel_end_pos = -1;
 
+static int current_page_size = 0; // 0=A4, 1=A3, 2=A2
+static const int page_widths[] = { 595, 842, 1191 };
+static const int page_heights[] = { 842, 1191, 1684 };
+
 #define MAX_PARAGRAPHS 256
 #define MAX_RUNS_PER_PARAGRAPH 64
 #define MAX_RUN_TEXT 128
@@ -85,6 +89,9 @@ static int cursor_pos = 0;
 static char open_filename[256] = "";
 static _Bool file_modified = 0;
 static int scroll_y = 0;
+
+static _Bool is_dragging_scrollbar = 0;
+static int scrollbar_drag_offset_y = 0;
 
 static _Bool is_in_selection(int p, int r, int c);
 
@@ -140,6 +147,8 @@ static void set_active_font(ui_window_t win, int idx) {
     }
 }
 
+static void ensure_cursor_visible(ui_window_t win);
+
 static void save_undo_state(void) {
     UndoState *s = &undo_stack[undo_head];
     s->para_count = para_count;
@@ -194,7 +203,22 @@ static void init_doc(void) {
     r->color = current_text_color;
 }
 
-static void handle_arrows(char c) {
+static void update_formatting_state(void) {
+    if (cursor_para != -1 && cursor_run != -1) {
+        if (cursor_para < para_count && cursor_run < paragraphs[cursor_para].run_count) {
+            TextRun *r = &paragraphs[cursor_para].runs[cursor_run];
+            is_bold = r->bold;
+            is_italic = r->italic;
+            is_underline = r->underline;
+            current_font_idx = r->font_idx;
+            current_font_size = r->font_size;
+            current_text_color = r->color;
+            align_mode = paragraphs[cursor_para].align;
+        }
+    }
+}
+
+static void handle_arrows(ui_window_t win, char c) {
     if (c == 17) {
         if (cursor_para > 0) {
             cursor_para--;
@@ -232,6 +256,8 @@ static void handle_arrows(char c) {
             cursor_pos = 0;
         }
     }
+    update_formatting_state();
+    ensure_cursor_visible(win);
 }
 
 static void split_run(int p_idx, int r_idx, int pos) {
@@ -306,14 +332,28 @@ static void delete_selection(void) {
     file_modified = 1;
 }
 
-static void insert_char(char c) {
-    if (sel_start_para != -1) {
+static void insert_char(ui_window_t win, char c) {
+    _Bool has_selection = 0;
+    if (sel_start_para != -1 && sel_end_para != -1) {
+        if (!(sel_start_para == sel_end_para && sel_start_run == sel_end_run && sel_start_pos == sel_end_pos)) {
+            has_selection = 1;
+        }
+    }
+
+    if (has_selection) {
         delete_selection();
         if (c == '\b') return;
+    } else {
+        if (sel_start_para != -1) {
+            sel_start_para = -1;
+            sel_end_para = -1;
+        }
     }
 
     if (c < 32 && c != '\n' && c != '\b') {
-        handle_arrows(c);
+        if (c >= 17 && c <= 20) {
+            handle_arrows(win, c);
+        }
         return;
     }
 
@@ -382,9 +422,9 @@ static void insert_char(char c) {
             for(int i=cursor_para+1; i<para_count-1; i++) paragraphs[i] = paragraphs[i+1];
             para_count--;
             
-            if (prev->run_count == 0) prev->run_count = 1;
-        }
+            }
         file_modified = 1;
+        ensure_cursor_visible(win);
         return;
     }
 
@@ -413,6 +453,7 @@ static void insert_char(char c) {
         cursor_run = 0;
         cursor_pos = 0;
         file_modified = 1;
+        ensure_cursor_visible(win);
         return;
     }
 
@@ -462,6 +503,7 @@ static void insert_char(char c) {
         cursor_pos++;
         file_modified = 1;
     }
+    ensure_cursor_visible(win);
 }
 
 static bool str_contains(const char *haystack, const char *needle) {
@@ -492,6 +534,15 @@ static void append_pdf_float(char *buf, int *len, int val) {
     buf[(*len)++] = ' ';
 }
 
+static void get_page_size(int *pw, int *ph) {
+    if (current_page_size >= 0 && current_page_size <= 2) {
+        *pw = page_widths[current_page_size];
+        *ph = page_heights[current_page_size];
+    } else {
+        *pw = 595; *ph = 842;
+    }
+}
+
 static void export_pdf(void) {
     char name[256];
     if (open_filename[0] == 0) string_copy(name, "document.pdf");
@@ -501,34 +552,86 @@ static void export_pdf(void) {
     if (fd < 0) return;
     
     int offset = 0;
-    int xref[32];
+    int xref[1024]; // Increase xref size to handle more objects
     int obj_count = 1;
 
     #define WRITE_STR(s) do { sys_write_fs(fd, s, string_len(s)); offset += string_len(s); } while(0)
     
     WRITE_STR("%PDF-1.4\n");
     
-    xref[obj_count++] = offset;
+    int catalog_obj = obj_count++;
+    xref[catalog_obj] = offset;
     WRITE_STR("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
     
-    xref[obj_count++] = offset;
-    WRITE_STR("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+    int pages_obj = obj_count++;
+    int page_obj_ids[256];
+    int total_pdf_pages = 0;
     
-    xref[obj_count++] = offset;
-    WRITE_STR("3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << "
-              "/F1 5 0 R /F2 6 0 R /F3 7 0 R /F4 8 0 R "
-              "/F5 9 0 R /F6 10 0 R /F7 11 0 R /F8 12 0 R "
-              "/F9 13 0 R /F10 14 0 R /F11 15 0 R /F12 16 0 R >> >> >>\nendobj\n");
+    int resources_obj = obj_count++;
+    xref[resources_obj] = offset;
+    WRITE_STR("3 0 obj\n<< /ProcSet [/PDF /Text] /Font << ");
+    for(int i=1; i<=12; i++) {
+        WRITE_STR("/F");
+        char f_n[16]; itoa(i, f_n); WRITE_STR(f_n);
+        WRITE_STR(" ");
+        char fo_n[16]; itoa(3+i, fo_n); WRITE_STR(fo_n);
+        WRITE_STR(" 0 R ");
+    }
+    WRITE_STR(">> >>\nendobj\n");
     
-    char stream[8192];
+    // Write 12 fonts
+    const char *base_fonts[12] = {
+        "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+        "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
+        "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique"
+    };
+    for(int i=0; i<12; i++) {
+        xref[obj_count++] = offset; // 4 to 15
+        char num[16];
+        itoa(obj_count - 1, num);
+        WRITE_STR(num);
+        WRITE_STR(" 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /");
+        WRITE_STR(base_fonts[i]);
+        WRITE_STR(" >>\nendobj\n");
+    }
+
+    static char stream[65536];
     stream[0] = 0;
     int slen = 0;
     
     #define S_WRITE(s) do { string_copy(stream + slen, s); slen += string_len(s); } while(0)
     
+    int pw, ph;
+    get_page_size(&pw, &ph);
+
+    // Initial page
+    page_obj_ids[total_pdf_pages++] = obj_count;
+    xref[obj_count++] = offset; // Page obj
+    int current_page_obj = obj_count - 1;
+    int current_contents_obj = obj_count;
+    
+    // We will write the Page object:
+    char num1[16]; itoa(current_page_obj, num1);
+    WRITE_STR(num1); WRITE_STR(" 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ");
+    char num2[16]; itoa(pw, num2); WRITE_STR(num2); WRITE_STR(" ");
+    char num3[16]; itoa(ph, num3); WRITE_STR(num3); WRITE_STR("] /Contents ");
+    char num4[16]; itoa(current_contents_obj, num4); WRITE_STR(num4); WRITE_STR(" 0 R /Resources 3 0 R >>\nendobj\n");
+
+    // Starting Contents
+    xref[obj_count++] = offset; // Contents obj
+    current_contents_obj = obj_count - 1;
+    char cont_buf[64];
+    itoa(current_contents_obj, cont_buf);
+    WRITE_STR(cont_buf); WRITE_STR(" 0 obj\n");
+    
+    // We will leave length empty and calculate exactly later
+    int length_placeholder_offset = offset;
+    WRITE_STR("<< /Length 00000000 >>\nstream\n"); // 8 chars for length
+    
     S_WRITE("BT\n");
     
-    float cur_y = 800.0f;
+    float cur_y = (float)ph - 42.0f; // 42 is top margin
+    float bottom_margin = 40.0f;
     
     for(int p=0; p<para_count; p++) {
         Paragraph *para = &paragraphs[p];
@@ -545,9 +648,54 @@ static void export_pdf(void) {
         }
         
         int px = 20;
-        if (para->align == 1) px = (595 - tw) / 2;
-        else if (para->align == 2) px = 595 - 20 - tw;
+        if (para->align == 1) px = (pw - tw) / 2;
+        else if (para->align == 2) px = pw - 20 - tw;
         
+        float max_lh = 15.0f;
+        for(int r=0; r<para->run_count; r++) {
+            if (para->runs[r].font_size > max_lh) max_lh = para->runs[r].font_size;
+        }
+
+        if (cur_y - max_lh < bottom_margin) {
+            S_WRITE("ET\n");
+            sys_write_fs(fd, stream, slen); offset += slen;
+            sys_write_fs(fd, "\nendstream\nendobj\n", 18); offset += 18;
+            
+            // Patch length
+            int current_offset = sys_seek(fd, 0, 1);
+            sys_seek(fd, length_placeholder_offset + 12, 0); // "12" is the offset to '00000000' part of "/Length 00000000"
+            char num_len[16]; itoa(slen, num_len);
+            int pad = 8 - (int)string_len(num_len);
+            for(int k=0; k<pad; k++) sys_write_fs(fd, "0", 1);
+            sys_write_fs(fd, num_len, string_len(num_len));
+            sys_seek(fd, current_offset, 0);
+
+            // New page reset
+            slen = 0;
+            cur_y = (float)ph - 42.0f;
+            
+            page_obj_ids[total_pdf_pages++] = obj_count;
+            xref[obj_count++] = offset; // New Page obj
+            current_page_obj = obj_count - 1;
+            current_contents_obj = obj_count;
+            
+            char p_num[16]; itoa(current_page_obj, p_num);
+            WRITE_STR(p_num); WRITE_STR(" 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ");
+            char numw[16]; itoa(pw, numw); WRITE_STR(numw); WRITE_STR(" ");
+            char numh[16]; itoa(ph, numh); WRITE_STR(numh); WRITE_STR("] /Contents ");
+            char c_num[16]; itoa(current_contents_obj, c_num); WRITE_STR(c_num); WRITE_STR(" 0 R /Resources 3 0 R >>\nendobj\n");
+
+            xref[obj_count++] = offset; // New Contents obj
+            current_contents_obj = obj_count - 1;
+            char n_cont_buf[64]; itoa(current_contents_obj, n_cont_buf);
+            WRITE_STR(n_cont_buf); WRITE_STR(" 0 obj\n");
+            
+            length_placeholder_offset = offset;
+            WRITE_STR("<< /Length 00000000 >>\nstream\n");
+            
+            S_WRITE("BT\n");
+        }
+
         char tm_buf[64];
         int tlen = 0;
         string_copy(tm_buf, "1 0 0 1 "); tlen += 8;
@@ -559,10 +707,10 @@ static void export_pdf(void) {
         string_copy(tm_buf + tlen, num); tlen += string_len(num);
         string_copy(tm_buf + tlen, " Tm\n"); tlen += 4;
         tm_buf[tlen] = 0;
+        
         S_WRITE(tm_buf);
         
         char align_cmt[32];
-        int a_len = 0;
         string_copy(align_cmt, "%ALIGN_0\n");
         align_cmt[7] = '0' + para->align;
         S_WRITE(align_cmt);
@@ -625,57 +773,59 @@ static void export_pdf(void) {
             }
         }
         
-        float max_lh = 15.0f;
-        for(int r=0; r<para->run_count; r++) {
-            if (para->runs[r].font_size > max_lh) max_lh = para->runs[r].font_size;
-        }
         cur_y -= (max_lh + 5.0f);
     }
     S_WRITE("ET\n");
-    
-    xref[obj_count++] = offset;
-    sys_write_fs(fd, "4 0 obj\n<< /Length ", 19); offset += 19;
-    char num[16];
-    itoa(slen, num);
-    sys_write_fs(fd, num, string_len(num)); offset += string_len(num);
-    sys_write_fs(fd, " >>\nstream\n", 11); offset += 11;
-    
+
+    // Finalize the last pending page stream
     sys_write_fs(fd, stream, slen); offset += slen;
-    
     sys_write_fs(fd, "\nendstream\nendobj\n", 18); offset += 18;
     
-    const char *base_fonts[12] = {
-        "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
-        "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic",
-        "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique"
-    };
-    for(int i=0; i<12; i++) {
-        xref[obj_count++] = offset;
-        char num[16];
-        itoa(i + 5, num);
-        WRITE_STR(num);
-        WRITE_STR(" 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /");
-        WRITE_STR(base_fonts[i]);
-        WRITE_STR(" >>\nendobj\n");
-    }
+    // Patch length of last page
+    int current_offset = sys_seek(fd, 0, 1);
+    sys_seek(fd, length_placeholder_offset + 12, 0);
+    char num_len[16]; itoa(slen, num_len);
+    int pad = 8 - (int)string_len(num_len);
+    for(int k=0; k<pad; k++) sys_write_fs(fd, "0", 1);
+    sys_write_fs(fd, num_len, string_len(num_len));
+    sys_seek(fd, current_offset, 0);
     
-    int xref_offset = offset;
-    WRITE_STR("xref\n0 17\n0000000000 65535 f \n");
-    for(int i=1; i<17; i++) {
+    int total_objects = obj_count;
+    
+    // Now write the Pages object since we know all page objects
+    xref[2] = offset; // Pages object is always 2 0 obj
+    WRITE_STR("2 0 obj\n<< /Type /Pages /Kids [");
+    for(int i=0; i<total_pdf_pages; i++) {
+        char pnum[16]; itoa(page_obj_ids[i], pnum);
+        WRITE_STR(pnum); WRITE_STR(" 0 R ");
+    }
+    WRITE_STR("] /Count ");
+    char cnum[16]; itoa(total_pdf_pages, cnum);
+    WRITE_STR(cnum); WRITE_STR(" >>\nendobj\n");
+
+
+    int final_xref_offset = offset;
+    WRITE_STR("xref\n0 ");
+    char num_total_obj[16];
+    itoa(total_objects, num_total_obj); WRITE_STR(num_total_obj); WRITE_STR("\n0000000000 65535 f \n");
+    for(int i=1; i<total_objects; i++) {
         char entry[32];
         int w = 0;
-        char num[16];
-        itoa(xref[i], num);
-        int pad = 10 - (int)string_len(num);
+        char num_str[16];
+        itoa(xref[i], num_str);
+        int pad = 10 - (int)string_len(num_str);
         for(int p=0; p<pad; p++) entry[w++] = '0';
-        for(int p=0; p<(int)string_len(num); p++) entry[w++] = num[p];
+        for(int p=0; p<(int)string_len(num_str); p++) entry[w++] = num_str[p];
         string_copy(entry + w, " 00000 n \n");
         WRITE_STR(entry);
     }
     
-    WRITE_STR("trailer\n<< /Size 17 /Root 1 0 R >>\nstartxref\n");
+    WRITE_STR("trailer\n<< /Size ");
+    char num_trailer[16];
+    itoa(total_objects, num_trailer); WRITE_STR(num_trailer);
+    WRITE_STR(" /Root 1 0 R >>\nstartxref\n");
     char xnum[16];
-    itoa(xref_offset, xnum);
+    itoa(final_xref_offset, xnum);
     WRITE_STR(xnum);
     WRITE_STR("\n%%EOF\n");
     
@@ -683,7 +833,7 @@ static void export_pdf(void) {
     file_modified = 0;
 }
 
-static void load_file(const char* path) {
+static void load_file(ui_window_t win, const char* path) {
     int fd = sys_open(path, "r");
     if (fd < 0) return;
     int size = sys_size(fd);
@@ -770,12 +920,12 @@ static void load_file(const char* path) {
                  i++;
                  while(i < size && buf[i] != ')') {
                      if (buf[i] == '\\' && i+1 < size) i++;
-                     insert_char(buf[i]);
+                     insert_char(win, buf[i]);
                      i++;
                  }
              }
              else if ((buf[i] == 'T' && buf[i+1] == 'd') || (buf[i] == 'T' && buf[i+1] == 'm')) {
-                 insert_char('\n');
+                 insert_char(win, '\n');
                  i += 2;
              }
              else {
@@ -784,7 +934,7 @@ static void load_file(const char* path) {
         }
     } else {
         for(int i=0; i<size; i++) {
-            if (buf[i] != '\r') insert_char(buf[i]);
+            if (buf[i] != '\r') insert_char(win, buf[i]);
         }
     }
     file_modified = 0;
@@ -877,7 +1027,13 @@ static void draw_toolbar(ui_window_t win) {
     
     draw_btn_icon(win, 485, 8, 30, 24, 9, 0);
     
-    draw_btn_icon(win, win_w - 50, 8, 40, 24, 10, file_modified);
+    ui_draw_rect(win, 520, 8, 2, 24, COLOR_DARK_BG);
+    ui_draw_rounded_rect_filled(win, 530, 8, 50, 24, 4, COLOR_TOOLBAR_BTN);
+    const char *ps_str = (current_page_size == 0) ? "A4" : (current_page_size == 1 ? "A3" : "A2");
+    ui_draw_string(win, 545, 12, ps_str, COLOR_WHITE);
+    ui_draw_rect(win, 530+35, 18, 4, 2, COLOR_WHITE);
+    
+    draw_btn_icon(win, 590, 8, 40, 24, 10, file_modified);
 }
 
 static void draw_dropdowns(ui_window_t win) {
@@ -900,6 +1056,17 @@ static void draw_dropdowns(ui_window_t win) {
             if (palette[i] == current_text_color) {
                 ui_draw_rect(win, 365, 32 + i*20 + 8, 4, 4, COLOR_WHITE);
             }
+        }
+    } else if (active_dropdown == 3) {
+        ui_draw_rect(win, 530, 32, 50, 60, COLOR_DARK_PANEL);
+        const char *ps[3] = {"A4", "A3", "A2"};
+        for(int i=0; i<3; i++) {
+            if (i == current_page_size) {
+                ui_draw_rect(win, 530, 32 + i*20, 50, 20, COLOR_TOOLBAR_BTN_ACTIVE);
+            } else {
+                ui_draw_rect(win, 530, 32 + i*20, 50, 20, COLOR_DARK_PANEL);
+            }
+            ui_draw_string(win, 545, 32 + i*20 + 4, ps[i], COLOR_WHITE);
         }
     }
 }
@@ -924,15 +1091,36 @@ static void draw_dialogs(ui_window_t win) {
 }
 
 static void draw_document(ui_window_t win) {
-    int doc_x = 20;
+    int pw, ph;
+    get_page_size(&pw, &ph);
+    
+    int doc_view_w = win_w - 40;
+    float scale = (float)doc_view_w / (float)pw;
+    if (scale > 1.0f) scale = 1.0f; // Don't scale up if window is huge
+    
+    int page_w = (int)(pw * scale);
+    int page_h = (int)(ph * scale);
+    
+    int doc_x = 20 + (doc_view_w - page_w) / 2;
     int doc_y = 50 - scroll_y;
-    int doc_w = win_w - 40;
     
     ui_draw_rect(win, 0, 40, win_w, win_h - 40, COLOR_DARK_BG);
     
-    ui_draw_rect(win, doc_x, 50, doc_w, win_h, COLOR_WHITE);
-    
     int cur_y = doc_y + 10;
+    int current_page = 0;
+    
+    // Draw first page background
+    int bg_y = doc_y + current_page * (page_h + 20);
+    int draw_h = page_h;
+    if (bg_y < 40) {
+        draw_h -= (40 - bg_y);
+        bg_y = 40;
+    }
+    if (draw_h > 0 && bg_y < win_h) {
+        ui_draw_rect(win, doc_x, bg_y, page_w, draw_h, COLOR_WHITE);
+    }
+    
+    cur_y = doc_y + current_page * (page_h + 20) + 10;
     
     for(int p=0; p<para_count; p++) {
         Paragraph *para = &paragraphs[p];
@@ -967,7 +1155,7 @@ static void draw_document(ui_window_t win) {
                         last_space_w = line_w + cw;
                     }
                     
-                    if (line_w + cw > doc_w - 20) {
+                    if (line_w + cw > page_w - 20) {
                         break;
                     }
                     line_w += cw;
@@ -994,11 +1182,27 @@ static void draw_document(ui_window_t win) {
                 end_char = 0;
             }
             
+            int line_h = (int)(max_h * para->spacing) + 4;
+            
+            if (cur_y + line_h > doc_y + current_page * (page_h + 20) + page_h - 10) {
+                current_page++;
+                int next_bg_y = doc_y + current_page * (page_h + 20);
+                int next_draw_h = page_h;
+                if (next_bg_y < 40) {
+                    next_draw_h -= (40 - next_bg_y);
+                    next_bg_y = 40;
+                }
+                if (next_draw_h > 0 && next_bg_y < win_h) {
+                    ui_draw_rect(win, doc_x, next_bg_y, page_w, next_draw_h, COLOR_WHITE);
+                }
+                cur_y = doc_y + current_page * (page_h + 20) + 10;
+            }
+            
             int cur_x = doc_x + 10;
             if (para->align == 1) {
-                cur_x = doc_x + 10 + (doc_w - 20 - line_w) / 2;
+                cur_x = doc_x + 10 + (page_w - 20 - line_w) / 2;
             } else if (para->align == 2) {
-                cur_x = doc_x + 10 + (doc_w - 20 - line_w);
+                cur_x = doc_x + 10 + (page_w - 20 - line_w);
             }
             
             int d_run = start_run;
@@ -1026,27 +1230,30 @@ static void draw_document(ui_window_t win) {
                     int y_offset = 0;
                     if (max_h > run_h) y_offset = max_h - run_h;
                     
-                    if (cur_y + max_h > 40 && cur_y < win_h) {
+                    int text_y = cur_y + y_offset;
+                    if (text_y + run_h > 40 && text_y < win_h) {
                         for(int i=0; i<chars_to_draw; i++) {
                             char buf[2] = {run->text[d_char + i], 0};
                             _Bool in_sel = is_in_selection(p, d_run, d_char + i);
                             uint32_t text_col = in_sel ? COLOR_WHITE : run->color;
                             int cw = ui_get_string_width_scaled(buf, run->font_size);
                             
-                            if (in_sel) {
-                                ui_draw_rect(win, cur_x, cur_y + y_offset + 4, cw, run_h, COLOR_BLUE);
-                            }
-                            
-                            if (run->italic) {
-                                ui_draw_string_scaled_sloped(win, cur_x, cur_y + y_offset, buf, text_col, run->font_size, 0.2f);
-                                if (run->bold) ui_draw_string_scaled_sloped(win, cur_x+1, cur_y + y_offset, buf, text_col, run->font_size, 0.2f);
-                            } else {
-                                ui_draw_string_scaled(win, cur_x, cur_y + y_offset, buf, text_col, run->font_size);
-                                if (run->bold) ui_draw_string_scaled(win, cur_x+1, cur_y + y_offset, buf, text_col, run->font_size);
-                            }
-                            
-                            if (run->underline) {
-                                ui_draw_rect(win, cur_x, cur_y + max_h - 2, cw, 1, text_col);
+                            if (text_y + run_h > 40) {
+                                if (in_sel) {
+                                    ui_draw_rect(win, cur_x, text_y + 4, cw, run_h, COLOR_BLUE);
+                                }
+                                
+                                if (run->italic) {
+                                    ui_draw_string_scaled_sloped(win, cur_x, text_y, buf, text_col, run->font_size, 0.2f);
+                                    if (run->bold) ui_draw_string_scaled_sloped(win, cur_x+1, text_y, buf, text_col, run->font_size, 0.2f);
+                                } else {
+                                    ui_draw_string_scaled(win, cur_x, text_y, buf, text_col, run->font_size);
+                                    if (run->bold) ui_draw_string_scaled(win, cur_x+1, text_y, buf, text_col, run->font_size);
+                                }
+                                
+                                if (run->underline) {
+                                    ui_draw_rect(win, cur_x, cur_y + max_h - 2, cw, 1, text_col);
+                                }
                             }
                             cur_x += cw;
                         }
@@ -1067,7 +1274,6 @@ static void draw_document(ui_window_t win) {
             }
             
             if (line_cursor_x != -1 && cur_y > 40 && cur_y < win_h) {
-                int target_h = max_h;
                 if (cursor_para < para_count && cursor_run < paragraphs[cursor_para].run_count) {
                     set_active_font(win, paragraphs[cursor_para].runs[cursor_run].font_idx);
                     int fh = ui_get_font_height_scaled(paragraphs[cursor_para].runs[cursor_run].font_size);
@@ -1093,6 +1299,102 @@ static void draw_document(ui_window_t win) {
     }
     
     set_active_font(win, 0);
+    
+    int content_h = current_page * (page_h + 20) + page_h + 20;
+    if (content_h > win_h - 40) {
+        int sb_x = win_w - 12;
+        int sb_w = 12;
+        int sb_h = win_h - 40;
+        float ratio = (float)(win_h - 40) / (float)content_h;
+        int thumb_h = (int)(sb_h * ratio);
+        if (thumb_h < 20) thumb_h = 20;
+        int max_scroll = content_h - (win_h - 40);
+        if (scroll_y > max_scroll) scroll_y = max_scroll;
+        int thumb_y = 40 + (int)(((float)scroll_y / max_scroll) * (sb_h - thumb_h));
+        
+        ui_draw_rect(win, sb_x, 40, sb_w, sb_h, 0xFF303030);
+        ui_draw_rounded_rect_filled(win, sb_x+2, thumb_y+2, sb_w-4, thumb_h-4, 4, 0xFF606060);
+    }
+}
+
+static void ensure_cursor_visible(ui_window_t win) {
+    int pw, ph;
+    get_page_size(&pw, &ph);
+    int doc_view_w = win_w - 40;
+    float scale = (float)doc_view_w / (float)pw;
+    if (scale > 1.0f) scale = 1.0f;
+    int page_w = (int)(pw * scale);
+    int page_h = (int)(ph * scale);
+    
+    int cur_y = 10;
+    int current_page = 0;
+    int target_y = -1;
+    
+    for(int p=0; p<para_count; p++) {
+        Paragraph *para = &paragraphs[p];
+        int start_run = 0; int start_char = 0;
+        
+        while (start_run < para->run_count) {
+            int max_h = 16;
+            int r_idx = start_run;
+            int c_idx = start_char;
+            int end_run = start_run; int end_char = start_char;
+            int line_w = 0;
+            int last_space_run = -1; int last_space_char = -1; int last_space_w = 0;
+            
+            while(r_idx < para->run_count) { 
+                TextRun *run = &para->runs[r_idx];
+                set_active_font(win, run->font_idx); 
+                int fh = ui_get_font_height_scaled(run->font_size);
+                if (fh > max_h) max_h = fh;
+                
+                while(c_idx < run->len) {
+                    char buf[2] = {run->text[c_idx], 0};
+                    int cw = ui_get_string_width_scaled(buf, run->font_size);
+                    if (run->text[c_idx] == ' ') { last_space_run = r_idx; last_space_char = c_idx; last_space_w = line_w + cw; }
+                    if (line_w + cw > page_w - 20) break;
+                    line_w += cw;
+                    c_idx++;
+                }
+                if (c_idx < run->len) break;
+                r_idx++; c_idx = 0;
+            }
+            if (r_idx < para->run_count || (r_idx == para->run_count - 1 && c_idx < para->runs[r_idx].len)) {
+                if (last_space_run != -1 && (last_space_run > start_run || last_space_char > start_char)) { end_run = last_space_run; end_char = last_space_char; line_w = last_space_w; }
+                else { end_run = r_idx; end_char = c_idx; }
+            } else { end_run = para->run_count; end_char = 0; }
+            
+            int line_h = (int)(max_h * para->spacing) + 4;
+            if (cur_y + line_h > current_page * (page_h + 20) + page_h - 10) {
+                current_page++;
+                cur_y = current_page * (page_h + 20) + 10;
+            }
+            
+            if (p == cursor_para) {
+                if (cursor_run >= start_run && cursor_run <= end_run) {
+                    _Bool is_in = 0;
+                    if (cursor_run == start_run && cursor_run == end_run) {
+                        if (cursor_pos >= start_char && cursor_pos <= end_char) is_in = 1;
+                    } else if (cursor_run == start_run) {
+                        if (cursor_pos >= start_char) is_in = 1;
+                    } else if (cursor_run == end_run) {
+                        if (cursor_pos <= end_char) is_in = 1;
+                    } else { is_in = 1; }
+                    
+                    if (is_in) target_y = cur_y;
+                }
+            }
+            
+            cur_y += line_h;
+            start_run = end_run; start_char = end_char;
+        }
+    }
+    
+    if (target_y != -1) {
+        if (target_y - scroll_y < 50) scroll_y = target_y - 50;
+        else if (target_y - scroll_y > win_h - 120) scroll_y = target_y - (win_h - 120);
+        if (scroll_y < 0) scroll_y = 0;
+    }
 }
 
 static void update_selection(int p, int r, int char_pos) {
@@ -1194,6 +1496,22 @@ static void apply_style_to_selection(void) {
     file_modified = 1;
 }
 
+static void apply_align_to_selection(int mode) {
+    align_mode = mode;
+    active_dropdown = 0;
+    
+    if (sel_start_para != -1 && sel_end_para != -1) {
+        int s = sel_start_para < sel_end_para ? sel_start_para : sel_end_para;
+        int e = sel_start_para > sel_end_para ? sel_start_para : sel_end_para;
+        for (int p = s; p <= e; p++) {
+            paragraphs[p].align = mode;
+        }
+    } else if (cursor_para != -1) {
+        paragraphs[cursor_para].align = mode;
+    }
+    file_modified = 1;
+}
+
 static void handle_click(ui_window_t win, int x, int y) {
     if (active_dialog == 1) {
         int dw = 300; int dh = 150;
@@ -1228,15 +1546,23 @@ static void handle_click(ui_window_t win, int x, int y) {
         return;
     }
 
+    if (active_dropdown == 3) {
+        if (x >= 530 && x < 580 && y >= 32 && y < 32 + 3*20) {
+            current_page_size = (y - 32) / 20;
+            printf("Selected page size: %d\n", current_page_size);
+        }
+        active_dropdown = 0;
+        return;
+    }
+
     if (y < 40) {
         if (x >= 10 && x < 34) { is_bold = !is_bold; active_dropdown = 0; apply_style_to_selection(); }
         else if (x >= 40 && x < 64) { is_italic = !is_italic; active_dropdown = 0; apply_style_to_selection(); }
         else if (x >= 70 && x < 94) { is_underline = !is_underline; active_dropdown = 0; apply_style_to_selection(); }
-        
-        else if (x >= 110 && x < 134) { align_mode = 0; active_dropdown = 0; if (cursor_para != -1) paragraphs[cursor_para].align = 0; }
-        else if (x >= 140 && x < 164) { align_mode = 1; active_dropdown = 0; if (cursor_para != -1) paragraphs[cursor_para].align = 1; }
-        else if (x >= 170 && x < 194) { align_mode = 2; active_dropdown = 0; if (cursor_para != -1) paragraphs[cursor_para].align = 2; }
-        else if (x >= 200 && x < 224) { align_mode = 3; active_dropdown = 0; if (cursor_para != -1) paragraphs[cursor_para].align = 3; }
+        else if (x >= 110 && x < 134) { apply_align_to_selection(0); }
+        else if (x >= 140 && x < 164) { apply_align_to_selection(1); }
+        else if (x >= 170 && x < 194) { apply_align_to_selection(2); }
+        else if (x >= 200 && x < 224) { apply_align_to_selection(3); }
         
         else if (x >= 240 && x < 360) {
             active_dropdown = 1;
@@ -1258,19 +1584,102 @@ static void handle_click(ui_window_t win, int x, int y) {
             perform_undo();
             active_dropdown = 0;
         }
-        else if (x >= win_w - 50 && x < win_w - 10) {
+        else if (x >= 530 && x < 580) {
+            active_dropdown = 3;
+        }
+        else if (x >= 590 && x < 630) {
             active_dialog = 1;
             string_copy(dialog_input, open_filename[0] ? open_filename : "document.pdf");
             dialog_input_len = string_len(dialog_input);
             active_dropdown = 0;
         }
     } else {
-        int doc_x = 20;
+        int pw, ph;
+        get_page_size(&pw, &ph);
+        
+        int doc_view_w = win_w - 40;
+        float scale = (float)doc_view_w / (float)pw;
+        if (scale > 1.0f) scale = 1.0f;
+        
+        int page_w = (int)(pw * scale);
+        int page_h = (int)(ph * scale);
+
+        int content_h = 0;
+        int dummy_y = 10;
+        int dummy_page = 0;
+        for(int p=0; p<para_count; p++) {
+            Paragraph *para = &paragraphs[p];
+            int start_run = 0; int start_char = 0;
+            while (start_run < para->run_count) {
+                int max_h = 16; int end_run = start_run; int end_char = start_char; int line_w = 0;
+                int r_idx = start_run; int c_idx = start_char; int last_space_run = -1; int last_space_char = -1; int last_space_w = 0;
+                while(r_idx < para->run_count) {
+                    TextRun *run = &para->runs[r_idx];
+                    set_active_font(win, run->font_idx);
+                    int fh = ui_get_font_height_scaled(run->font_size);
+                    if (fh > max_h) max_h = fh;
+                    while(c_idx < run->len) {
+                        char buf[2] = {run->text[c_idx], 0};
+                        int cw = ui_get_string_width_scaled(buf, run->font_size);
+                        if (run->text[c_idx] == ' ') { last_space_run = r_idx; last_space_char = c_idx; last_space_w = line_w + cw; }
+                        if (line_w + cw > page_w - 20) break;
+                        line_w += cw;
+                        c_idx++;
+                    }
+                    if (c_idx < run->len) break;
+                    r_idx++; c_idx = 0;
+                }
+                if (r_idx < para->run_count || (r_idx == para->run_count - 1 && c_idx < para->runs[r_idx].len)) {
+                    if (last_space_run != -1 && (last_space_run > start_run || last_space_char > start_char)) { end_run = last_space_run; end_char = last_space_char; line_w = last_space_w; }
+                    else { end_run = r_idx; end_char = c_idx; }
+                } else { end_run = para->run_count; end_char = 0; }
+                
+                int line_h = (int)(max_h * para->spacing) + 4;
+                if (dummy_y + line_h > dummy_page * (page_h + 20) + page_h - 10) { dummy_page++; dummy_y = dummy_page * (page_h + 20) + 10; }
+                dummy_y += line_h;
+                start_run = end_run; start_char = end_char;
+                if (start_run < para->run_count && para->runs[start_run].text[start_char] == ' ') {
+                    start_char++;
+                    if (start_char >= para->runs[start_run].len) { start_char = 0; start_run++; }
+                }
+            }
+        }
+        content_h = dummy_page * (page_h + 20) + page_h + 20;
+
+        int sb_x = win_w - 12;
+        int sb_w = 12;
+        int sb_h = win_h - 40;
+        int thumb_y = 40;
+        int thumb_h = 0;
+        int max_scroll = 0;
+        if (content_h > win_h - 40) {
+            float ratio = (float)(win_h - 40) / (float)content_h;
+            thumb_h = (int)(sb_h * ratio);
+            if (thumb_h < 20) thumb_h = 20;
+            max_scroll = content_h - (win_h - 40);
+            if (scroll_y > max_scroll) scroll_y = max_scroll;
+            thumb_y = 40 + (int)(((float)scroll_y / max_scroll) * (sb_h - thumb_h));
+        }
+
+        if (content_h > win_h - 40 && x >= sb_x && x < sb_x + sb_w) {
+            if (y >= thumb_y && y < thumb_y + thumb_h) {
+                is_dragging_scrollbar = 1;
+                scrollbar_drag_offset_y = y - thumb_y;
+            } else {
+                if (y < thumb_y) scroll_y -= (win_h - 40);
+                else scroll_y += (win_h - 40);
+                if (scroll_y < 0) scroll_y = 0;
+                if (scroll_y > max_scroll) scroll_y = max_scroll;
+            }
+            return;
+        }
+
+        int doc_x = 20 + (doc_view_w - page_w) / 2;
         int doc_y = 50 - scroll_y;
-        int doc_w = win_w - 40;
         int target_y = y;
         int target_x = x;
         int cur_y = doc_y + 10;
+        int current_page = 0;
         
         for(int p=0; p<para_count; p++) {
             Paragraph *para = &paragraphs[p];
@@ -1292,7 +1701,7 @@ static void handle_click(ui_window_t win, int x, int y) {
                         char buf[2] = {run->text[c_idx], 0};
                         int cw = ui_get_string_width_scaled(buf, run->font_size);
                         if (run->text[c_idx] == ' ') { last_space_run = r_idx; last_space_char = c_idx; last_space_w = line_w + cw; }
-                        if (line_w + cw > doc_w - 20) break;
+                        if (line_w + cw > page_w - 20) break;
                         line_w += cw;
                         c_idx++;
                     }
@@ -1311,10 +1720,16 @@ static void handle_click(ui_window_t win, int x, int y) {
                 }
                 
                 int line_h = (int)(max_h * para->spacing) + 4;
+                
+                if (cur_y + line_h > doc_y + current_page * (page_h + 20) + page_h - 10) {
+                    current_page++;
+                    cur_y = doc_y + current_page * (page_h + 20) + 10;
+                }
+                
                 if (target_y >= cur_y && target_y < cur_y + line_h) {
                     int cur_x = doc_x + 10;
-                    if (para->align == 1) cur_x = doc_x + 10 + (doc_w - 20 - line_w) / 2;
-                    else if (para->align == 2) cur_x = doc_x + 10 + (doc_w - 20 - line_w);
+                    if (para->align == 1) cur_x = doc_x + 10 + (page_w - 20 - line_w) / 2;
+                    else if (para->align == 2) cur_x = doc_x + 10 + (page_w - 20 - line_w);
                     
                     int d_run = start_run;
                     int d_char = start_char;
@@ -1433,13 +1848,14 @@ int main(int argc, char **argv) {
     (void)argv;
     ui_window_t win = ui_window_create("BoredWord", 100, 100, win_w, win_h);
     if (!win) return 1;
+    ui_window_set_resizable(win, 1);
 
     load_fonts();
     set_active_font(win, 0);
     init_doc();
     
     if (argc > 1) {
-        load_file(argv[1]);
+        load_file(win, argv[1]);
     }
 
     gui_event_t ev;
@@ -1448,6 +1864,14 @@ int main(int argc, char **argv) {
     while(1) {
         while (ui_get_event(win, &ev)) {
             if (ev.type == GUI_EVENT_PAINT) {
+                needs_repaint = 1;
+            } else if (ev.type == GUI_EVENT_RESIZE) {
+                win_w = ev.arg1;
+                win_h = ev.arg2;
+                needs_repaint = 1;
+            } else if (ev.type == GUI_EVENT_MOUSE_WHEEL) {
+                scroll_y -= ev.arg2 * 30; // arg2 is scroll amount
+                if (scroll_y < 0) scroll_y = 0;
                 needs_repaint = 1;
             } else if (ev.type == GUI_EVENT_MOUSE_DOWN) {
                 if (ev.arg1 >= 0 && ev.arg1 < win_w && ev.arg2 >= 0 && ev.arg2 < win_h) {
@@ -1460,24 +1884,70 @@ int main(int argc, char **argv) {
                         handle_click(win, ev.arg1, ev.arg2);
                         selection_started = 0;
                         
-                        if (cursor_para != -1 && cursor_run != -1) {
-                            TextRun *r = &paragraphs[cursor_para].runs[cursor_run];
-                            is_bold = r->bold;
-                            is_italic = r->italic;
-                            is_underline = r->underline;
-                            current_font_idx = r->font_idx;
-                            current_font_size = r->font_size;
-                            current_text_color = r->color;
-                            align_mode = paragraphs[cursor_para].align;
-                        }
+                        update_formatting_state();
+                        
                     }
                 }
                 needs_repaint = 1;
+                needs_repaint = 1;
             } else if (ev.type == GUI_EVENT_MOUSE_UP) {
                 is_dragging = 0;
+                is_dragging_scrollbar = 0;
                 needs_repaint = 1;
             } else if (ev.type == GUI_EVENT_MOUSE_MOVE) {
-                if (is_dragging && ev.arg2 >= 40 && active_dialog == 0 && active_dropdown == 0) {
+                if (is_dragging_scrollbar) {
+                    int pw, ph; get_page_size(&pw, &ph);
+                    int doc_view_w = win_w - 40;
+                    float scale = (float)doc_view_w / (float)pw; if (scale > 1.0f) scale = 1.0f;
+                    int page_w = (int)(pw * scale);
+                    int page_h = (int)(ph * scale);
+
+                    int content_h = 0;
+                    int dummy_y = 10; int dummy_page = 0;
+                    for(int p=0; p<para_count; p++) {
+                        Paragraph *para = &paragraphs[p]; int start_run = 0; int start_char = 0;
+                        while(start_run < para->run_count) {
+                            int max_h = 16; int end_run = start_run; int end_char = start_char; int line_w = 0;
+                            int r_idx = start_run; int c_idx = start_char; int last_space_run = -1; int last_space_char = -1; int last_space_w = 0;
+                            while(r_idx < para->run_count) {
+                                TextRun *run = &para->runs[r_idx]; set_active_font(win, run->font_idx);
+                                int fh = ui_get_font_height_scaled(run->font_size); if (fh > max_h) max_h = fh;
+                                while(c_idx < run->len) {
+                                    char buf[2] = {run->text[c_idx], 0}; int cw = ui_get_string_width_scaled(buf, run->font_size);
+                                    if (run->text[c_idx] == ' ') { last_space_run = r_idx; last_space_char = c_idx; last_space_w = line_w + cw; }
+                                    if (line_w + cw > page_w - 20) break;
+                                    line_w += cw; c_idx++;
+                                }
+                                if (c_idx < run->len) break;
+                                r_idx++; c_idx = 0;
+                            }
+                            if (r_idx < para->run_count || (r_idx == para->run_count - 1 && c_idx < para->runs[r_idx].len)) {
+                                if (last_space_run != -1 && (last_space_run > start_run || last_space_char > start_char)) { end_run = last_space_run; end_char = last_space_char; line_w = last_space_w; }
+                                else { end_run = r_idx; end_char = c_idx; }
+                            } else { end_run = para->run_count; end_char = 0; }
+                            int line_h = (int)(max_h * para->spacing) + 4;
+                            if (dummy_y + line_h > dummy_page * (page_h + 20) + page_h - 10) { dummy_page++; dummy_y = dummy_page * (page_h + 20) + 10; }
+                            dummy_y += line_h; start_run = end_run; start_char = end_char;
+                            if (start_run < para->run_count && para->runs[start_run].text[start_char] == ' ') { start_char++; if (start_char >= para->runs[start_run].len) { start_char = 0; start_run++; } }
+                        }
+                    }
+                    content_h = dummy_page * (page_h + 20) + page_h + 20;
+                    
+                    if (content_h > win_h - 40) {
+                        int sb_h = win_h - 40;
+                        float ratio = (float)(win_h - 40) / (float)content_h;
+                        int thumb_h = (int)(sb_h * ratio);
+                        if (thumb_h < 20) thumb_h = 20;
+                        int max_scroll = content_h - (win_h - 40);
+                        
+                        int new_thumb_y = ev.arg2 - scrollbar_drag_offset_y;
+                        if (new_thumb_y < 40) new_thumb_y = 40;
+                        if (new_thumb_y > 40 + sb_h - thumb_h) new_thumb_y = 40 + sb_h - thumb_h;
+                        
+                        scroll_y = (int)(((float)(new_thumb_y - 40) / (sb_h - thumb_h)) * max_scroll);
+                        needs_repaint = 1;
+                    }
+                } else if (is_dragging && ev.arg2 >= 40 && active_dialog == 0 && active_dropdown == 0) {
                     handle_click(win, ev.arg1, ev.arg2);
                     needs_repaint = 1;
                 }
@@ -1493,7 +1963,7 @@ int main(int argc, char **argv) {
                         dialog_input[dialog_input_len] = 0;
                     }
                 } else {
-                    insert_char((char)ev.arg1);
+                    insert_char(win, (char)ev.arg1);
                 }
                 needs_repaint = 1;
             } else if (ev.type == GUI_EVENT_CLOSE) {
@@ -1502,8 +1972,8 @@ int main(int argc, char **argv) {
         }
         
         if (needs_repaint) {
-            draw_toolbar(win);
             draw_document(win);
+            draw_toolbar(win);
             draw_dropdowns(win);
             draw_dialogs(win);
             ui_mark_dirty(win, 0, 0, win_w, win_h);
