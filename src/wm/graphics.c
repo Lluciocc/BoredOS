@@ -171,6 +171,10 @@ void graphics_clear_dirty(void) {
     wm_lock_release(rflags);
 }
 
+void graphics_clear_dirty_no_lock(void) {
+    g_dirty.active = false;
+}
+
 void graphics_set_render_target(uint32_t *buffer, int w, int h) {
     g_render_target = buffer;
     g_rt_width = w;

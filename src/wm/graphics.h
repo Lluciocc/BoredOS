@@ -49,6 +49,7 @@ void graphics_mark_dirty(int x, int y, int w, int h);
 void graphics_mark_screen_dirty(void);
 DirtyRect graphics_get_dirty_rect(void);
 void graphics_clear_dirty(void);
+void graphics_clear_dirty_no_lock(void);
 
 // Double buffering
 void graphics_flip_buffer(void);

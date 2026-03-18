@@ -1280,6 +1280,9 @@ void wm_paint(void) {
     
     uint64_t rflags;
     rflags = wm_lock_acquire();
+    
+    wm_mark_dirty(last_cursor_x, last_cursor_y, 12, 12);
+    wm_mark_dirty(mx, my, 12, 12);
 
     DirtyRect dirty = graphics_get_dirty_rect();
     
@@ -1528,6 +1531,7 @@ void wm_paint(void) {
     
     // Flip the buffer - display the rendered frame atomically
     graphics_flip_buffer();
+    graphics_clear_dirty_no_lock();
 
     // Restore IRQs
     wm_lock_release(rflags);
@@ -1612,8 +1616,16 @@ void wm_remove_window(Window *win) {
         }
         window_count--;
         
-        if (active_mouse_capture_win == win) {
-            active_mouse_capture_win = NULL;
+        if (active_mouse_capture_win == win) active_mouse_capture_win = NULL;
+        
+        if (drag_window == win) {
+            is_dragging = false;
+            is_resizing = false;
+            drag_window = NULL;
+        }
+        
+        if (drag_src_win == win) {
+            drag_src_win = NULL;
         }
         
         // Mark for redraw while protected
@@ -1957,6 +1969,11 @@ void wm_handle_right_click(int x, int y) {
     if (my < 0) my = 0;
     if (mx >= sw) mx = sw - 1;
     if (my >= sh) my = sh - 1;
+    
+    if (move_x != 0 || move_y != 0) {
+        wm_mark_dirty(prev_mx, prev_my, 12, 12); // Extra padding for safety
+        wm_mark_dirty(mx, my, 12, 12);
+    }
     
     if (dz != 0) {
         // Find focused window and send wheel event
@@ -2692,7 +2709,6 @@ void wm_process_input(void) {
     DirtyRect dirty = graphics_get_dirty_rect();
     if (dirty.active) {
         wm_paint();
-        graphics_clear_dirty();
     }
 }
 
