@@ -12,6 +12,9 @@
 // Initialize LAPIC access (maps registers via HHDM)
 void lapic_init(void);
 
+// Enable LAPIC (set SVR bit 8)
+void lapic_enable(void);
+
 // Send End-of-Interrupt to the local APIC
 void lapic_eoi(void);
 

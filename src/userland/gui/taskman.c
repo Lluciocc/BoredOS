@@ -49,29 +49,28 @@ static void update_proc_list(void) {
     proc_count = sys_system(SYSTEM_CMD_PROCESS_LIST, (uint64_t)proc_list, 32, 0, 0);
     
     uint64_t uptime_now = sys_system(SYSTEM_CMD_UPTIME, 0, 0, 0, 0);
-    uint64_t kernel_ticks_now = 0;
+    uint64_t user_ticks_now = 0;
     
     for (int i = 0; i < proc_count; i++) {
-        if (proc_list[i].pid == 0) {
-            kernel_ticks_now = proc_list[i].ticks;
-            break;
+        if (proc_list[i].pid != 0) {
+            user_ticks_now += proc_list[i].ticks;
         }
     }
     
     if (uptime_prev > 0) {
         uint64_t total_delta = uptime_now - uptime_prev;
         if (total_delta > 0) {
-            uint64_t kernel_delta = kernel_ticks_now - kernel_ticks_prev;
-            if (kernel_delta > total_delta) kernel_delta = total_delta;
+            uint64_t used_delta = user_ticks_now - kernel_ticks_prev; // Reusing the global state variable for prev user_ticks
             
-            uint64_t used_delta = total_delta - kernel_delta;
-            int usage = (int)((used_delta * 100) / total_delta);
+            // On a 4 CPU system, theoretically used_delta can be 4x total_delta
+            int usage = (int)((used_delta * 100) / (total_delta * 4));
+            if (usage > 100) usage = 100;
             cpu_history[history_idx] = usage;
         }
     }
     
     uptime_prev = uptime_now;
-    kernel_ticks_prev = kernel_ticks_now;
+    kernel_ticks_prev = user_ticks_now;
     
     MemStats stats;
     sys_system(SYSTEM_CMD_MEMINFO, (uint64_t)&stats, 0, 0, 0);

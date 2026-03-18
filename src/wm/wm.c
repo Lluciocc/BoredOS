@@ -28,6 +28,17 @@
 // hours wasted: 57
 // send help
 
+#include "../sys/spinlock.h"
+static spinlock_t wm_lock = SPINLOCK_INIT;
+
+uint64_t wm_lock_acquire(void) {
+    return spinlock_acquire_irqsave(&wm_lock);
+}
+
+void wm_lock_release(uint64_t flags) {
+    spinlock_release_irqrestore(&wm_lock, flags);
+}
+
 extern void serial_write(const char *str);
 
 static bool str_eq(const char *s1, const char *s2) {
@@ -38,6 +49,7 @@ static bool str_eq(const char *s1, const char *s2) {
     }
     return (*s1 == *s2);
 }
+
 
 // --- State ---
 static int mx = 400, my = 300; 
@@ -1267,7 +1279,7 @@ void wm_paint(void) {
     int sh = get_screen_height();
     
     uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    rflags = wm_lock_acquire();
 
     DirtyRect dirty = graphics_get_dirty_rect();
     
@@ -1339,14 +1351,16 @@ void wm_paint(void) {
     }
     
     // 3. Windows - sort by z-index and draw
+    int local_window_count = window_count;
     Window *sorted_windows[32];
-    for (int i = 0; i < window_count; i++) {
+    for (int i = 0; i < local_window_count; i++) {
         sorted_windows[i] = all_windows[i];
     }
     
-    for (int i = 0; i < window_count - 1; i++) {
-        for (int j = 0; j < window_count - i - 1; j++) {
-            if (sorted_windows[j]->z_index > sorted_windows[j + 1]->z_index) {
+    for (int i = 0; i < local_window_count - 1; i++) {
+        for (int j = 0; j < local_window_count - i - 1; j++) {
+            if (sorted_windows[j] && sorted_windows[j + 1] && 
+                sorted_windows[j]->z_index > sorted_windows[j + 1]->z_index) {
                 Window *temp = sorted_windows[j];
                 sorted_windows[j] = sorted_windows[j + 1];
                 sorted_windows[j + 1] = temp;
@@ -1354,9 +1368,9 @@ void wm_paint(void) {
         }
     }
     
-    for (int i = 0; i < window_count; i++) {
+    for (int i = 0; i < local_window_count; i++) {
         Window *win = sorted_windows[i];
-        if (!win->visible) continue;
+        if (!win || !win->visible) continue;
 
         if (dirty.active && !win->focused) {
             if (win->x + win->w <= dirty.x || win->x >= dirty.x + dirty.w ||
@@ -1516,7 +1530,7 @@ void wm_paint(void) {
     graphics_flip_buffer();
 
     // Restore IRQs
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    wm_lock_release(rflags);
 }
 
 // --- Input Handling ---
@@ -1525,15 +1539,11 @@ bool rect_contains(int x, int y, int w, int h, int px, int py) {
     return px >= x && px < x + w && py >= y && py < y + h;
 }
 
-void wm_bring_to_front(Window *win) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
-    // Clear focus from all windows
+void wm_bring_to_front_locked(Window *win) {
     for (int i = 0; i < window_count; i++) {
         all_windows[i]->focused = false;
     }
     
-    // Find current max z-index
     int max_z = 0;
     for (int i = 0; i < window_count; i++) {
         if (all_windows[i]->z_index > max_z) max_z = all_windows[i]->z_index;
@@ -1543,30 +1553,36 @@ void wm_bring_to_front(Window *win) {
     win->focused = true;
     win->z_index = max_z + 1;
     force_redraw = true;
-    asm volatile("push %0; popfq" : : "r"(rflags));
+}
+
+void wm_bring_to_front(Window *win) {
+    uint64_t rflags;
+    rflags = wm_lock_acquire();
+    wm_bring_to_front_locked(win);
+    wm_lock_release(rflags);
 }
 
 void wm_add_window(Window *win) {
     uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    rflags = wm_lock_acquire();
     if (window_count < 32) {
         all_windows[window_count++] = win;
-        wm_bring_to_front(win); // Ensure newly added windows are on top
+        wm_bring_to_front_locked(win); // Ensure newly added windows are on top
     }
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    wm_lock_release(rflags);
 }
 
 Window* wm_find_window_by_title(const char *title) {
     if (!title) return NULL;
     uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    rflags = wm_lock_acquire();
     for (int i = 0; i < window_count; i++) {
         if (all_windows[i] && all_windows[i]->title && str_eq(all_windows[i]->title, title)) {
-            asm volatile("push %0; popfq" : : "r"(rflags));
+            wm_lock_release(rflags);
             return all_windows[i];
         }
     }
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    wm_lock_release(rflags);
     return NULL;
 }
 
@@ -1579,7 +1595,7 @@ void wm_remove_window(Window *win) {
     serial_write("'\n");
     
     uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    rflags = wm_lock_acquire();
     
     int index = -1;
     for (int i = 0; i < window_count; i++) {
@@ -1603,7 +1619,7 @@ void wm_remove_window(Window *win) {
         // Mark for redraw while protected
         force_redraw = true;
     } else {
-        asm volatile("push %0; popfq" : : "r"(rflags));
+        wm_lock_release(rflags);
         serial_write("WM: Window not found in all_windows list!\n");
         return;
     }
@@ -1615,7 +1631,7 @@ void wm_remove_window(Window *win) {
     }
     kfree(win);
     
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    wm_lock_release(rflags);
 }
 
 void wm_handle_click(int x, int y) {
@@ -1784,7 +1800,7 @@ void wm_handle_click(int x, int y) {
             process_create_elf("/bin/about.elf", NULL);
         } else if (item == 1) {  // Settings
             Window *existing = wm_find_window_by_title("Settings");
-            if (existing) wm_bring_to_front(existing);
+            if (existing) wm_bring_to_front_locked(existing);
             else process_create_elf("/bin/settings.elf", NULL);
         } else if (item == 2) {  // Shutdown
             k_shutdown();
@@ -1813,7 +1829,7 @@ void wm_handle_click(int x, int y) {
     
     // If a window was clicked
     if (topmost != NULL) {
-        wm_bring_to_front(topmost);
+        wm_bring_to_front_locked(topmost);
         
         // Check traffic light close button (now at top-left)
         if (rect_contains(topmost->x + 8, topmost->y + 2, 12, 12, x, y)) {
@@ -2122,52 +2138,52 @@ void wm_handle_right_click(int x, int y) {
             } else if (str_starts_with(start_menu_pending_app, "Notepad")) {
                 Window *existing = wm_find_window_by_title("Notepad");
                 if (existing) {
-                    wm_bring_to_front(existing);
+                    wm_bring_to_front_locked(existing);
                 } else {
                     process_create_elf("/bin/notepad.elf", NULL);
                 }
             } else if (str_starts_with(start_menu_pending_app, "Editor")) {
                 Window *existing = wm_find_window_by_title("Txtedit");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/txtedit.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Word Processor")) {
                 Window *existing = wm_find_window_by_title("Word Processor");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/boredword.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Terminal")) {
-                cmd_reset(); wm_bring_to_front(&win_cmd);
+                cmd_reset(); wm_bring_to_front_locked(&win_cmd);
             } else if (str_starts_with(start_menu_pending_app, "Calculator")) {
                 Window *existing = wm_find_window_by_title("Calculator");
                 if (existing) {
-                    wm_bring_to_front(existing);
+                    wm_bring_to_front_locked(existing);
                 } else {
                     process_create_elf("/bin/calculator.elf", NULL);
                 }
             } else if (str_starts_with(start_menu_pending_app, "Minesweeper")) {
                 Window *existing = wm_find_window_by_title("Minesweeper");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/minesweeper.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Settings")) {
                 Window *existing = wm_find_window_by_title("Settings");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/settings.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Paint")) {
                 Window *existing = wm_find_window_by_title("Paint");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/paint.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Clock")) {
                 Window *existing = wm_find_window_by_title("Clock");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/clock.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Browser")) {
                 Window *existing = wm_find_window_by_title("Web Browser");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/browser.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "About")) {
                 process_create_elf("/bin/about.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Task Manager")) {
                 Window *existing = wm_find_window_by_title("Task Manager");
-                if (existing) wm_bring_to_front(existing);
+                if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/taskman.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Shutdown")) {
                 k_shutdown();
@@ -2196,7 +2212,7 @@ void wm_handle_right_click(int x, int y) {
                     } else if (str_ends_with(icon->name, "Settings.shortcut")) {
                         process_create_elf("/bin/settings.elf", NULL); handled = true;
                     } else if (str_ends_with(icon->name, "Terminal.shortcut")) {
-                        wm_bring_to_front(&win_cmd); handled = true;
+                        wm_bring_to_front_locked(&win_cmd); handled = true;
                     } else if (str_ends_with(icon->name, "About.shortcut")) {
                         process_create_elf("/bin/about.elf", NULL); handled = true;
                     } else if (str_ends_with(icon->name, "Files.shortcut")) {
@@ -2660,13 +2676,24 @@ void wm_process_input(void) {
     }
 
     uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    rflags = wm_lock_acquire();
     while (key_head != key_tail) {
         key_event_t ev = key_queue[key_tail];
         key_tail = (key_tail + 1) % INPUT_QUEUE_SIZE;
         wm_dispatch_key(ev.c, ev.pressed);
     }
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    wm_lock_release(rflags);
+
+    if (force_redraw) {
+        graphics_mark_screen_dirty();
+        force_redraw = false;
+    }
+    
+    DirtyRect dirty = graphics_get_dirty_rect();
+    if (dirty.active) {
+        wm_paint();
+        graphics_clear_dirty();
+    }
 }
 
 void wm_mark_dirty(int x, int y, int w, int h) {
@@ -2765,17 +2792,6 @@ void wm_timer_tick(void) {
         
         int sw = get_screen_width();
         wm_mark_dirty(sw - 280, 40, 275, 60); 
-    }
-    
-    if (force_redraw) {
-        graphics_mark_screen_dirty();
-        force_redraw = false;
-    }
-    
-    DirtyRect dirty = graphics_get_dirty_rect();
-    if (dirty.active) {
-        wm_paint();
-        graphics_clear_dirty();
     }
 }
 

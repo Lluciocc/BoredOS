@@ -59,7 +59,17 @@ uint64_t exception_handler_c(registers_t *regs) {
     serial_write(buf);
     
     if ((regs->cs & 0x3) != 0) {
-        serial_write("\nUSER MODE EXCEPTION - Terminating process.\n");
+        serial_write("\n*** USER MODE EXCEPTION ***\nVector: 0x");
+        k_itoa_hex(vector, buf);
+        serial_write(buf);
+        serial_write("\nRIP: 0x");
+        k_itoa_hex(regs->rip, buf);
+        serial_write(buf);
+        serial_write("\nError Code: 0x");
+        k_itoa_hex(regs->err_code, buf);
+        serial_write(buf);
+        serial_write("\nTerminating process.\n");
+        
         if (cmd_get_cursor_col() != 0) cmd_write("\n");
         cmd_write("*** USER EXCEPTION ***\nVector: "); cmd_write_hex(vector);
         cmd_write("\nRIP: "); cmd_write_hex(regs->rip);
@@ -234,6 +244,9 @@ void idt_register_interrupts(void) {
     extern void isr_sched_ipi_wrapper(void);
     idt_set_gate(0x41, isr_sched_ipi_wrapper, cs, 0x8E);
 
+    // Syscall Handler (vector 128) - DPL 3 for user access
+    extern void isr128_wrapper(void);
+    idt_set_gate(128, isr128_wrapper, cs, 0xEE);
 }
 
 void idt_load(void) {

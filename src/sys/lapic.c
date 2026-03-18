@@ -16,14 +16,18 @@ static volatile uint32_t *lapic_base = 0;
 #define LAPIC_ICR_LOW   (0x300 / 4)
 #define LAPIC_ICR_HIGH  (0x310 / 4)
 
+void lapic_enable(void) {
+    if (!lapic_base) return;
+    // Enable the LAPIC by setting the Spurious Interrupt Vector Register
+    // Bit 8 = APIC Software Enable, vector = 0xFF (spurious)
+    lapic_base[LAPIC_SVR] = 0x1FF;
+}
+
 void lapic_init(void) {
     extern uint64_t hhdm_offset;
     lapic_base = (volatile uint32_t *)(hhdm_offset + 0xFEE00000ULL);
     
-    // Enable the LAPIC by setting the Spurious Interrupt Vector Register
-    // Bit 8 = APIC Software Enable, vector = 0xFF (spurious)
-    lapic_base[LAPIC_SVR] = 0x1FF;
-    
+    lapic_enable();
     serial_write("[LAPIC] Initialized at HHDM + 0xFEE00000\n");
 }
 

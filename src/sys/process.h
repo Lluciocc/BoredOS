@@ -63,9 +63,11 @@ typedef struct {
 } ProcessInfo;
 
 void process_init(void);
-void process_create(void* entry_point, bool is_user);
+process_t* process_create(void (*entry_point)(void), bool is_user);
 process_t* process_create_elf(const char* filepath, const char* args_str);
 process_t* process_get_current(void);
+void process_set_current_for_cpu(uint32_t cpu_id, process_t* p);
+process_t* process_get_current_for_cpu(uint32_t cpu_id);
 uint64_t process_schedule(uint64_t current_rsp);
 uint64_t process_terminate_current(void);
 void process_terminate(process_t *proc);

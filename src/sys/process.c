@@ -57,8 +57,13 @@ void process_init(void) {
     current_process[0] = kernel_proc;
 }
 
-void process_create(void* entry_point, bool is_user) {
-    if (process_count >= MAX_PROCESSES) return;
+process_t* process_create(void (*entry_point)(void), bool is_user) {
+    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
+    
+    if (process_count >= MAX_PROCESSES) {
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
+        return NULL;
+    }
     
     process_t *new_proc = &processes[process_count++];
     new_proc->pid = next_pid++;
@@ -71,7 +76,10 @@ void process_create(void* entry_point, bool is_user) {
         new_proc->pml4_phys = paging_get_pml4_phys();
     }
     
-    if (!new_proc->pml4_phys) return;
+    if (!new_proc->pml4_phys) {
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
+        return NULL;
+    }
     
     // 2. Allocate aligned stack
     void* user_stack = kmalloc_aligned(4096, 4096);
@@ -140,14 +148,16 @@ void process_create(void* entry_point, bool is_user) {
     
     new_proc->cpu_affinity = 0; // Non-ELF processes stay on BSP
     
-    // Add to linked list (Critical Section)
-    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
+    // Add to linked list
     new_proc->next = current_process[0]->next;
     current_process[0]->next = new_proc;
+    
     spinlock_release_irqrestore(&runqueue_lock, rflags);
+    return new_proc;
 }
 
 process_t* process_create_elf(const char* filepath, const char* args_str) {
+    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
     process_t *new_proc = NULL;
     
     // Find an available slot
@@ -159,10 +169,14 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
         }
     }
 
-    if (!new_proc) return NULL;
+    if (!new_proc) {
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
+        return NULL;
+    }
     
     new_proc->pid = next_pid++;
     new_proc->is_user = true;
+    spinlock_release_irqrestore(&runqueue_lock, rflags);
     
     // 1. Setup Page Table
     new_proc->pml4_phys = paging_create_user_pml4_phys();
@@ -334,7 +348,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     }
 
     // Add to linked list (Critical Section)
-    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
+    rflags = spinlock_acquire_irqsave(&runqueue_lock);
     new_proc->next = current_process[0]->next;
     current_process[0]->next = new_proc;
     spinlock_release_irqrestore(&runqueue_lock, rflags);
@@ -343,6 +357,16 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     serial_write(filepath);
     serial_write("\n");
     return new_proc;
+}
+
+process_t* process_get_current_for_cpu(uint32_t cpu_id) {
+    if (cpu_id >= MAX_CPUS_SCHED) return NULL;
+    return current_process[cpu_id];
+}
+
+void process_set_current_for_cpu(uint32_t cpu_id, process_t* p) {
+    if (cpu_id >= MAX_CPUS_SCHED) return;
+    current_process[cpu_id] = p;
 }
 
 process_t* process_get_current(void) {
@@ -373,8 +397,8 @@ uint64_t process_schedule(uint64_t current_rsp) {
     process_t *next_proc = cur->next;
     
     while (next_proc != start) {
-        // Only consider processes assigned to our CPU
-        if (next_proc->cpu_affinity == my_cpu) {
+        // Only consider processes assigned to our CPU and not terminated
+        if (next_proc->cpu_affinity == my_cpu && next_proc->pid != 0xFFFFFFFF) {
             if (next_proc->pid == 0 || next_proc->sleep_until == 0 || next_proc->sleep_until <= now) {
                 break;
             }
@@ -382,9 +406,20 @@ uint64_t process_schedule(uint64_t current_rsp) {
         next_proc = next_proc->next;
     }
     
-    // If we didn't find a ready process for our CPU, stay on current
-    if (next_proc->cpu_affinity != my_cpu) {
-        return current_rsp;
+    // If we didn't find a ready process for our CPU, stay on current (unless we are terminated)
+    if (next_proc->cpu_affinity != my_cpu || next_proc->pid == 0xFFFFFFFF) {
+        // Fallback to idle if current is terminated
+        if (cur && cur->pid == 0xFFFFFFFF) {
+            // Find the idle process for this CPU
+            for (int i = 0; i < MAX_PROCESSES; i++) {
+                if (processes[i].pid == 0 || (processes[i].cpu_affinity == my_cpu && processes[i].is_user == false)) {
+                    next_proc = &processes[i];
+                    break;
+                }
+            }
+        } else {
+            return current_rsp;
+        }
     }
     
     current_process[my_cpu] = next_proc;
@@ -465,12 +500,25 @@ void process_terminate(process_t *to_delete) {
     uint32_t cpu_count = smp_cpu_count();
     for (uint32_t c = 0; c < cpu_count && c < MAX_CPUS_SCHED; c++) {
         if (current_process[c] == to_delete) {
-            current_process[c] = to_delete->next;
+            process_t *np = to_delete->next;
+            while (np != to_delete) {
+                if (np->cpu_affinity == c && np->pid != 0xFFFFFFFF) break;
+                np = np->next;
+            }
+            if (np == to_delete || np->cpu_affinity != c) {
+                for (int i = 0; i < MAX_PROCESSES; i++) {
+                    if (processes[i].pid == 0 || (processes[i].cpu_affinity == c && processes[i].is_user == false)) {
+                        np = &processes[i]; break;
+                    }
+                }
+            }
+            current_process[c] = np;
         }
     }
 
     // Mark slot as free
     to_delete->pid = 0xFFFFFFFF; 
+    to_delete->cpu_affinity = 0xFFFFFFFF;
 
     if (to_delete->user_stack_alloc) kfree(to_delete->user_stack_alloc);
     if (to_delete->kernel_stack_alloc) {
@@ -518,10 +566,26 @@ uint64_t process_terminate_current(void) {
     }
 
     prev->next = to_delete->next;
-    current_process[my_cpu] = to_delete->next;
+    
+    process_t *next_proc = to_delete->next;
+    while (next_proc != to_delete) {
+        if (next_proc->cpu_affinity == my_cpu && next_proc->pid != 0xFFFFFFFF) break;
+        next_proc = next_proc->next;
+    }
+    
+    if (next_proc == to_delete || next_proc->cpu_affinity != my_cpu) {
+        for (int i = 0; i < MAX_PROCESSES; i++) {
+            if (processes[i].pid == 0 || (processes[i].cpu_affinity == my_cpu && processes[i].is_user == false)) {
+                next_proc = &processes[i]; break;
+            }
+        }
+    }
+    
+    current_process[my_cpu] = next_proc;
     
     // Mark slot as free
     to_delete->pid = 0xFFFFFFFF; 
+    to_delete->cpu_affinity = 0xFFFFFFFF;
 
     // 4. Load context for the NEXT process
     if (current_process[my_cpu]->is_user && current_process[my_cpu]->kernel_stack) {

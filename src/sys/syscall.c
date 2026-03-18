@@ -33,25 +33,10 @@ static inline void wrmsr(uint32_t msr, uint64_t value) {
     asm volatile("wrmsr" : : "c"(msr), "a"(low), "d"(high));
 }
 
-// Implemented in assembly
-extern void syscall_entry(void);
-
-extern uint64_t kernel_syscall_stack;
+extern void isr128_wrapper(void);
 
 void syscall_init(void) {
-    void* stack = kmalloc(16384);
-    kernel_syscall_stack = (uint64_t)stack + 16384;
-    uint64_t efer = rdmsr(MSR_EFER);
-    efer |= 1; // SCE bit is bit 0
-    wrmsr(MSR_EFER, efer);
-
-
-    uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x13 << 48);
-    wrmsr(MSR_STAR, star);
-
-    wrmsr(MSR_LSTAR, (uint64_t)syscall_entry);
-
-    wrmsr(MSR_FMASK, 0x200);
+    // SMP-Safe System Calls using int 0x80 (configured in idt.c)
 }
 
 static void user_window_close(Window *win) {
@@ -284,7 +269,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
                 
                 uint64_t rflags;
-                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                rflags = wm_lock_acquire();
                 
                 if (win->pixels) {
                     // Strict user-to-window relative clamping
@@ -304,7 +289,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     draw_rect(win->x + params[0], win->y + params[1], params[2], params[3], color);
                 }
                 
-                asm volatile("push %0; popfq" : : "r"(rflags));
+                wm_lock_release(rflags);
             }
         } else if (cmd == GUI_CMD_DRAW_ROUNDED_RECT_FILLED) {
             Window *win = (Window *)arg2;
@@ -318,7 +303,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
                 
                 uint64_t rflags;
-                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                rflags = wm_lock_acquire();
                 
                 if (win->pixels) {
                     int rx = (int)params[0]; int ry = (int)params[1];
@@ -336,7 +321,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     }
                 }
                 
-                asm volatile("push %0; popfq" : : "r"(rflags));
+                wm_lock_release(rflags);
             }
         } else if (cmd == GUI_CMD_DRAW_STRING) {
             Window *win = (Window *)arg2;
@@ -359,7 +344,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 kernel_str[i] = 0;
 
                 uint64_t rflags;
-                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                rflags = wm_lock_acquire();
                 
                 ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
 
@@ -395,7 +380,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     }
                 }
                 
-                asm volatile("push %0; popfq" : : "r"(rflags));
+                wm_lock_release(rflags);
             }
         } else if (cmd == 10) { // GUI_CMD_DRAW_STRING_BITMAP
             Window *win = (Window *)arg2;
@@ -418,7 +403,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 kernel_str[i] = 0;
 
                 uint64_t rflags;
-                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                rflags = wm_lock_acquire();
                 
                 if (win->pixels) {
                     if (ux >= -100 && ux < win->w && uy >= -100 && uy < (win->h - 20)) {
@@ -430,7 +415,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     draw_string_bitmap(win->x + ux, win->y + uy, kernel_str, color);
                 }
                 
-                asm volatile("push %0; popfq" : : "r"(rflags));
+                wm_lock_release(rflags);
             }
         } else if (cmd == 11) { // GUI_CMD_DRAW_STRING_SCALED
             Window *win = (Window *)arg2;
@@ -457,7 +442,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 kernel_str[i] = 0;
 
                 uint64_t rflags;
-                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                rflags = wm_lock_acquire();
                 
                 ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
 
@@ -493,7 +478,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     }
                 }
                 
-                asm volatile("push %0; popfq" : : "r"(rflags));
+                wm_lock_release(rflags);
             }
         } else if (cmd == 18) { // GUI_CMD_DRAW_STRING_SCALED_SLOPED
             Window *win = (Window *)arg2;
@@ -530,7 +515,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 kernel_str[i] = 0;
 
                 uint64_t rflags;
-                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                rflags = wm_lock_acquire();
                 
                 ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
 
@@ -568,7 +553,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     }
                 }
                 
-                asm volatile("push %0; popfq" : : "r"(rflags));
+                wm_lock_release(rflags);
             }
         } else if (cmd == GUI_CMD_DRAW_IMAGE) {
             Window *win = (Window *)arg2;
@@ -579,7 +564,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 for (int i = 0; i < 4; i++) params[i] = u_params[i];
                 
                 uint64_t rflags;
-                asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+                rflags = wm_lock_acquire();
                 
                 if (win->pixels) {
                     int rx = (int)params[0]; int ry = (int)params[1];
@@ -614,9 +599,10 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     }
                 }
                 
-                asm volatile("push %0; popfq" : : "r"(rflags));
+                wm_lock_release(rflags);
             }
         } else if (cmd == GUI_CMD_MARK_DIRTY) {
+            uint64_t rflags = wm_lock_acquire();
             Window *win = (Window *)arg2;
             uint64_t *u_params = (uint64_t *)arg3;
             if (win && u_params) {
@@ -630,6 +616,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 }
                 wm_mark_dirty(win->x + (int)params[0], win->y + (int)params[1], (int)params[2], (int)params[3]);
             }
+            wm_lock_release(rflags);
         } else if (cmd == GUI_CMD_GET_EVENT) {
             Window *win = (Window *)arg2;
             gui_event_t *ev_out = (gui_event_t *)arg3;
@@ -1184,7 +1171,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             size_t total_used = stats.used_memory;
             size_t user_used = 0;
             for (int i = 0; i < 16; i++) {
-                if (processes[i].pid != 0xFFFFFFFF && processes[i].pid != 0) {
+                if (processes[i].pid != 0xFFFFFFFF && processes[i].pid != 0 && processes[i].is_user) {
                     user_used += processes[i].used_memory;
                 }
             }
@@ -1192,13 +1179,19 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             else processes[0].used_memory = 0;
             
             int count = 0;
-            for (int i = 0; i < 16; i++) { // MAX_PROCESSES is 16
-                if (processes[i].pid != 0xFFFFFFFF) {
+            for (int i = 0; i < 16; i++) {
+                if (processes[i].pid != 0xFFFFFFFF && (processes[i].is_user || processes[i].pid == 0)) {
                     out[count].pid = processes[i].pid;
                     extern void mem_memcpy(void *dest, const void *src, size_t len);
                     mem_memcpy(out[count].name, processes[i].name, 64);
-                    out[count].ticks = processes[i].ticks;
                     
+                    if (processes[i].pid == 0) {
+                        out[count].name[0] = 'k'; out[count].name[1] = 'e'; out[count].name[2] = 'r';
+                        out[count].name[3] = 'n'; out[count].name[4] = 'e'; out[count].name[5] = 'l';
+                        out[count].name[6] = '\0';
+                    }
+                    
+                    out[count].ticks = processes[i].ticks;
                     out[count].used_memory = processes[i].used_memory;
                     
                     count++;

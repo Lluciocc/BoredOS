@@ -7,6 +7,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+uint64_t wm_lock_acquire(void);
+void wm_lock_release(uint64_t flags);
+
 // --- Constants ---
 #define COLOR_TEAL      0xFF008080
 #define COLOR_GRAY      0xFFC0C0C0

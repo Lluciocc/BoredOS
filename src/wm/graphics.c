@@ -129,10 +129,6 @@ static void merge_dirty_rect(int x, int y, int w, int h) {
 }
 
 void graphics_mark_dirty(int x, int y, int w, int h) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
-
-    // Clamp to screen bounds
     if (x < 0) {
         w += x;
         x = 0;
@@ -149,12 +145,10 @@ void graphics_mark_dirty(int x, int y, int w, int h) {
     }
     
     if (w <= 0 || h <= 0) {
-        asm volatile("push %0; popfq" : : "r"(rflags));
         return;
     }
     
     merge_dirty_rect(x, y, w, h);
-    asm volatile("push %0; popfq" : : "r"(rflags));
 }
 
 void graphics_mark_screen_dirty(void) {
@@ -170,10 +164,11 @@ DirtyRect graphics_get_dirty_rect(void) {
 }
 
 void graphics_clear_dirty(void) {
-    uint64_t rflags;
-    asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    extern uint64_t wm_lock_acquire(void);
+    extern void wm_lock_release(uint64_t);
+    uint64_t rflags = wm_lock_acquire();
     g_dirty.active = false;
-    asm volatile("push %0; popfq" : : "r"(rflags));
+    wm_lock_release(rflags);
 }
 
 void graphics_set_render_target(uint32_t *buffer, int w, int h) {

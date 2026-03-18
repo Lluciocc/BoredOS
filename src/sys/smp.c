@@ -8,6 +8,7 @@
 #include "idt.h"
 #include "platform.h"
 #include "paging.h"
+#include "process.h"
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint32_t n);
@@ -65,9 +66,10 @@ static void ap_entry(struct limine_smp_info *info) {
     asm volatile("mov %0, %%cr4" : : "r"(cr4));
     asm volatile("fninit");
 
-    // 3. Load the shared GDT (same one the BSP uses — all CPUs share kernel mappings)
+    // 3. Load the shared GDT and properly reload all segments (including CS=0x08)
     extern struct gdt_ptr gdtr;
-    asm volatile("lgdt %0" : : "m"(gdtr));
+    extern void gdt_flush(uint64_t);
+    gdt_flush((uint64_t)&gdtr);
 
     // 4. Load per-CPU TSS
     gdt_load_ap_tss(my_id);
@@ -80,7 +82,11 @@ static void ap_entry(struct limine_smp_info *info) {
     uint64_t kernel_cr3 = paging_get_pml4_phys();
     asm volatile("mov %0, %%cr3" : : "r"(kernel_cr3));
 
-    // 7. Mark ourselves as online
+    // 7. Enable LAPIC on this core so it can receive IPIs
+    extern void lapic_enable(void);
+    lapic_enable();
+
+    // 8. Mark ourselves as online
     cpu_states[my_id].online = true;
 
     serial_write("[SMP] AP ");
@@ -89,7 +95,13 @@ static void ap_entry(struct limine_smp_info *info) {
     serial_write_num(cpu_states[my_id].lapic_id);
     serial_write(")\n");
 
-    // 8. Enable interrupts and enter idle halt loop.
+    // 9. Initialize the current_process pointer for this CPU
+    // Create a dedicated idle task for this AP (PID 0 is reserved for the BSP)
+    process_t *ap_idle = process_create(NULL, false); // Idle process
+    ap_idle->cpu_affinity = my_id;
+    process_set_current_for_cpu(my_id, ap_idle);
+
+    // 10. Enable interrupts and enter idle halt loop.
     // APs will be woken by scheduling IPIs from BSP (vector 0x41).
     // The IPI handler does context switching for this CPU's processes.
     asm volatile("sti");
