@@ -6,7 +6,7 @@
 static ui_window_t doom_win = 0;
 
 void DG_Init(void) {
-    doom_win = ui_window_create("Yes, it's DOOM.", (1920 - DOOMGENERIC_RESX) / 2, (1080 - DOOMGENERIC_RESY) / 2, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+    doom_win = ui_window_create("DOOM", (1920 - DOOMGENERIC_RESX) / 2, (1080 - DOOMGENERIC_RESY) / 2, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
 }
 
 static uint32_t scaled_buffer[600 * 900]; // DOOMGENERIC_RESX * DOOMGENERIC_RESY
