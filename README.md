@@ -11,7 +11,7 @@
 
 ---
 
-BoredOS is a functional x86_64 operating system featuring a custom Desktop Environment (DE), a dedicated Window Manager (BoredWM), and a FAT32 filesystem. It balances low-level kernel exploration with a surprisingly capable userspace.
+BoredOS is a x86_64 operating system featuring a custom Desktop Environment (DE), a dedicated Window Manager (BoredWM), and a FAT32 filesystem. It balances low-level kernel exploration with a surprisingly capable userspace.
 
 ![Screenshot](screenshot.jpg)
 > [!NOTE]
