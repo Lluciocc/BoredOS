@@ -15,9 +15,9 @@
 #define COLOR_BLACK         0xFF000000
 #define COLOR_WHITE         0xFFFFFFFF
 #define COLOR_RED           0xFFFF0000
-#define COLOR_APPLE_GREEN   0xFF4CD964
-#define COLOR_APPLE_BLUE    0xFF007AFF
-#define COLOR_APPLE_YELLOW  0xFFFFCC00
+#define COLOR_GREEN   0xFF4CD964
+#define COLOR_BLUE    0xFF007AFF
+#define COLOR_YELLOW  0xFFFFCC00
 
 #define COLOR_DARK_BG       0xFF121212
 #define COLOR_DARK_PANEL    0xFF202020
@@ -58,7 +58,7 @@ static void paint_paint(ui_window_t win) {
     ui_draw_rounded_rect_filled(win, canvas_x - 2, canvas_y - 2, CANVAS_W + 4, CANVAS_H + 4, 4, COLOR_DARK_BG);
     ui_draw_rounded_rect_filled(win, 10, 0, 40, 230, 6, COLOR_DARK_PANEL);
     
-    uint32_t colors[] = {COLOR_BLACK, COLOR_RED, COLOR_APPLE_GREEN, COLOR_APPLE_BLUE, COLOR_APPLE_YELLOW, COLOR_WHITE};
+    uint32_t colors[] = {COLOR_BLACK, COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW, COLOR_WHITE};
     for (int i = 0; i < 6; i++) {
         int cy = 10 + (i * 25);
         ui_draw_rounded_rect_filled(win, 15, cy, 30, 20, 3, colors[i]);
@@ -202,7 +202,7 @@ static void paint_click(ui_window_t win, int x, int y) {
         for (int i = 0; i < 6; i++) {
             int cy = 10 + (i * 25);
             if (y >= cy && y < cy + 20) {
-                uint32_t colors[] = {COLOR_BLACK, COLOR_RED, COLOR_APPLE_GREEN, COLOR_APPLE_BLUE, COLOR_APPLE_YELLOW, COLOR_WHITE};
+                uint32_t colors[] = {COLOR_BLACK, COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW, COLOR_WHITE};
                 current_color = colors[i];
                 paint_paint(win);
                 ui_mark_dirty(win, 0, 0, 380, 230);

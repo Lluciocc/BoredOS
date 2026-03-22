@@ -521,7 +521,7 @@ static void flush_line(void) {
         if (el->tag == TAG_IMG && el->img_h + 10 > max_h) max_h = el->img_h + 10;
         if ((el->tag == TAG_INPUT || el->tag == TAG_BUTTON) && 20 + 10 > max_h) max_h = 20 + 10;
         if (el->tag == TAG_NONE) {
-            int fh = ui_get_font_height_scaled(el->scale);
+            int fh = el->h;
             if (fh + 4 > max_h) max_h = fh + 4;
             if (fh > max_baseline) max_baseline = fh;
         }
@@ -531,7 +531,7 @@ static void flush_line(void) {
         RenderElement *el = &elements[line_elements[i]];
         el->x = offset_x;
         if (el->tag == TAG_NONE) {
-            int fh = ui_get_font_height_scaled(el->scale);
+            int fh = el->h;
             el->y = cur_line_y + (max_baseline - fh); 
         } else {
             el->y = cur_line_y;
@@ -1504,7 +1504,7 @@ static void browser_paint(void) {
                 ui_draw_string_scaled(win_browser, el->x + 1, draw_y - 1, el->content, el->color, el->scale);
             }
             if (el->underline) {
-                int fh = ui_get_font_height_scaled(el->scale);
+                int fh = el->h;
                 ui_draw_rect(win_browser, el->x, draw_y + fh - 1, el->w, 1, el->color);
             }
         }

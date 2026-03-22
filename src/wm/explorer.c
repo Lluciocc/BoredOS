@@ -715,7 +715,7 @@ static void explorer_load_directory(Window *win, const char *path) {
         explorer_strcpy(state->items[temp_count].name, entries[i].name);
         state->items[temp_count].is_directory = entries[i].is_directory;
         state->items[temp_count].size = entries[i].size;
-        state->items[temp_count].color = entries[i].is_directory ? COLOR_APPLE_BLUE : COLOR_APPLE_YELLOW;
+        state->items[temp_count].color = entries[i].is_directory ? COLOR_BLUE : COLOR_YELLOW;
         temp_count++;
     }
     
