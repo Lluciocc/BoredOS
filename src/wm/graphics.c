@@ -758,10 +758,9 @@ void graphics_flip_buffer(void) {
         uint32_t *src_row = &g_back_buffer[curr_y * g_fb->width + x];
         
         if (g_fb->bpp == 32) {
+            extern void mem_memcpy(void *dest, const void *src, size_t len);
             uint32_t *dst_row = (uint32_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
-            for (int j = 0; j < w; j++) {
-                dst_row[j] = src_row[j];
-            }
+            mem_memcpy(dst_row, src_row, w * 4);
         } else if (g_fb->bpp == 16) {
             uint16_t *dst_row = (uint16_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
             for (int j = 0; j < w; j++) {
