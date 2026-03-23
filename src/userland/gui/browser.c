@@ -1553,6 +1553,7 @@ static void browser_paint(void) {
             if (pixels) ui_draw_image(win_browser, el->x, draw_y, el->img_w, el->img_h, pixels);
             else ui_draw_rect(win_browser, el->x, draw_y, 100, 80, 0xFFCCCCCC);
         } else if (el->tag == TAG_INPUT) {
+            browser_ctx.use_light_theme = true;
             char visible[128];
             int v_len = 0;
             int max_v = (el->w - 10) / 8;
@@ -1568,20 +1569,27 @@ static void browser_paint(void) {
             if (tb.cursor_pos < 0) tb.cursor_pos = 0;
             tb.focused = (focused_element == i);
             widget_textbox_draw(&browser_ctx, &tb);
+            browser_ctx.use_light_theme = false;
         } else if (el->tag == TAG_BUTTON) {
+            browser_ctx.use_light_theme = true;
             widget_button_t btn;
             widget_button_init(&btn, el->x, draw_y, el->w, el->h, el->attr_value);
             widget_button_draw(&browser_ctx, &btn);
+            browser_ctx.use_light_theme = false;
         } else if (el->tag == TAG_RADIO) {
+            browser_ctx.use_light_theme = true;
             widget_checkbox_t cb;
             widget_checkbox_init(&cb, el->x, draw_y, el->w, el->h, "", true);
             cb.checked = el->checked;
             widget_checkbox_draw(&browser_ctx, &cb);
+            browser_ctx.use_light_theme = false;
         } else if (el->tag == TAG_CHECKBOX) {
+            browser_ctx.use_light_theme = true;
             widget_checkbox_t cb;
             widget_checkbox_init(&cb, el->x, draw_y, el->w, el->h, "", false);
             cb.checked = el->checked;
             widget_checkbox_draw(&browser_ctx, &cb);
+            browser_ctx.use_light_theme = false;
         } else if (el->tag == TAG_HR) {
             ui_draw_rect(win_browser, el->x, draw_y + el->h / 2, el->w, 2, 0xFF888888);
             ui_draw_rect(win_browser, el->x, draw_y + (el->h / 2) + 2, el->w, 1, 0xFFFFFFFF);
@@ -1733,15 +1741,38 @@ int main(int argc, char **argv) {
                         if (el->tag == TAG_RADIO) {
                             for (int k = 0; k < element_count; k++) {
                                 if (elements[k].tag == TAG_RADIO && elements[k].form_id == el->form_id && str_iequals(elements[k].input_name, el->input_name)) {
-                                    elements[k].checked = false;
+                                    if (elements[k].checked) {
+                                        elements[k].checked = false;
+                                        widget_checkbox_t cb;
+                                        widget_checkbox_init(&cb, elements[k].x, elements[k].y - scroll_y + URL_BAR_H, elements[k].w, elements[k].h, "", true);
+                                        cb.checked = false;
+                                        browser_ctx.use_light_theme = true;
+                                        widget_checkbox_draw(&browser_ctx, &cb);
+                                        browser_ctx.use_light_theme = false;
+                                        ui_mark_dirty(win_browser, cb.x, cb.y, cb.w, cb.h);
+                                    }
                                 }
                             }
                             el->checked = true;
-                            needs_repaint = true; found = true; break;
+                            widget_checkbox_t cb;
+                            widget_checkbox_init(&cb, el->x, el->y - scroll_y + URL_BAR_H, el->w, el->h, "", true);
+                            cb.checked = true;
+                            browser_ctx.use_light_theme = true;
+                            widget_checkbox_draw(&browser_ctx, &cb);
+                            browser_ctx.use_light_theme = false;
+                            ui_mark_dirty(win_browser, cb.x, cb.y, cb.w, cb.h);
+                            found = true; break;
                         }
                         if (el->tag == TAG_CHECKBOX) {
                             el->checked = !el->checked;
-                            needs_repaint = true; found = true; break;
+                            widget_checkbox_t cb;
+                            widget_checkbox_init(&cb, el->x, el->y - scroll_y + URL_BAR_H, el->w, el->h, "", false);
+                            cb.checked = el->checked;
+                            browser_ctx.use_light_theme = true;
+                            widget_checkbox_draw(&browser_ctx, &cb);
+                            browser_ctx.use_light_theme = false;
+                            ui_mark_dirty(win_browser, cb.x, cb.y, cb.w, cb.h);
+                            found = true; break;
                         }
                         if (el->tag == TAG_BUTTON) {
                             int fid = el->form_id;

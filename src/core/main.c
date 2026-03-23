@@ -16,6 +16,7 @@
 #include "wm.h"
 #include "io.h"
 #include "fat32.h"
+#include "tar.h"
 #include "memory_manager.h"
 #include "platform.h"
 #include "wallpaper.h"
@@ -210,21 +211,31 @@ void kmain(void) {
             if (fs_starts_with(clean_path, "boot():")) clean_path += 7;
             else if (fs_starts_with(clean_path, "boot:///")) clean_path += 8;
             
-            char dir_path[256];
-            int last_slash = -1;
-            for (int j = 0; clean_path[j]; j++) {
-                if (clean_path[j] == '/') last_slash = j;
-            }
-            if (last_slash > 0) {
-                for (int j = 0; j < last_slash; j++) dir_path[j] = clean_path[j];
-                dir_path[last_slash] = '\0';
-                fat32_mkdir_recursive(dir_path);
-            }
+            int len = 0;
+            while(clean_path[len]) len++;
             
-            FAT32_FileHandle *fh = fat32_open(clean_path, "w");
-            if (fh && fh->valid) {
-                fat32_write(fh, mod->address, mod->size);
-                fat32_close(fh);
+            if (len >= 4 && clean_path[len-4] == '.' && clean_path[len-3] == 't' && clean_path[len-2] == 'a' && clean_path[len-1] == 'r') {
+                serial_write("[DEBUG] Parsing TAR initrd: ");
+                serial_write(clean_path);
+                serial_write("\n");
+                tar_parse(mod->address, mod->size);
+            } else {
+                char dir_path[256];
+                int last_slash = -1;
+                for (int j = 0; clean_path[j]; j++) {
+                    if (clean_path[j] == '/') last_slash = j;
+                }
+                if (last_slash > 0) {
+                    for (int j = 0; j < last_slash; j++) dir_path[j] = clean_path[j];
+                    dir_path[last_slash] = '\0';
+                    fat32_mkdir_recursive(dir_path);
+                }
+                
+                FAT32_FileHandle *fh = fat32_open(clean_path, "w");
+                if (fh && fh->valid) {
+                    fat32_write(fh, mod->address, mod->size);
+                    fat32_close(fh);
+                }
             }
         }
     }

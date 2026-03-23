@@ -12,6 +12,7 @@ typedef struct {
     void (*draw_string)(void *user_data, int x, int y, const char *str, uint32_t color);
     int (*measure_string_width)(void *user_data, const char *str);
     void (*mark_dirty)(void *user_data, int x, int y, int w, int h);
+    bool use_light_theme;
 } widget_context_t;
 
 // --- Button ---

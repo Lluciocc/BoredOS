@@ -132,57 +132,55 @@ $(KERNEL_ELF): $(OBJ_FILES)
 	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES)
 	$(MAKE) -C $(SRC_DIR)/userland
 
-$(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
+$(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
+	rm -rf $(BUILD_DIR)/initrd
+	mkdir -p $(BUILD_DIR)/initrd/bin
+	mkdir -p $(BUILD_DIR)/initrd/Library/images/Wallpapers
+	mkdir -p $(BUILD_DIR)/initrd/Library/images/gif
+	mkdir -p $(BUILD_DIR)/initrd/Library/Fonts/Emoji
+	mkdir -p $(BUILD_DIR)/initrd/Library/DOOM
+	mkdir -p $(BUILD_DIR)/initrd/docs
+
+	@for f in $(SRC_DIR)/userland/bin/*.elf; do \
+		if [ -f "$$f" ]; then cp "$$f" $(BUILD_DIR)/initrd/bin/; fi \
+	done
+	@for f in $(SRC_DIR)/images/wallpapers/*; do \
+		if [ -f "$$f" ]; then cp "$$f" $(BUILD_DIR)/initrd/Library/images/Wallpapers/; fi \
+	done
+	@for f in $(SRC_DIR)/images/gif/*.gif; do \
+		if [ -f "$$f" ]; then cp "$$f" $(BUILD_DIR)/initrd/Library/images/gif/; fi \
+	done
+	@for f in $(SRC_DIR)/fonts/*.ttf; do \
+		if [ -f "$$f" ]; then cp "$$f" $(BUILD_DIR)/initrd/Library/Fonts/; fi \
+	done
+	@for f in $(SRC_DIR)/fonts/Emoji/*.ttf; do \
+		if [ -f "$$f" ]; then cp "$$f" $(BUILD_DIR)/initrd/Library/Fonts/Emoji/; fi \
+	done
+	@if [ -f $(SRC_DIR)/userland/games/doom/doom1.wad ]; then cp $(SRC_DIR)/userland/games/doom/doom1.wad $(BUILD_DIR)/initrd/Library/DOOM/; fi
+	@for f in $$(find docs -name '*.md' 2>/dev/null); do \
+		if [ -f "$$f" ]; then \
+			dir=$$(dirname "$$f"); \
+			mkdir -p $(BUILD_DIR)/initrd/"$$dir"; \
+			cp "$$f" $(BUILD_DIR)/initrd/"$$dir"/; \
+		fi \
+	done
+	@if [ -f README.md ]; then cp README.md $(BUILD_DIR)/initrd/; fi
+	@if [ -f LICENSE ]; then cp LICENSE $(BUILD_DIR)/initrd/; fi
+	
+	cd $(BUILD_DIR)/initrd && COPYFILE_DISABLE=1 tar --exclude="._*" -cf ../initrd.tar *
+
+$(ISO_IMAGE): $(KERNEL_ELF) $(BUILD_DIR)/initrd.tar limine.conf limine-setup
 	rm -rf $(ISO_DIR)
 	mkdir -p $(ISO_DIR)
 	mkdir -p $(ISO_DIR)/EFI/BOOT
 	
 	cp $(KERNEL_ELF) $(ISO_DIR)/
 	cp limine.conf $(ISO_DIR)/
-	mkdir -p $(ISO_DIR)/bin
-	@for f in $(SRC_DIR)/userland/bin/*.elf; do \
-		if [ -f "$$f" ]; then \
-			basename=$$(basename "$$f"); \
-			cp "$$f" $(ISO_DIR)/bin/; \
-			echo "    module_path: boot():/bin/$$basename" >> $(ISO_DIR)/limine.conf; \
-		fi \
-	done
 	
-	@if [ -f README.md ]; then cp README.md $(ISO_DIR)/; fi
-	@if [ -f $(SRC_DIR)/userland/games/doom/doom1.wad ]; then \
-		mkdir -p $(ISO_DIR)/Library/DOOM; \
-		cp $(SRC_DIR)/userland/games/doom/doom1.wad $(ISO_DIR)/Library/DOOM/; \
-		echo "    module_path: boot():/Library/DOOM/doom1.wad" >> $(ISO_DIR)/limine.conf; \
-	fi
+	cp $(BUILD_DIR)/initrd.tar $(ISO_DIR)/
+	echo "    module_path: boot():/initrd.tar" >> $(ISO_DIR)/limine.conf
 	
-	mkdir -p $(ISO_DIR)/Library/images/Wallpapers
-	@for f in $(SRC_DIR)/images/wallpapers/*; do \
-		if [ -f "$$f" ]; then \
-			basename=$$(basename "$$f"); \
-			cp "$$f" $(ISO_DIR)/Library/images/Wallpapers/; \
-			echo "    module_path: boot():/Library/images/Wallpapers/$$basename" >> $(ISO_DIR)/limine.conf; \
-		fi \
-	done
 	@if [ -f splash.jpg ]; then cp splash.jpg $(ISO_DIR)/; fi
-	
-	mkdir -p $(ISO_DIR)/Library/images/gif
-	@for f in $(SRC_DIR)/images/gif/*.gif; do \
-		if [ -f "$$f" ]; then \
-			basename=$$(basename "$$f"); \
-			cp "$$f" $(ISO_DIR)/Library/images/gif/; \
-			echo "    module_path: boot():/Library/images/gif/$$basename" >> $(ISO_DIR)/limine.conf; \
-		fi \
-	done
-	
-	mkdir -p $(ISO_DIR)/docs
-	@for f in $$(find docs -name '*.md'); do \
-		if [ -f "$$f" ]; then \
-			dir=$$(dirname "$$f"); \
-			mkdir -p $(ISO_DIR)/"$$dir"; \
-			cp "$$f" $(ISO_DIR)/"$$dir"/; \
-			echo "    module_path: boot():/$$f" >> $(ISO_DIR)/limine.conf; \
-		fi \
-	done
 	
 	cp limine/limine-bios.sys $(ISO_DIR)/
 	cp limine/limine-bios-cd.bin $(ISO_DIR)/
@@ -191,34 +189,6 @@ $(ISO_IMAGE): $(KERNEL_ELF) limine.conf limine-setup
 	cp limine/BOOTX64.EFI $(ISO_DIR)/EFI/BOOT/
 	cp limine/BOOTIA32.EFI $(ISO_DIR)/EFI/BOOT/
 
-	mkdir -p $(ISO_DIR)/Library/Fonts
-	@for f in $(SRC_DIR)/fonts/*.ttf; do \
-		if [ -f "$$f" ]; then \
-			basename=$$(basename "$$f"); \
-			cp "$$f" $(ISO_DIR)/Library/Fonts/; \
-			echo "    module_path: boot():/Library/Fonts/$$basename" >> $(ISO_DIR)/limine.conf; \
-		fi \
-	done
-	
-	mkdir -p $(ISO_DIR)/Library/Fonts/Emoji
-	@for f in $(SRC_DIR)/fonts/Emoji/*.ttf; do \
-		if [ -f "$$f" ]; then \
-			basename=$$(basename "$$f"); \
-			cp "$$f" $(ISO_DIR)/Library/Fonts/Emoji/; \
-			echo "    module_path: boot():/Library/Fonts/Emoji/$$basename" >> $(ISO_DIR)/limine.conf; \
-		fi \
-	done
-	
-	@if [ -f README.md ]; then \
-		cp README.md $(ISO_DIR)/; \
-		echo "    module_path: boot():/README.md" >> $(ISO_DIR)/limine.conf; \
-	fi
-	
-	@if [ -f LICENSE ]; then \
-		cp LICENSE $(ISO_DIR)/; \
-		echo "    module_path: boot():/LICENSE" >> $(ISO_DIR)/limine.conf; \
-	fi
-	
 	$(XORRISO) -as mkisofs -R -J -b limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot limine-uefi-cd.bin \

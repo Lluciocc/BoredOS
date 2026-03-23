@@ -296,6 +296,12 @@ static void load_wallpapers(void) {
 
         wallpaper_count++;
     }
+
+    for (int i = 0; i < wallpaper_count; i++) {
+        int tx = (i % 3) * (WALLPAPER_THUMB_W + 15);
+        int ty = (i / 3) * (WALLPAPER_THUMB_H + 30);
+        widget_button_init(&btn_wp_thumbs[i], 8 + tx, 306 + ty, WALLPAPER_THUMB_W + 8, WALLPAPER_THUMB_H + 20, "");
+    }
 }
 
 static uint32_t parse_rgb_separate(const char *r, const char *g, const char *b) {
@@ -471,7 +477,7 @@ static void control_panel_paint_wallpaper(ui_window_t win) {
     
     for (int i = 0; i < wallpaper_count; i++) {
         int tx = (i % 3) * (WALLPAPER_THUMB_W + 15);
-        int ty = (i / 3) * (WALLPAPER_THUMB_H + 25);
+        int ty = (i / 3) * (WALLPAPER_THUMB_H + 30);
         
         widget_button_draw(&settings_ctx, &btn_wp_thumbs[i]);
         if (wallpapers[i].valid) {
@@ -481,7 +487,7 @@ static void control_panel_paint_wallpaper(ui_window_t win) {
                 }
             }
         }
-        ui_draw_string(win, button_x + tx + 8, button_y + ty + WALLPAPER_THUMB_H + 6, wallpapers[i].name, COLOR_DARK_TEXT);
+        ui_draw_string(win, button_x + tx + 8, button_y + ty + WALLPAPER_THUMB_H + 8, wallpapers[i].name, 0xFFFFFFFF);
     }
 }
 

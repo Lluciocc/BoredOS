@@ -37,18 +37,32 @@ void widget_button_init(widget_button_t *btn, int x, int y, int w, int h, const 
 }
 
 void widget_button_draw(widget_context_t *ctx, widget_button_t *btn) {
-    uint32_t bg_color = MAC_BTN_BG_NORMAL;
+    uint32_t border_color = MAC_BTN_BORDER;
+    uint32_t normal_bg = MAC_BTN_BG_NORMAL;
+    uint32_t hover_bg = MAC_BTN_BG_HOVER;
+    uint32_t pressed_bg = MAC_BTN_BG_PRESSED;
+    uint32_t text_color = COLOR_WHITE;
+
+    if (ctx->use_light_theme) {
+        border_color = 0xFFB0B0B0;
+        normal_bg = 0xFFEAEAEA;
+        hover_bg = 0xFFD0D0D0;
+        pressed_bg = 0xFFB0B0B0;
+        text_color = COLOR_BLACK;
+    }
+
+    uint32_t bg_color = normal_bg;
     if (btn->pressed) {
-        bg_color = MAC_BTN_BG_PRESSED;
+        bg_color = pressed_bg;
     } else if (btn->hovered) {
-        bg_color = MAC_BTN_BG_HOVER;
+        bg_color = hover_bg;
     }
 
     if (ctx->draw_rounded_rect_filled) {
-        ctx->draw_rounded_rect_filled(ctx->user_data, btn->x, btn->y, btn->w, btn->h, 6, MAC_BTN_BORDER);
+        ctx->draw_rounded_rect_filled(ctx->user_data, btn->x, btn->y, btn->w, btn->h, 6, border_color);
         ctx->draw_rounded_rect_filled(ctx->user_data, btn->x + 1, btn->y + 1, btn->w - 2, btn->h - 2, 5, bg_color);
     } else if (ctx->draw_rect) {
-        ctx->draw_rect(ctx->user_data, btn->x, btn->y, btn->w, btn->h, MAC_BTN_BORDER);
+        ctx->draw_rect(ctx->user_data, btn->x, btn->y, btn->w, btn->h, border_color);
         ctx->draw_rect(ctx->user_data, btn->x + 1, btn->y + 1, btn->w - 2, btn->h - 2, bg_color);
     }
     
@@ -56,7 +70,7 @@ void widget_button_draw(widget_context_t *ctx, widget_button_t *btn) {
         int len = string_len(btn->text);
         int tx = btn->x + (btn->w - (len * 8)) / 2;
         int ty = btn->y + (btn->h - 8) / 2;
-        ctx->draw_string(ctx->user_data, tx, ty, btn->text, COLOR_WHITE);
+        ctx->draw_string(ctx->user_data, tx, ty, btn->text, text_color);
     }
 }
 
@@ -194,13 +208,23 @@ void widget_textbox_init(widget_textbox_t *tb, int x, int y, int w, int h, char 
 }
 
 void widget_textbox_draw(widget_context_t *ctx, widget_textbox_t *tb) {
+    uint32_t border_color = MAC_BTN_BORDER;
+    uint32_t bg_color = COLOR_BLACK;
+    uint32_t text_color = COLOR_WHITE;
+
+    if (ctx->use_light_theme) {
+        border_color = 0xFFA0A0A0;
+        bg_color = 0xFFFFFFFF;
+        text_color = COLOR_BLACK;
+    }
+
     // Background and border
     if (ctx->draw_rounded_rect_filled) {
-        ctx->draw_rounded_rect_filled(ctx->user_data, tb->x, tb->y, tb->w, tb->h, 4, MAC_BTN_BORDER);
-        ctx->draw_rounded_rect_filled(ctx->user_data, tb->x + 1, tb->y + 1, tb->w - 2, tb->h - 2, 3, COLOR_BLACK); // dark background
+        ctx->draw_rounded_rect_filled(ctx->user_data, tb->x, tb->y, tb->w, tb->h, 4, border_color);
+        ctx->draw_rounded_rect_filled(ctx->user_data, tb->x + 1, tb->y + 1, tb->w - 2, tb->h - 2, 3, bg_color); // background
     } else if (ctx->draw_rect) {
-        ctx->draw_rect(ctx->user_data, tb->x, tb->y, tb->w, tb->h, MAC_BTN_BORDER);
-        ctx->draw_rect(ctx->user_data, tb->x + 1, tb->y + 1, tb->w - 2, tb->h - 2, COLOR_BLACK);
+        ctx->draw_rect(ctx->user_data, tb->x, tb->y, tb->w, tb->h, border_color);
+        ctx->draw_rect(ctx->user_data, tb->x + 1, tb->y + 1, tb->w - 2, tb->h - 2, bg_color);
     }
     
     if (ctx->draw_string && tb->text) {
@@ -217,7 +241,7 @@ void widget_textbox_draw(widget_context_t *ctx, widget_textbox_t *tb) {
         if (text_w > max_w) scroll_x = text_w - max_w;
         
         // Very basic simple drawing, without proper clipping since context lacks it
-        ctx->draw_string(ctx->user_data, tb->x + 5, tb->y + (tb->h - 8) / 2, tb->text, COLOR_WHITE);
+        ctx->draw_string(ctx->user_data, tb->x + 5, tb->y + (tb->h - 8) / 2, tb->text, text_color);
         
         if (tb->focused && ctx->draw_rect) {
             int cx = 0;
@@ -236,7 +260,7 @@ void widget_textbox_draw(widget_context_t *ctx, widget_textbox_t *tb) {
             
             if (cx > max_w) cx = max_w; // clamped to visible end
             
-            ctx->draw_rect(ctx->user_data, tb->x + 5 + cx, tb->y + (tb->h - 12) / 2, 2, 12, COLOR_WHITE);
+            ctx->draw_rect(ctx->user_data, tb->x + 5 + cx, tb->y + (tb->h - 12) / 2, 2, 12, text_color);
         }
     }
 }
@@ -281,26 +305,36 @@ void widget_dropdown_init(widget_dropdown_t *dd, int x, int y, int w, int h, con
 }
 
 void widget_dropdown_draw(widget_context_t *ctx, widget_dropdown_t *dd) {
+    uint32_t border_color = MAC_BTN_BORDER;
+    uint32_t bg_color = MAC_BTN_BG_NORMAL;
+    uint32_t text_color = COLOR_WHITE;
+
+    if (ctx->use_light_theme) {
+        border_color = 0xFFB0B0B0;
+        bg_color = 0xFFE0E0E0;
+        text_color = COLOR_BLACK;
+    }
+
     if (ctx->draw_rounded_rect_filled) {
-        ctx->draw_rounded_rect_filled(ctx->user_data, dd->x, dd->y, dd->w, dd->h, 4, MAC_BTN_BORDER);
-        ctx->draw_rounded_rect_filled(ctx->user_data, dd->x + 1, dd->y + 1, dd->w - 2, dd->h - 2, 3, MAC_BTN_BG_NORMAL);
+        ctx->draw_rounded_rect_filled(ctx->user_data, dd->x, dd->y, dd->w, dd->h, 4, border_color);
+        ctx->draw_rounded_rect_filled(ctx->user_data, dd->x + 1, dd->y + 1, dd->w - 2, dd->h - 2, 3, bg_color);
     } else if (ctx->draw_rect) {
-        ctx->draw_rect(ctx->user_data, dd->x, dd->y, dd->w, dd->h, MAC_BTN_BORDER);
-        ctx->draw_rect(ctx->user_data, dd->x + 1, dd->y + 1, dd->w - 2, dd->h - 2, MAC_BTN_BG_NORMAL);
+        ctx->draw_rect(ctx->user_data, dd->x, dd->y, dd->w, dd->h, border_color);
+        ctx->draw_rect(ctx->user_data, dd->x + 1, dd->y + 1, dd->w - 2, dd->h - 2, bg_color);
     }
     
     if (ctx->draw_string && dd->items && dd->item_count > 0 && dd->selected_idx >= 0 && dd->selected_idx < dd->item_count) {
-        ctx->draw_string(ctx->user_data, dd->x + 5, dd->y + (dd->h - 8) / 2, dd->items[dd->selected_idx], COLOR_WHITE);
-        ctx->draw_string(ctx->user_data, dd->x + dd->w - 12, dd->y + (dd->h - 8) / 2, "v", COLOR_WHITE);
+        ctx->draw_string(ctx->user_data, dd->x + 5, dd->y + (dd->h - 8) / 2, dd->items[dd->selected_idx], text_color);
+        ctx->draw_string(ctx->user_data, dd->x + dd->w - 12, dd->y + (dd->h - 8) / 2, "v", text_color);
     }
     
     if (dd->is_open && ctx->draw_rect && dd->items) {
         int menu_h = dd->item_count * dd->h;
-        ctx->draw_rect(ctx->user_data, dd->x, dd->y + dd->h, dd->w, menu_h, MAC_BTN_BORDER);
-        ctx->draw_rect(ctx->user_data, dd->x + 1, dd->y + dd->h + 1, dd->w - 2, menu_h - 2, MAC_BTN_BG_NORMAL);
+        ctx->draw_rect(ctx->user_data, dd->x, dd->y + dd->h, dd->w, menu_h, border_color);
+        ctx->draw_rect(ctx->user_data, dd->x + 1, dd->y + dd->h + 1, dd->w - 2, menu_h - 2, bg_color);
         for (int i = 0; i < dd->item_count; i++) {
             if (ctx->draw_string) {
-                ctx->draw_string(ctx->user_data, dd->x + 5, dd->y + dd->h + i * dd->h + (dd->h - 8)/2, dd->items[i], COLOR_WHITE);
+                ctx->draw_string(ctx->user_data, dd->x + 5, dd->y + dd->h + i * dd->h + (dd->h - 8)/2, dd->items[i], text_color);
             }
         }
     }
@@ -344,27 +378,39 @@ void widget_checkbox_draw(widget_context_t *ctx, widget_checkbox_t *cb) {
     int box_size = 14;
     int box_y = cb->y + (cb->h - box_size) / 2;
     
+    uint32_t border_color = MAC_BTN_BORDER;
+    uint32_t bg_color = MAC_BTN_BG_NORMAL;
+    uint32_t inner_color = COLOR_WHITE;
+    uint32_t text_color = COLOR_WHITE;
+
+    if (ctx->use_light_theme) {
+        border_color = 0xFF909090;
+        bg_color = 0xFFFFFFFF;
+        inner_color = 0xFF404040;
+        text_color = COLOR_BLACK;
+    }
+
     if (ctx->draw_rounded_rect_filled) {
         int radius = cb->is_radio ? box_size / 2 : 3;
-        ctx->draw_rounded_rect_filled(ctx->user_data, cb->x, box_y, box_size, box_size, radius, MAC_BTN_BORDER);
-        ctx->draw_rounded_rect_filled(ctx->user_data, cb->x + 1, box_y + 1, box_size - 2, box_size - 2, radius - 1, MAC_BTN_BG_NORMAL);
+        ctx->draw_rounded_rect_filled(ctx->user_data, cb->x, box_y, box_size, box_size, radius, border_color);
+        ctx->draw_rounded_rect_filled(ctx->user_data, cb->x + 1, box_y + 1, box_size - 2, box_size - 2, radius - 1, bg_color);
         
         if (cb->checked) {
             int inner = box_size - 6;
             int inner_rad = cb->is_radio ? inner / 2 : 2;
-            ctx->draw_rounded_rect_filled(ctx->user_data, cb->x + 3, box_y + 3, inner, inner, inner_rad, COLOR_WHITE);
+            ctx->draw_rounded_rect_filled(ctx->user_data, cb->x + 3, box_y + 3, inner, inner, inner_rad, inner_color);
         }
     } else if (ctx->draw_rect) {
-        ctx->draw_rect(ctx->user_data, cb->x, box_y, box_size, box_size, MAC_BTN_BORDER);
-        ctx->draw_rect(ctx->user_data, cb->x + 1, box_y + 1, box_size - 2, box_size - 2, MAC_BTN_BG_NORMAL);
+        ctx->draw_rect(ctx->user_data, cb->x, box_y, box_size, box_size, border_color);
+        ctx->draw_rect(ctx->user_data, cb->x + 1, box_y + 1, box_size - 2, box_size - 2, bg_color);
         if (cb->checked) {
             int inner = box_size - 6;
-            ctx->draw_rect(ctx->user_data, cb->x + 3, box_y + 3, inner, inner, COLOR_WHITE);
+            ctx->draw_rect(ctx->user_data, cb->x + 3, box_y + 3, inner, inner, inner_color);
         }
     }
     
     if (ctx->draw_string && cb->text) {
-        ctx->draw_string(ctx->user_data, cb->x + box_size + 8, cb->y + (cb->h - 8) / 2, cb->text, COLOR_WHITE);
+        ctx->draw_string(ctx->user_data, cb->x + box_size + 8, cb->y + (cb->h - 8) / 2, cb->text, text_color);
     }
 }
 
