@@ -1576,18 +1576,22 @@ void wm_add_window(Window *win) {
     wm_lock_release(rflags);
 }
 
-Window* wm_find_window_by_title(const char *title) {
+Window* wm_find_window_by_title_locked(const char *title) {
     if (!title) return NULL;
-    uint64_t rflags;
-    rflags = wm_lock_acquire();
     for (int i = 0; i < window_count; i++) {
         if (all_windows[i] && all_windows[i]->title && str_eq(all_windows[i]->title, title)) {
-            wm_lock_release(rflags);
             return all_windows[i];
         }
     }
-    wm_lock_release(rflags);
     return NULL;
+}
+
+Window* wm_find_window_by_title(const char *title) {
+    if (!title) return NULL;
+    uint64_t rflags = wm_lock_acquire();
+    Window *win = wm_find_window_by_title_locked(title);
+    wm_lock_release(rflags);
+    return win;
 }
 
 void wm_remove_window(Window *win) {
@@ -1811,7 +1815,7 @@ void wm_handle_click(int x, int y) {
         if (item == 0) {  // About
             process_create_elf("/bin/about.elf", NULL);
         } else if (item == 1) {  // Settings
-            Window *existing = wm_find_window_by_title("Settings");
+            Window *existing = wm_find_window_by_title_locked("Settings");
             if (existing) wm_bring_to_front_locked(existing);
             else process_create_elf("/bin/settings.elf", NULL);
         } else if (item == 2) {  // Shutdown
@@ -1946,7 +1950,9 @@ void wm_handle_right_click(int x, int y) {
     }
     
     force_redraw = true;
-}void wm_handle_mouse(int dx, int dy, uint8_t buttons, int dz) {
+}
+
+static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
     int sw = get_screen_width();
     int sh = get_screen_height();
     
@@ -2153,53 +2159,53 @@ void wm_handle_right_click(int x, int y) {
             if (str_starts_with(start_menu_pending_app, "Files")) {
                 explorer_open_directory("/");
             } else if (str_starts_with(start_menu_pending_app, "Notepad")) {
-                Window *existing = wm_find_window_by_title("Notepad");
+                Window *existing = wm_find_window_by_title_locked("Notepad");
                 if (existing) {
                     wm_bring_to_front_locked(existing);
                 } else {
                     process_create_elf("/bin/notepad.elf", NULL);
                 }
             } else if (str_starts_with(start_menu_pending_app, "Editor")) {
-                Window *existing = wm_find_window_by_title("Txtedit");
+                Window *existing = wm_find_window_by_title_locked("Txtedit");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/txtedit.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Word Processor")) {
-                Window *existing = wm_find_window_by_title("Word Processor");
+                Window *existing = wm_find_window_by_title_locked("Word Processor");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/boredword.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Terminal")) {
                 cmd_reset(); wm_bring_to_front_locked(&win_cmd);
             } else if (str_starts_with(start_menu_pending_app, "Calculator")) {
-                Window *existing = wm_find_window_by_title("Calculator");
+                Window *existing = wm_find_window_by_title_locked("Calculator");
                 if (existing) {
                     wm_bring_to_front_locked(existing);
                 } else {
                     process_create_elf("/bin/calculator.elf", NULL);
                 }
             } else if (str_starts_with(start_menu_pending_app, "Minesweeper")) {
-                Window *existing = wm_find_window_by_title("Minesweeper");
+                Window *existing = wm_find_window_by_title_locked("Minesweeper");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/minesweeper.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Settings")) {
-                Window *existing = wm_find_window_by_title("Settings");
+                Window *existing = wm_find_window_by_title_locked("Settings");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/settings.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Paint")) {
-                Window *existing = wm_find_window_by_title("Paint");
+                Window *existing = wm_find_window_by_title_locked("Paint");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/paint.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Clock")) {
-                Window *existing = wm_find_window_by_title("Clock");
+                Window *existing = wm_find_window_by_title_locked("Clock");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/clock.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Browser")) {
-                Window *existing = wm_find_window_by_title("Web Browser");
+                Window *existing = wm_find_window_by_title_locked("Web Browser");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/browser.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "About")) {
                 process_create_elf("/bin/about.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Task Manager")) {
-                Window *existing = wm_find_window_by_title("Task Manager");
+                Window *existing = wm_find_window_by_title_locked("Task Manager");
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/taskman.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Shutdown")) {
@@ -2573,6 +2579,12 @@ void wm_handle_right_click(int x, int y) {
     }
     
     prev_left = left;
+}
+
+void wm_handle_mouse(int dx, int dy, uint8_t buttons, int dz) {
+    uint64_t rflags = wm_lock_acquire();
+    wm_handle_mouse_internal(dx, dy, buttons, dz);
+    wm_lock_release(rflags);
 }
 
 // Input Queue

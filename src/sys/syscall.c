@@ -40,49 +40,49 @@ void syscall_init(void) {
 }
 
 static void user_window_close(Window *win) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = GUI_EVENT_CLOSE };
     process_push_gui_event(proc, &ev);
 }
 
 static void user_window_paint(Window *win) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = GUI_EVENT_PAINT };
     process_push_gui_event(proc, &ev);
 }
 
 static void user_window_click(Window *win, int x, int y) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = GUI_EVENT_CLICK, .arg1 = x, .arg2 = y };
     process_push_gui_event(proc, &ev);
 }
 
 static void user_window_right_click(Window *win, int x, int y) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = GUI_EVENT_RIGHT_CLICK, .arg1 = x, .arg2 = y };
     process_push_gui_event(proc, &ev);
 }
 
 static void user_window_mouse_down(Window *win, int x, int y) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = GUI_EVENT_MOUSE_DOWN, .arg1 = x, .arg2 = y };
     process_push_gui_event(proc, &ev);
 }
 
 static void user_window_mouse_up(Window *win, int x, int y) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = GUI_EVENT_MOUSE_UP, .arg1 = x, .arg2 = y };
     process_push_gui_event(proc, &ev);
 }
 
 static void user_window_mouse_move(Window *win, int x, int y, uint8_t buttons) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = GUI_EVENT_MOUSE_MOVE, .arg1 = x, .arg2 = y, .arg3 = buttons };
     process_push_gui_event(proc, &ev);
@@ -90,22 +90,22 @@ static void user_window_mouse_move(Window *win, int x, int y, uint8_t buttons) {
 
 // Helper function for WM to send mouse events
 void syscall_send_mouse_move_event(Window *win, int x, int y, uint8_t buttons) {
-    if (!win || !win->data) return;
+    if (!win) return;
     user_window_mouse_move(win, x, y, buttons);
 }
 
 void syscall_send_mouse_down_event(Window *win, int x, int y) {
-    if (!win || !win->data) return;
+    if (!win) return;
     user_window_mouse_down(win, x, y);
 }
 
 void syscall_send_mouse_up_event(Window *win, int x, int y) {
-    if (!win || !win->data) return;
+    if (!win) return;
     user_window_mouse_up(win, x, y);
 }
 
 static void user_window_key(Window *win, char c, bool pressed) {
-    process_t *proc = (process_t *)win->data;
+    process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
     gui_event_t ev = { .type = pressed ? GUI_EVENT_KEY : GUI_EVENT_KEYUP, .arg1 = (int)c };
     process_push_gui_event(proc, &ev);

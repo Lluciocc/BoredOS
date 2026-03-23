@@ -589,6 +589,8 @@ uint64_t process_terminate_current(void) {
     // Mark slot as free
     to_delete->pid = 0xFFFFFFFF; 
     to_delete->cpu_affinity = 0xFFFFFFFF;
+    to_delete->ui_window = NULL;
+    to_delete->is_terminal_proc = false;
 
     // 4. Load context for the NEXT process
     if (current_process[my_cpu]->is_user && current_process[my_cpu]->kernel_stack) {
