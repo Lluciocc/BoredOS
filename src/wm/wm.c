@@ -1566,13 +1566,17 @@ void wm_bring_to_front(Window *win) {
     wm_lock_release(rflags);
 }
 
-void wm_add_window(Window *win) {
-    uint64_t rflags;
-    rflags = wm_lock_acquire();
+void wm_add_window_locked(Window *win) {
     if (window_count < 32) {
         all_windows[window_count++] = win;
         wm_bring_to_front_locked(win); // Ensure newly added windows are on top
     }
+}
+
+void wm_add_window(Window *win) {
+    uint64_t rflags;
+    rflags = wm_lock_acquire();
+    wm_add_window_locked(win);
     wm_lock_release(rflags);
 }
 

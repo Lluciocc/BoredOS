@@ -1890,8 +1890,8 @@ Window* explorer_create_window(const char *path) {
     else explorer_load_directory(win, path);
     
     explorer_wins[explorer_win_count++] = win;
-    wm_add_window(win);
-    wm_bring_to_front(win);
+    wm_add_window_locked(win);
+    // wm_add_window_locked already calls wm_bring_to_front_locked!
     
     return win;
 }

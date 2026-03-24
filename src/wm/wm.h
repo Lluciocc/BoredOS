@@ -75,8 +75,10 @@ void wm_handle_click(int x, int y);
 void wm_handle_right_click(int x, int y);
 void wm_process_input(void);
 void wm_process_deferred_thumbs(void);
+void wm_add_window_locked(Window *win);
 void wm_add_window(Window *win);
 void wm_remove_window(Window *win);
+void wm_bring_to_front_locked(Window *win);
 void wm_bring_to_front(Window *win);
 Window* wm_find_window_by_title(const char *title);
 
