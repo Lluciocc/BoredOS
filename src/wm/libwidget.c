@@ -277,6 +277,15 @@ bool widget_textbox_handle_mouse(widget_textbox_t *tb, int mx, int my, bool mous
     bool in_bounds = (mx >= tb->x && mx < tb->x + tb->w && my >= tb->y && my < tb->y + tb->h);
     if (mouse_clicked) {
         tb->focused = in_bounds;
+        if (in_bounds && tb->text) {
+            int rel_x = mx - (tb->x + 5);
+            if (rel_x < 0) rel_x = 0;
+            // Rough estimation for fixed-width font 8px chars
+            int new_pos = rel_x / 8;
+            int len = string_len(tb->text);
+            if (new_pos > len) new_pos = len;
+            tb->cursor_pos = new_pos;
+        }
     }
     return in_bounds;
 }
@@ -285,17 +294,29 @@ bool widget_textbox_handle_key(widget_textbox_t *tb, char c, void *user_data) {
     if (!tb->focused || !tb->text) return false;
     
     int len = string_len(tb->text);
+    if (c == 19) { // LEFT
+        if (tb->cursor_pos > 0) tb->cursor_pos--;
+        return true;
+    } else if (c == 20) { // RIGHT
+        if (tb->cursor_pos < len) tb->cursor_pos++;
+        return true;
+    }
+    
     if (c == '\b') { // backspace
-        if (len > 0) {
-            tb->text[len - 1] = '\0';
-            tb->cursor_pos = len - 1;
+        if (tb->cursor_pos > 0) {
+            for (int i = tb->cursor_pos - 1; i < len; i++) {
+                tb->text[i] = tb->text[i + 1];
+            }
+            tb->cursor_pos--;
             if (tb->on_change) tb->on_change(user_data);
         }
     } else if (c >= 32 && c < 127) {
         if (len < tb->max_len - 1) {
-            tb->text[len] = c;
-            tb->text[len + 1] = '\0';
-            tb->cursor_pos = len + 1;
+            for (int i = len; i >= tb->cursor_pos; i--) {
+                tb->text[i + 1] = tb->text[i];
+            }
+            tb->text[tb->cursor_pos] = c;
+            tb->cursor_pos++;
             if (tb->on_change) tb->on_change(user_data);
         }
     }
