@@ -45,7 +45,7 @@ isr%2_wrapper:
     push r14
     push r15
     
-    ; Save SSE/FPU state
+    ; Save SSE/FPU state (fxsave requires 16-byte alignment)
     sub rsp, 512
     fxsave [rsp]
 
@@ -164,7 +164,7 @@ exception_common:
     push r14
     push r15
     
-    ; Save SSE/FPU state
+    ; Save SSE/FPU state (fxsave requires 16-byte alignment)
     sub rsp, 512
     fxsave [rsp]
 

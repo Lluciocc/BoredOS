@@ -24,6 +24,7 @@ int process_count = 0;
 static process_t* current_process[MAX_CPUS_SCHED] = {0}; // Per-CPU
 static uint32_t next_pid = 0;
 static void *free_kernel_stack_later = NULL;
+static uint64_t free_pml4_later = 0;
 static spinlock_t runqueue_lock = SPINLOCK_INIT;
 static uint32_t next_cpu_assign = 1; // Round-robin CPU assignment (start from CPU 1)
 
@@ -379,6 +380,11 @@ uint64_t process_schedule(uint64_t current_rsp) {
         kfree(free_kernel_stack_later);
         free_kernel_stack_later = NULL;
     }
+    if (free_pml4_later) {
+        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
+        paging_destroy_user_pml4_phys(free_pml4_later);
+        free_pml4_later = 0;
+    }
 
     uint32_t my_cpu = smp_this_cpu_id();
     process_t *cur = current_process[my_cpu];
@@ -524,9 +530,8 @@ void process_terminate(process_t *to_delete) {
     to_delete->cpu_affinity = 0xFFFFFFFF;
 
     if (to_delete->user_stack_alloc) kfree(to_delete->user_stack_alloc);
-    if (to_delete->kernel_stack_alloc) {
-        kfree(to_delete->kernel_stack_alloc);
-    }
+    // Defer kernel stack until we switch away from it
+    to_delete->kernel_stack_alloc = NULL;
     
     extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
     if (to_delete->pml4_phys && to_delete->is_user) {
