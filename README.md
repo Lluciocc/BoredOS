@@ -59,7 +59,7 @@ Explore the internal workings of BoredOS via our comprehensive guides in the [`d
 
 If you find this project interesting or helpful, consider fueling the development with a coffee!
 
-<a href="https://buymeacoffee.com/boreddevnl" target="_blank">
+<a href="https://buymeacoffee.com/boreddevhq" target="_blank">
   <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="50" style="border-radius: 8px;" />
 </a>
 
