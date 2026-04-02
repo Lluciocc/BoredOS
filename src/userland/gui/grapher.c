@@ -519,7 +519,6 @@ static void parse_equation(void) {
         lhs_root = parse_expr(lt, &lp, lhs_nodes, &lhs_nc);
         rhs_root = parse_expr(rt, &rp, rhs_nodes, &rhs_nc);
     } else {
-        // No '=': treat as y = expr (2D) or expr = 0
         Token tt[MAX_TOKENS];
         tokenize(eq_buffer, tt);
         int tp = 0;
@@ -1318,13 +1317,18 @@ int main(void) {
             }
         }
         
+        if (graph_mode == MODE_3D) {
+            rot_y += 0.01;
+            needs_repaint = true;
+        }
+
         if (needs_repaint) {
             paint_all();
             needs_repaint = false;
         }
 
         if (!got_event) {
-            sleep(10);
+            sleep(16);
         }
     }
 

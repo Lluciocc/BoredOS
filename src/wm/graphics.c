@@ -496,7 +496,6 @@ void draw_char(int x, int y, char c, uint32_t color) {
     }
 }
 
-// Bitmap-only version for terminal — always uses 8x8 bitmap font regardless of TTF
 void draw_char_bitmap(int x, int y, char c, uint32_t color) {
     unsigned char uc = (unsigned char)c;
     if (uc > 127) return;
@@ -576,7 +575,6 @@ void draw_string_scaled(int x, int y, const char *s, uint32_t color, float scale
     int cur_x = x;
     
     if (g_current_ttf) {
-        // We let the font manager handle the stbtt scale internally to avoid bringing stb_truetype into graphics.c
         int baseline = y + font_manager_get_font_ascent_scaled(g_current_ttf, scale) - 2;
         int line_height = font_manager_get_font_line_height_scaled(g_current_ttf, scale);
         
@@ -812,12 +810,6 @@ void graphics_flip_buffer(void) {
                     
                     int gray = (r * 77 + g * 150 + b * 29) >> 8;
                     
-                    // Boost contrast by 2x to separate the dark UI colors:
-                    // Background (~30) -> 60
-                    // Panel (~40) -> 80
-                    // With thresholds {0, 64, 128, 192}:
-                    // BG > 0 (1/4 white), Panel > 64 (2/4 white - checkerboard)
-                    // Text (~170) -> 255 (solid white)
                     gray = gray * 2;
                     if (gray > 255) gray = 255;
                     
@@ -849,11 +841,38 @@ void graphics_copy_screenbuffer(uint32_t *dest) {
     int sw = (int)g_fb->width;
     int sh = (int)g_fb->height;
     
-    // Copy from the composition back buffer
+    // Copy from the composition back buffer, applying color mode transformations if necessary
     for (int y = 0; y < sh; y++) {
         uint32_t *src_row = &g_back_buffer[y * sw];
         for (int x = 0; x < sw; x++) {
-            dest[y * sw + x] = src_row[x];
+            uint32_t px = src_row[x];
+            
+            if (g_color_mode == 1) { // 8-bit Grayscale
+                uint8_t r = (px >> 16) & 0xFF;
+                uint8_t g = (px >> 8) & 0xFF;
+                uint8_t b = px & 0xFF;
+                uint8_t gray = (uint8_t)((r * 77 + g * 150 + b * 29) >> 8);
+                dest[y * sw + x] = 0xFF000000 | (gray << 16) | (gray << 8) | gray;
+            } else if (g_color_mode == 2) { // 1-bit Monochrome (Dithered)
+                static const uint8_t bayer2[2][2] = {
+                    {  0, 128 },
+                    {192,  64 }
+                };
+                uint8_t r = (px >> 16) & 0xFF;
+                uint8_t g = (px >> 8) & 0xFF;
+                uint8_t b = px & 0xFF;
+                int gray = (r * 77 + g * 150 + b * 29) >> 8;
+                
+                // Boost contrast (matches graphics_flip_buffer logic)
+                gray = gray * 2;
+                if (gray > 255) gray = 255;
+                
+                uint8_t threshold = bayer2[y & 1][x & 1];
+                dest[y * sw + x] = (gray > threshold) ? 0xFFFFFFFF : 0xFF000000;
+            } else {
+                // 32-bit (Standard)
+                dest[y * sw + x] = px;
+            }
         }
     }
     
