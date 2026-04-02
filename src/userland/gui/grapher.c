@@ -14,7 +14,7 @@ extern void sys_parallel_run(void (*fn)(void*), void **args, int count);
 // =========
 // Constants
 // =========
-// Adjust the below configuration to your system specification and preferences.
+// Adjust the below variables to suit your system specification and preferences.
 // --- User Configuration ---
 #define ROTATE 1  // Set to 0 to disable auto-rotation in 3D mode.
 #define GRID_3D 100 // Grid resolution. Adjust on how much you want your PC to die (lmao)
@@ -29,6 +29,8 @@ static int win_h = 400;
 static int graph_w = 500;
 static int graph_h = 320;
 static int fb_capacity = 0;
+static uint32_t *graph_fb = NULL;
+static int32_t *graph_zb = NULL; // Z-Buffer for 3D depth testing
 
 #define COLOR_BG        0xFF1A1A2E
 #define COLOR_GRID      0xFF2A2A4A
@@ -432,7 +434,6 @@ static void ast_find_vars(ASTNode *n, int idx, bool *has_x, bool *has_y, bool *h
 // Application State
 // =================
 static ui_window_t win_graph;
-static uint32_t *graph_fb = NULL;
 
 static char eq_buffer[256];
 static int eq_len = 0;
@@ -468,8 +469,8 @@ static bool surf_v1[GRID_3D][GRID_3D];
 static bool surf_v2[GRID_3D][GRID_3D];
 
 // Screen-space vertex cache for parallel rasterization
-static int surf_sx1[GRID_3D][GRID_3D], surf_sy1[GRID_3D][GRID_3D];
-static int surf_sx2[GRID_3D][GRID_3D], surf_sy2[GRID_3D][GRID_3D];
+static int surf_sx1[GRID_3D][GRID_3D], surf_sy1[GRID_3D][GRID_3D], surf_dz1[GRID_3D][GRID_3D];
+static int surf_sx2[GRID_3D][GRID_3D], surf_sy2[GRID_3D][GRID_3D], surf_dz2[GRID_3D][GRID_3D];
 
 static bool surface_needs_eval = true;
 
@@ -507,9 +508,10 @@ static widget_context_t wctx = { 0, gfx_draw_rect, gfx_draw_rr, gfx_draw_str, NU
 // ================
 static void gfb_clear(uint32_t c) {
     int total = graph_w * graph_h;
-    uint32_t *p = graph_fb;
-    // Simple but often faster for compilers to vectorize than raw loop
-    for (int i = 0; i < total; i++) p[i] = c;
+    for (int i = 0; i < total; i++) {
+        graph_fb[i] = c;
+        graph_zb[i] = 1000000; // Large 'far' value
+    }
 }
 
 static void gfb_pixel(int x, int y, uint32_t c) {
@@ -517,14 +519,45 @@ static void gfb_pixel(int x, int y, uint32_t c) {
         graph_fb[y * graph_w + x] = c;
 }
 
+static void gfb_pixel_z(int x, int y, int z, uint32_t c) {
+    if (x < 0 || x >= graph_w || y < 0 || y >= graph_h) return;
+    int idx = y * graph_w + x;
+    
+    // CAS loop for atomic depth test
+    int32_t old_z;
+    while (z < (old_z = __atomic_load_n(&graph_zb[idx], __ATOMIC_RELAXED))) {
+        if (__atomic_compare_exchange_n(&graph_zb[idx], &old_z, z, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED)) {
+            graph_fb[idx] = c;
+            break;
+        }
+    }
+}
+
+
+
 static void gfb_line(int x0, int y0, int x1, int y1, uint32_t c) {
-    int dx = x1 - x0, dy = y1 - y0;
-    int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
-    if (dx < 0) dx = -dx;
-    if (dy < 0) dy = -dy;
+    int dx = my_fabs((double)(x1 - x0)), dy = my_fabs((double)(y1 - y0));
+    int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
     int err = dx - dy;
-    for (int i = 0; i < 2000; i++) { // safety limit (i reccommend keeping it at 2k)
+    for (int i = 0; i < 2000; i++) {
         gfb_pixel(x0, y0, c);
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+    }
+}
+
+static void gfb_line_z(int x0, int y0, int z0, int x1, int y1, int z1, uint32_t c) {
+    int dx = my_fabs((double)(x1 - x0)), dy = my_fabs((double)(y1 - y0));
+    int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    int err = dx - dy;
+    int steps = (dx > dy ? dx : dy);
+    if (steps == 0) { gfb_pixel_z(x0, y0, z0, c); return; }
+    
+    for (int i = 0; i <= steps && i < 2000; i++) {
+        int cz = z0 + (int)((long)(z1 - z0) * i / steps);
+        gfb_pixel_z(x0, y0, cz, c);
         if (x0 == x1 && y0 == y1) break;
         int e2 = 2 * err;
         if (e2 > -dy) { err -= dy; x0 += sx; }
@@ -561,7 +594,7 @@ static double world_x_2d(int px) {
 // =============
 // 3D projection
 // =============
-static void project_3d(double px, double py, double pz, int *sx, int *sy) {
+static void project_3d(double px, double py, double pz, int *sx, int *sy, int *sz) {
     double nx = px * rot_cy + pz * rot_sy, nz = -px * rot_sy + pz * rot_cy;
     px = nx; pz = nz;
     double ny = py * rot_cx - pz * rot_sx;
@@ -577,6 +610,7 @@ static void project_3d(double px, double py, double pz, int *sx, int *sy) {
     double persp = d / zd;
     *sx = (int)(px * base_scale * persp) + graph_w / 2;
     *sy = (int)(-py * base_scale * persp) + graph_h / 2;
+    *sz = (int)(pz * 1000); // Fixed-point depth
 }
 // istg math is scary
 // ====================================================
@@ -858,13 +892,13 @@ static void render_2d_implicit(void) {
 }
 
 static void render_3d_axes(void) {
-    int ox, oy;
-    project_3d(0, 0, 0, &ox, &oy);
+    int ox, oy, oz;
+    project_3d(0, 0, 0, &ox, &oy, &oz);
 
-    int ax, ay;
-    project_3d(range_3d, 0, 0, &ax, &ay); gfb_line(ox, oy, ax, ay, 0xFFFF4444);
-    project_3d(0, range_3d, 0, &ax, &ay); gfb_line(ox, oy, ax, ay, 0xFF44FF44);
-    project_3d(0, 0, range_3d, &ax, &ay); gfb_line(ox, oy, ax, ay, 0xFF4444FF);
+    int ax, ay, az;
+    project_3d(range_3d, 0, 0, &ax, &ay, &az); gfb_line_z(ox, oy, oz, ax, ay, az, 0xFFFF4444);
+    project_3d(0, range_3d, 0, &ax, &ay, &az); gfb_line_z(ox, oy, oz, ax, ay, az, 0xFF44FF44);
+    project_3d(0, 0, range_3d, &ax, &ay, &az); gfb_line_z(ox, oy, oz, ax, ay, az, 0xFF4444FF);
 }
 
 // =======================
@@ -924,6 +958,12 @@ static void eval_3d_implicit_job(void *arg) {
                         surf_z1[j][i] = (za + zb) * 0.5; surf_v1[j][i] = true;
                     } else {
                         surf_z2[j][i] = (za + zb) * 0.5; surf_v2[j][i] = true;
+                        // Simple sort: ensure z1 < z2 (in screen space d/zd will handle it, but keep it stable here)
+                        if (surf_z1[j][i] > surf_z2[j][i]) {
+                            double tmp = surf_z1[j][i];
+                            surf_z1[j][i] = surf_z2[j][i];
+                            surf_z2[j][i] = tmp;
+                        }
                     }
                     roots_found++;
                 }
@@ -939,10 +979,10 @@ static void eval_3d_project_job(void *arg) {
     for (int j = job->start_j; j < job->end_j; j++) {
         for (int i = 0; i < GRID_3D; i++) {
             if (surf_v1[j][i]) {
-                project_3d(surf_x[j][i], surf_z1[j][i] * job->z_scale, surf_y_3d[j][i], &surf_sx1[j][i], &surf_sy1[j][i]);
+                project_3d(surf_x[j][i], surf_z1[j][i] * job->z_scale, surf_y_3d[j][i], &surf_sx1[j][i], &surf_sy1[j][i], &surf_dz1[j][i]);
             }
             if (surf_v2[j][i]) {
-                project_3d(surf_x[j][i], surf_z2[j][i] * job->z_scale, surf_y_3d[j][i], &surf_sx2[j][i], &surf_sy2[j][i]);
+                project_3d(surf_x[j][i], surf_z2[j][i] * job->z_scale, surf_y_3d[j][i], &surf_sx2[j][i], &surf_sy2[j][i], &surf_dz2[j][i]);
             }
         }
     }
@@ -962,11 +1002,12 @@ static void render_3d_draw_job(void *arg) {
                 bool *v = (s == 0) ? surf_v1[j] : surf_v2[j];
                 int *sx_row = (s == 0) ? surf_sx1[j] : surf_sx2[j];
                 int *sy_row = (s == 0) ? surf_sy1[j] : surf_sy2[j];
+                int *dz_row = (s == 0) ? surf_dz1[j] : surf_dz2[j];
                 double *z_row = (s == 0) ? surf_z1[j] : surf_z2[j];
                 
                 if (!v[i]) continue;
                 
-                int sx0 = sx_row[i], sy0 = sy_row[i];
+                int sx0 = sx_row[i], sy0 = sy_row[i], dz0 = dz_row[i];
                 uint32_t col = color_by_height(z_row[i], job->zmin, job->zmax);
 
                 if (i + 1 < GRID_3D) {
@@ -974,7 +1015,8 @@ static void render_3d_draw_job(void *arg) {
                     if (v_next) {
                         int *sx_next_row = (s == 0) ? surf_sx1[j] : surf_sx2[j];
                         int *sy_next_row = (s == 0) ? surf_sy1[j] : surf_sy2[j];
-                        gfb_line(sx0, sy0, sx_next_row[i+1], sy_next_row[i+1], col);
+                        int *dz_next_row = (s == 0) ? surf_dz1[j] : surf_dz2[j];
+                        gfb_line_z(sx0, sy0, dz0, sx_next_row[i+1], sy_next_row[i+1], dz_next_row[i+1], col);
                     }
                 }
                 if (j + 1 < GRID_3D) {
@@ -982,7 +1024,8 @@ static void render_3d_draw_job(void *arg) {
                     if (v_next) {
                         int *sx_next_row = (s == 0) ? surf_sx1[j+1] : surf_sx2[j+1];
                         int *sy_next_row = (s == 0) ? surf_sy1[j+1] : surf_sy2[j+1];
-                        gfb_line(sx0, sy0, sx_next_row[i], sy_next_row[i], col);
+                        int *dz_next_row = (s == 0) ? surf_dz1[j+1] : surf_dz2[j+1];
+                        gfb_line_z(sx0, sy0, dz0, sx_next_row[i], sy_next_row[i], dz_next_row[i], col);
                     }
                 }
                 
@@ -993,7 +1036,7 @@ static void render_3d_draw_job(void *arg) {
                     if (j+1 < GRID_3D && !surf_v1[j+1][i]) edge = true;
                     if (j-1 >= 0      && !surf_v1[j-1][i]) edge = true;
                     if (edge) {
-                        gfb_line(sx0, sy0, surf_sx2[j][i], surf_sy2[j][i], col);
+                        gfb_line_z(sx0, sy0, dz0, surf_sx2[j][i], surf_sy2[j][i], surf_dz2[j][i], col);
                     }
                 }
             }
@@ -1382,7 +1425,8 @@ int main(void) {
 
     fb_capacity = graph_w * graph_h;
     graph_fb = (uint32_t *)malloc(fb_capacity * sizeof(uint32_t));
-    if (!graph_fb) return 1;
+    graph_zb = (int32_t *)malloc(fb_capacity * sizeof(int32_t));
+    if (!graph_fb || !graph_zb) return 1;
 
     memset(eq_buffer, 0, sizeof(eq_buffer));
     strcpy(eq_buffer, "y = sin(x)");
@@ -1436,16 +1480,18 @@ int main(void) {
                 int req_cap = graph_w * graph_h;
                 if (req_cap > fb_capacity) {
                     if (graph_fb) free(graph_fb);
+                    if (graph_zb) free(graph_zb);
                     fb_capacity = (int)(req_cap * 1.5);
                     graph_fb = (uint32_t *)malloc(fb_capacity * sizeof(uint32_t));
+                    graph_zb = (int32_t *)malloc(fb_capacity * sizeof(int32_t));
                 }
                 
                 update_widget_layout();
                 
                 if (graph_mode == MODE_2D) {
                     apply_aspect_ratio();
-                    surface_needs_eval = true;
                 }
+                surface_needs_eval = true;
                 needs_repaint = true;
             } else if (ev.type == GUI_EVENT_CLICK) {
                 int mx = ev.arg1, my = ev.arg2;
