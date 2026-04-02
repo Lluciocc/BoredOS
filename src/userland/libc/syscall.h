@@ -76,6 +76,7 @@
 #define SYSTEM_CMD_TCP_RECV_NB 42
 #define SYSTEM_CMD_YIELD 43
 #define SYSTEM_CMD_GET_OS_INFO 49
+#define SYSTEM_CMD_PARALLEL_RUN 50
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);

@@ -255,3 +255,7 @@ int sys_get_os_info(os_info_t *info) {
     return (int)syscall5(SYS_SYSTEM, SYSTEM_CMD_GET_OS_INFO, (uint64_t)info, 0, 0, 0);
 }
 
+void sys_parallel_run(void (*fn)(void*), void **args, int count) {
+    syscall5(SYS_SYSTEM, SYSTEM_CMD_PARALLEL_RUN, (uint64_t)fn, (uint64_t)args, (uint64_t)count, 0);
+}
+

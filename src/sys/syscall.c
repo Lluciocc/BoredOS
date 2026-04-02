@@ -36,9 +36,44 @@ static inline void wrmsr(uint32_t msr, uint64_t value) {
 }
 
 extern void isr128_wrapper(void);
+extern void* kmalloc(size_t size);
+extern void kfree(void* ptr);
+
+typedef struct {
+    void (*fn)(void *);
+    void *arg;
+    uint64_t pml4_phys;
+    volatile int *completion_counter;
+} smp_user_task_t;
+
+static void smp_user_wrapper(void *arg) {
+    smp_user_task_t *task = (smp_user_task_t *)arg;
+    if (!task) return;
+
+    uint64_t old_cr3;
+    asm volatile("mov %%cr3, %0" : "=r"(old_cr3));
+    
+    // Switch to user address space if necessary
+    bool switch_cr3 = (task->pml4_phys != 0 && task->pml4_phys != old_cr3);
+    if (switch_cr3) {
+        asm volatile("mov %0, %%cr3" :: "r"(task->pml4_phys) : "memory");
+    }
+
+    if (task->fn) {
+        task->fn(task->arg);
+    }
+
+    if (switch_cr3) {
+        asm volatile("mov %0, %%cr3" :: "r"(old_cr3) : "memory");
+    }
+
+    if (task->completion_counter) {
+        __sync_fetch_and_add(task->completion_counter, -1);
+    }
+
+}
 
 void syscall_init(void) {
-    // SMP-Safe System Calls using int 0x80 (configured in idt.c)
 }
 
 static void user_window_close(Window *win) {
@@ -1279,6 +1314,36 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             if (!info) return -1;
             extern void get_os_info(os_info_t *info);
             get_os_info(info);
+            return 0;
+        } else if (cmd == SYSTEM_CMD_PARALLEL_RUN) {
+            void (*user_fn)(void*) = (void (*)(void*))arg2;
+            void **args = (void **)arg3;
+            int count = (int)arg4;
+
+            if (count <= 0) return 0;
+            if (count > 64) count = 64; 
+
+            volatile int completion_counter = count;
+            uint64_t current_pml4 = proc->pml4_phys;
+
+            smp_user_task_t tasks[64];
+            
+            for (int i = 0; i < count; i++) {
+                tasks[i].fn = user_fn;
+                tasks[i].arg = args[i];
+                tasks[i].pml4_phys = current_pml4;
+                tasks[i].completion_counter = &completion_counter;
+                
+                extern void work_queue_submit(void (*fn)(void*), void *arg);
+                work_queue_submit(smp_user_wrapper, &tasks[i]);
+            }
+
+            extern bool work_queue_drain_one(void);
+            while (completion_counter > 0) {
+                if (!work_queue_drain_one()) {
+                    asm volatile("pause");
+                }
+            }
             return 0;
         }
         return -1;
