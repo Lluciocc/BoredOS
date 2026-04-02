@@ -143,6 +143,23 @@ enum {
 typedef struct { int type; double value; } Token;
 typedef struct { int type; double value; int var_idx; int left, right; } ASTNode;
 
+enum {
+    OP_PUSH_NUM, OP_PUSH_VAR,
+    OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_POW,
+    OP_NEG,
+    OP_SIN, OP_COS, OP_TAN, OP_SQRT, OP_ABS, OP_LOG
+};
+
+typedef struct {
+    int op;
+    double val;
+    int var_idx;
+} Instruction;
+
+#define MAX_BC_SIZE 256
+static Instruction lhs_bc[MAX_BC_SIZE], rhs_bc[MAX_BC_SIZE];
+static int lhs_bc_len = 0, rhs_bc_len = 0;
+
 
 
 static bool is_alpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
@@ -329,6 +346,73 @@ static double eval_ast(ASTNode *n, int idx, double x, double y, double z) {
     return 0;
 }
 
+// =================
+// Bytecode Compiler
+// =================
+static int compile_ast(ASTNode *nodes, int idx, Instruction *bc, int *len) {
+    if (idx < 0 || *len >= MAX_BC_SIZE) return 0;
+    ASTNode *n = &nodes[idx];
+    
+    // Post-order traversal for stack machine
+    compile_ast(nodes, n->left, bc, len);
+    compile_ast(nodes, n->right, bc, len);
+    
+    Instruction *inst = &bc[(*len)++];
+    switch (n->type) {
+        case NODE_NUM: inst->op = OP_PUSH_NUM; inst->val = n->value; break;
+        case NODE_VAR: inst->op = OP_PUSH_VAR; inst->var_idx = n->var_idx; break;
+        case NODE_ADD: inst->op = OP_ADD; break;
+        case NODE_SUB: inst->op = OP_SUB; break;
+        case NODE_MUL: inst->op = OP_MUL; break;
+        case NODE_DIV: inst->op = OP_DIV; break;
+        case NODE_POW: inst->op = OP_POW; break;
+        case NODE_NEG: inst->op = OP_NEG; break;
+        case NODE_SIN: inst->op = OP_SIN; break;
+        case NODE_COS: inst->op = OP_COS; break;
+        case NODE_TAN: inst->op = OP_TAN; break;
+        case NODE_SQRT: inst->op = OP_SQRT; break;
+        case NODE_ABS: inst->op = OP_ABS; break;
+        case NODE_LOG: inst->op = OP_LOG; break;
+    }
+    return 1;
+}
+
+static double run_bc(Instruction *bc, int len, double x, double y, double z) {
+    if (len == 0) return 0;
+    double stack[32];
+    int sp = 0;
+    
+    for (int i = 0; i < len; i++) {
+        Instruction *inst = &bc[i];
+        switch (inst->op) {
+            case OP_PUSH_NUM: stack[sp++] = inst->val; break;
+            case OP_PUSH_VAR: stack[sp++] = (inst->var_idx == 0 ? x : inst->var_idx == 1 ? y : z); break;
+            case OP_ADD: { double b = stack[--sp]; double a = stack[--sp]; stack[sp++] = a + b; break; }
+            case OP_SUB: { double b = stack[--sp]; double a = stack[--sp]; stack[sp++] = a - b; break; }
+            case OP_MUL: { double b = stack[--sp]; double a = stack[--sp]; stack[sp++] = a * b; break; }
+            case OP_DIV: { 
+                double b = stack[--sp]; double a = stack[--sp]; 
+                stack[sp++] = (my_fabs(b) < 1e-15) ? 1e15 : a / b; break; 
+            }
+            case OP_POW: {
+                double b = stack[--sp]; double a = stack[--sp];
+                if (b == 2.0) stack[sp++] = a * a;
+                else if (b == 3.0) stack[sp++] = a * a * a;
+                else stack[sp++] = my_pow(a, b);
+                break;
+            }
+            case OP_NEG: stack[sp-1] = -stack[sp-1]; break;
+            case OP_SIN: stack[sp-1] = my_sin(stack[sp-1]); break;
+            case OP_COS: stack[sp-1] = my_cos(stack[sp-1]); break;
+            case OP_TAN: stack[sp-1] = my_tan(stack[sp-1]); break;
+            case OP_SQRT: stack[sp-1] = my_sqrt(stack[sp-1]); break;
+            case OP_ABS:  stack[sp-1] = my_fabs(stack[sp-1]); break;
+            case OP_LOG:  stack[sp-1] = my_ln(stack[sp-1]); break;
+        }
+    }
+    return sp > 0 ? stack[sp-1] : 0;
+}
+
 // Check which variables an AST subtree uses
 static void ast_find_vars(ASTNode *n, int idx, bool *has_x, bool *has_y, bool *has_z) {
     if (idx < 0) return;
@@ -490,11 +574,11 @@ static void project_3d(double px, double py, double pz, int *sx, int *sy) {
 // Evaluate the implicit function: f(x,y,z) = LHS - RHS
 // ====================================================
 static double eval_implicit(double x, double y, double z) {
-    return eval_ast(lhs_nodes, lhs_root, x, y, z) - eval_ast(rhs_nodes, rhs_root, x, y, z);
+    return run_bc(lhs_bc, lhs_bc_len, x, y, z) - run_bc(rhs_bc, rhs_bc_len, x, y, z);
 }
 
 static double eval_rhs_only(double x, double y, double z) {
-    return eval_ast(rhs_nodes, rhs_root, x, y, z);
+    return run_bc(rhs_bc, rhs_bc_len, x, y, z);
 }
 
 // ===========================
@@ -575,6 +659,11 @@ static void parse_equation(void) {
     }
 
     eq_valid = true;
+
+    // Compile to bytecode
+    lhs_bc_len = 0; rhs_bc_len = 0;
+    if (lhs_root >= 0) compile_ast(lhs_nodes, lhs_root, lhs_bc, &lhs_bc_len);
+    if (rhs_root >= 0) compile_ast(rhs_nodes, rhs_root, rhs_bc, &rhs_bc_len);
 }
 
 // =========
@@ -769,25 +858,91 @@ static void render_3d_axes(void) {
     project_3d(0, 0, range_3d, &ax, &ay); gfb_line(ox, oy, ax, ay, 0xFF4444FF);
 }
 
+// =======================
+// Parallel Evaluation Job
+// =======================
+typedef struct {
+    int start_j, end_j;
+    double range;
+    double step;
+} eval_job_t;
+
+static void eval_3d_explicit_job(void *arg) {
+    eval_job_t *job = (eval_job_t *)arg;
+    for (int j = job->start_j; j < job->end_j; j++) {
+        for (int i = 0; i < GRID_3D; i++) {
+            double wx = -job->range + i * job->step;
+            double wy = -job->range + j * job->step;
+            double wz = eval_rhs_only(wx, wy, 0);
+            surf_x[j][i] = wx;
+            surf_y_3d[j][i] = wy;
+            if (my_fabs(wz) > 1e10 || wz != wz) {
+                surf_z1[j][i] = 0; surf_v1[j][i] = false;
+            } else {
+                surf_z1[j][i] = wz; surf_v1[j][i] = true;
+            }
+        }
+    }
+}
+
+static void eval_3d_implicit_job(void *arg) {
+    eval_job_t *job = (eval_job_t *)arg;
+    int z_steps = 100;
+    double z_step = job->range * 2.0 / z_steps;
+
+    for (int j = job->start_j; j < job->end_j; j++) {
+        for (int i = 0; i < GRID_3D; i++) {
+            surf_v1[j][i] = surf_v2[j][i] = false;
+            double wx = -job->range + i * job->step;
+            double wy = -job->range + j * job->step;
+            surf_x[j][i] = wx;
+            surf_y_3d[j][i] = wy;
+
+            double prev_f = eval_implicit(wx, wy, -job->range);
+            int roots_found = 0;
+            for (int k = 1; k <= z_steps && roots_found < 2; k++) {
+                double zz = -job->range + k * z_step;
+                double cur_f = eval_implicit(wx, wy, zz);
+                if ((prev_f > 0) != (cur_f > 0) && my_fabs(prev_f) < 1e10 && my_fabs(cur_f) < 1e10) {
+                    double za = zz - z_step, zb = zz;
+                    for (int b = 0; b < 15; b++) {
+                        double zm = (za + zb) * 0.5;
+                        double fm = eval_implicit(wx, wy, zm);
+                        if ((prev_f > 0) != (fm > 0)) zb = zm; else { za = zm; prev_f = fm; }
+                    }
+                    if (roots_found == 0) {
+                        surf_z1[j][i] = (za + zb) * 0.5; surf_v1[j][i] = true;
+                    } else {
+                        surf_z2[j][i] = (za + zb) * 0.5; surf_v2[j][i] = true;
+                    }
+                    roots_found++;
+                }
+                prev_f = cur_f;
+            }
+        }
+    }
+}
+
 static void render_3d_explicit(void) {
     double step = range_3d * 2.0 / (GRID_3D - 1);
     double zmin = 1e30, zmax = -1e30;
 // why are you reading this lol
     if (surface_needs_eval) {
-        for (int j = 0; j < GRID_3D; j++) {
-            for (int i = 0; i < GRID_3D; i++) {
-                double wx = -range_3d + i * step;
-                double wy = -range_3d + j * step;
-                double wz = eval_rhs_only(wx, wy, 0);
-                surf_x[j][i] = wx;
-                surf_y_3d[j][i] = wy;
-                if (my_fabs(wz) > 1e10 || wz != wz) {
-                    surf_z1[j][i] = 0; surf_v1[j][i] = false;
-                } else {
-                    surf_z1[j][i] = wz; surf_v1[j][i] = true;
-                }
-            }
+        int num_chunks = 4; // Parallelize into 4 chunks (matching typical core count)
+        eval_job_t jobs[4];
+        void *job_args[4];
+        int rows_per_chunk = GRID_3D / num_chunks;
+        
+        for (int c = 0; c < num_chunks; c++) {
+            jobs[c].start_j = c * rows_per_chunk;
+            jobs[c].end_j = (c == num_chunks - 1) ? GRID_3D : (c + 1) * rows_per_chunk;
+            jobs[c].range = range_3d;
+            jobs[c].step = step;
+            job_args[c] = &jobs[c];
         }
+
+        extern void sys_parallel_run(void (*fn)(void*), void **args, int count);
+        sys_parallel_run(eval_3d_explicit_job, job_args, num_chunks);
     }
     
     // Compute min/max for coloring based on what's visible
@@ -835,37 +990,21 @@ static void render_3d_implicit(void) {
     double zmin = 1e30, zmax = -1e30;
 
     if (surface_needs_eval) {
-        for (int j = 0; j < GRID_3D; j++) {
-            for (int i = 0; i < GRID_3D; i++) {
-                surf_v1[j][i] = surf_v2[j][i] = false;
-                double wx = -range_3d + i * step;
-                double wy = -range_3d + j * step;
-                surf_x[j][i] = wx;
-                surf_y_3d[j][i] = wy;
-
-                double prev_f = eval_implicit(wx, wy, -range_3d);
-                int roots_found = 0;
-                for (int k = 1; k <= z_steps && roots_found < 2; k++) {
-                    double zz = -range_3d + k * z_step;
-                    double cur_f = eval_implicit(wx, wy, zz);
-                    if ((prev_f > 0) != (cur_f > 0) && my_fabs(prev_f) < 1e10 && my_fabs(cur_f) < 1e10) {
-                        double za = zz - z_step, zb = zz;
-                        for (int b = 0; b < 15; b++) { // High bisection iterations for precision
-                            double zm = (za + zb) * 0.5;
-                            double fm = eval_implicit(wx, wy, zm);
-                            if ((prev_f > 0) != (fm > 0)) zb = zm; else { za = zm; prev_f = fm; }
-                        }
-                        if (roots_found == 0) {
-                            surf_z1[j][i] = (za + zb) * 0.5; surf_v1[j][i] = true;
-                        } else {
-                            surf_z2[j][i] = (za + zb) * 0.5; surf_v2[j][i] = true;
-                        }
-                        roots_found++;
-                    }
-                    prev_f = cur_f;
-                }
-            }
+        int num_chunks = 4;
+        eval_job_t jobs[4];
+        void *job_args[4];
+        int rows_per_chunk = GRID_3D / num_chunks;
+        
+        for (int c = 0; c < num_chunks; c++) {
+            jobs[c].start_j = c * rows_per_chunk;
+            jobs[c].end_j = (c == num_chunks - 1) ? GRID_3D : (c + 1) * rows_per_chunk;
+            jobs[c].range = range_3d;
+            jobs[c].step = step;
+            job_args[c] = &jobs[c];
         }
+
+        extern void sys_parallel_run(void (*fn)(void*), void **args, int count);
+        sys_parallel_run(eval_3d_implicit_job, job_args, num_chunks);
     }
     
     // Compute min/max for coloring based on what's visible
