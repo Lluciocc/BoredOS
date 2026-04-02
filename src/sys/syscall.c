@@ -19,6 +19,8 @@
 #include "font_manager.h"
 #include "graphics.h"
 
+extern bool ps2_ctrl_pressed;
+
 // Read MSR
 static inline uint64_t rdmsr(uint32_t msr) {
     uint32_t low, high;
@@ -107,7 +109,7 @@ void syscall_send_mouse_up_event(Window *win, int x, int y) {
 static void user_window_key(Window *win, char c, bool pressed) {
     process_t *proc = process_get_by_ui_window(win);
     if (!proc) return;
-    gui_event_t ev = { .type = pressed ? GUI_EVENT_KEY : GUI_EVENT_KEYUP, .arg1 = (int)c };
+    gui_event_t ev = { .type = pressed ? GUI_EVENT_KEY : GUI_EVENT_KEYUP, .arg1 = (int)c, .arg3 = (int)ps2_ctrl_pressed };
     process_push_gui_event(proc, &ev);
 }
 
