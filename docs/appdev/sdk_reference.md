@@ -8,6 +8,8 @@
 BoredOS provides a custom `libc` implementation necessary for writing userland applications (`.elf` binaries). By avoiding a full-blown standard library like `glibc`, the OS ensures a minimal executable footprint tailored strictly to the existing kernel features.
 
 All headers are located in `src/userland/libc/` (standard functions) and `src/wm/` (UI and widgets).
+-   `stdlib.h`: Memory, strings, and basic I/O.
+-   `math.h`: Freestanding floating-point math library.
 -   `libui.h`: Core window and drawing API.
 -   `libwidget.h`: High-level UI components.
 
@@ -47,7 +49,60 @@ The standard library wrappers provide memory management, string manipulation, an
 
 ---
 
-## System Calls (`syscall.h`)
+## Math Library (`math.h`)
+
+BoredOS ships a freestanding floating-point math library in `libc/math.h`. It uses pure arithmetic — Taylor series, Newton-Raphson, and range-reduction — with no dependency on a host `libm` or hardware math intrinsics. It is automatically linked into every userland ELF.
+
+```c
+#include "math.h"
+```
+
+### Constants
+
+| Constant | Value | Description |
+|---|---|---|
+| `M_PI` | 3.14159… | π |
+| `M_E` | 2.71828… | Euler's number |
+| `M_LN2` | 0.69315… | Natural log of 2 |
+| `M_SQRT2` | 1.41421… | √2 |
+| `HUGE_VAL` | ~+∞ | Overflow sentinel |
+
+### Functions
+
+#### Absolute value & remainder
+*   `double fabs(double x);` — Absolute value.
+*   `double fmod(double x, double y);` — Floating-point remainder. Returns `0` when `y == 0`.
+
+#### Rounding
+*   `double floor(double x);` — Largest integer ≤ x.
+*   `double ceil(double x);` — Smallest integer ≥ x.
+
+#### Trigonometry *(arguments in radians)*
+*   `double sin(double x);` — Sine. Range-reduced to `[-π, π]` then computed via 8-term Taylor series.
+*   `double cos(double x);` — Cosine. Computed via `sin(x + π/2)`.
+*   `double tan(double x);` — Tangent. Returns sentinel `1e15` near poles.
+
+#### Exponential & logarithm
+*   `double sqrt(double x);` — Square root via Newton-Raphson (25 iterations). Returns `0` for `x ≤ 0`.
+*   `double log(double x);` — Natural logarithm (ln). Returns `-1e30` for `x ≤ 0`.
+*   `double log2(double x);` — Base-2 logarithm.
+*   `double log10(double x);` — Base-10 logarithm.
+*   `double exp(double x);` — e^x. Saturates to `1e300` for `x > 700`, `0` for `x < -700`.
+*   `double pow(double base, double exponent);` — General power. Integer exponents use fast binary exponentiation; fractional exponents use `exp(e * log(b))`.
+
+#### Hyperbolic
+*   `double sinh(double x);` — Hyperbolic sine.
+*   `double cosh(double x);` — Hyperbolic cosine.
+*   `double tanh(double x);` — Hyperbolic tangent.
+
+#### Utility
+*   `double hypot(double x, double y);` — `sqrt(x² + y²)` without intermediate overflow.
+*   `double fmin(double a, double b);` — Minimum of two values.
+*   `double fmax(double a, double b);` — Maximum of two values.
+*   `double fclamp(double x, double lo, double hi);` — Clamps `x` into `[lo, hi]`.
+
+> [!NOTE]
+> The implementation file is named `libc/libmath.c` (not `libc/math.c`) to avoid a name collision with the `math` CLI calculator app in userland. The public header is still included as `#include "math.h"`.
 
 For advanced operations, `syscall.h` provides direct wrappers into the kernel.
 
