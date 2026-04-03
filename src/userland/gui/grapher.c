@@ -24,10 +24,10 @@ extern void sys_parallel_run(void (*fn)(void*), void **args, int count);
 #define GRAPH_Y TOOLBAR_H
 #define CLIENT_H (win_h - 20)
 
-static int win_w = 500;
-static int win_h = 400;
-static int graph_w = 500;
-static int graph_h = 320;
+static int win_w = 750;
+static int win_h = 600;
+static int graph_w = 750;
+static int graph_h = 520;
 static int fb_capacity = 0;
 static uint32_t *graph_fb = NULL;
 static int32_t *graph_zb = NULL; // Z-Buffer for 3D depth testing
@@ -1319,7 +1319,7 @@ static void paint_all(void) {
     int sty = GRAPH_Y + graph_h;
     ui_draw_rect(win_graph, 0, sty, win_w, STATUSBAR_H, COLOR_STATUS_BG);
     ui_draw_string(win_graph, 10, sty + 8,
-                   graph_mode == MODE_3D ? "3D | Scroll=Zoom | RMB+Drag=Rotate" :
+                   graph_mode == MODE_3D ? "3D | CPU INTENSIVE!!" :
                                            "2D | Scroll=Zoom", COLOR_TEXT);
 
     char range_buf[64];
