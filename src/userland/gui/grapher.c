@@ -450,9 +450,10 @@ static double view_x_min = -10, view_x_max = 10;
 static double view_y_min = -6.4, view_y_max = 6.4;
 
 // 3D view
-static double rot_x = 0.5, rot_y = 0.6; // radians
+static double rot_x = 0.5, rot_y = 0.6; 
 static double range_3d = 5.0;
-static double zoom_3d = 1.0; // multiplier, 1.0 = auto-fit viewport
+static double zoom_3d = 1.0; 
+static bool filled_mode = false;
 static bool is_explicit_3d = false;
 static bool is_explicit_2d = false;
 
@@ -460,17 +461,16 @@ static bool is_explicit_2d = false;
 static bool right_dragging = false;
 static int drag_last_x = 0, drag_last_y = 0;
 
-// 3D surface data
-static double surf_x[GRID_3D][GRID_3D];
-static double surf_y_3d[GRID_3D][GRID_3D];
-static double surf_z1[GRID_3D][GRID_3D]; // Front root
-static double surf_z2[GRID_3D][GRID_3D]; // Back root
-static bool surf_v1[GRID_3D][GRID_3D];
-static bool surf_v2[GRID_3D][GRID_3D];
+#define MAX_Z_PER_POINT 4
+typedef struct {
+    double z[MAX_Z_PER_POINT];
+    float nx[MAX_Z_PER_POINT], ny[MAX_Z_PER_POINT], nz[MAX_Z_PER_POINT];
+    int sx[MAX_Z_PER_POINT], sy[MAX_Z_PER_POINT], dz[MAX_Z_PER_POINT];
+    int count;  
+} surf_point_t;
 
-// Screen-space vertex cache for parallel rasterization
-static int surf_sx1[GRID_3D][GRID_3D], surf_sy1[GRID_3D][GRID_3D], surf_dz1[GRID_3D][GRID_3D];
-static int surf_sx2[GRID_3D][GRID_3D], surf_sy2[GRID_3D][GRID_3D], surf_dz2[GRID_3D][GRID_3D];
+static double surf_x[GRID_3D][GRID_3D], surf_y_3d[GRID_3D][GRID_3D];
+static surf_point_t surf[GRID_3D][GRID_3D];
 
 static bool surface_needs_eval = true;
 
@@ -480,6 +480,7 @@ static double rot_cx, rot_sx, rot_cy, rot_sy;
 // Widgets
 static widget_textbox_t tb_equation;
 static widget_button_t btn_plot;
+static widget_button_t btn_mode;
 static widget_button_t btn_range_minus;
 static widget_button_t btn_range_plus;
 
@@ -565,6 +566,39 @@ static void gfb_line_z(int x0, int y0, int z0, int x1, int y1, int z1, uint32_t 
     }
 }
 
+static void gfb_triangle_z(int x0, int y0, int z0, int x1, int y1, int z1, int x2, int y2, int z2, uint32_t c) {
+    if (y1 < y0) { int t; t=x0; x0=x1; x1=t; t=y0; y0=y1; y1=t; t=z0; z0=z1; z1=t; }
+    if (y2 < y0) { int t; t=x0; x0=x2; x2=t; t=y0; y0=y2; y2=t; t=z0; z0=z2; z2=t; }
+    if (y2 < y1) { int t; t=x1; x1=x2; x2=t; t=y1; y1=y2; y2=t; t=z1; z1=z2; z2=t; }
+
+    if (y0 == y2) return;
+
+    for (int y = y0; y <= y2; y++) {
+        if (y < 0 || y >= graph_h) continue;
+        bool second_half = y > y1 || y1 == y0;
+        int h1 = second_half ? (y2 - y1) : (y1 - y0);
+        int h2 = y2 - y0;
+        if (h1 == 0) h1 = 1;
+        if (h2 == 0) h2 = 1;
+
+        float alpha = (float)(y - y0) / h2;
+        float beta  = (float)(y - (second_half ? y1 : y0)) / h1;
+
+        int ax = x0 + (int)((x2 - x0) * alpha);
+        int bx = second_half ? x1 + (int)((x2 - x1) * beta) : x0 + (int)((x1 - x0) * beta);
+        int az = z0 + (int)((z2 - z0) * alpha);
+        int bz = second_half ? z1 + (int)((z2 - z1) * beta) : z0 + (int)((z1 - z0) * beta);
+
+        if (ax > bx) { int t; t=ax; ax=bx; bx=t; t=az; az=bz; bz=t; }
+        for (int x = ax; x <= bx; x++) {
+            if (x < 0 || x >= graph_w) continue;
+            float phi = (ax == bx) ? 1.0f : (float)(x - ax) / (bx - ax);
+            int cz = az + (int)((bz - az) * phi);
+            gfb_pixel_z(x, y, cz, c);
+        }
+    }
+}
+
 static uint32_t color_by_height(double z, double zmin, double zmax) {
     if (zmax <= zmin) return COLOR_CURVE;
     double t = (z - zmin) / (zmax - zmin);
@@ -576,6 +610,30 @@ static uint32_t color_by_height(double z, double zmin, double zmax) {
     else if (t < 0.75) { double s=(t-0.5)/0.25; r=(int)(s*255); g=255; b=0; }
     else { double s=(t-0.75)/0.25; r=255; g=(int)((1-s)*255); b=0; }
     return 0xFF000000 | (r<<16) | (g<<8) | b;
+}
+
+static uint32_t apply_shading(uint32_t color, double nx, double ny, double nz) {
+    double len = my_sqrt(nx*nx + ny*ny + nz*nz);
+    if (len > 1e-9) { nx /= len; ny /= len; nz /= len; }
+    else { nx = 0; ny = 1; nz = 0; }
+
+    double lx = 0.577, ly = 0.707, lz = 0.408;
+    double dot = nx * lx + ny * ly + nz * lz;
+    if (dot < 0) dot = -dot * 0.2; 
+    
+    double intensity = 0.3 + 0.7 * dot;
+    if (intensity > 1.0) intensity = 1.0;
+    
+    int r = (color >> 16) & 0xFF;
+    int g = (color >> 8) & 0xFF;
+    int b = color & 0xFF;
+    
+    r = (int)(r * intensity);
+    g = (int)(g * intensity);
+    b = (int)(b * intensity);
+    if (r > 255) r = 255; if (g > 255) g = 255; if (b > 255) b = 255;
+    
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
 }
 
 // ========================
@@ -920,69 +978,118 @@ static void eval_3d_explicit_job(void *arg) {
             double wz = eval_rhs_only(wx, wy, 0);
             surf_x[j][i] = wx;
             surf_y_3d[j][i] = wy;
+            surf[j][i].count = 0;
+            
             if (my_fabs(wz) > 1e10 || wz != wz) {
-                surf_z1[j][i] = 0; surf_v1[j][i] = false;
-            } else {
-                surf_z1[j][i] = wz; surf_v1[j][i] = true;
+                // Invalid value
+                return;
             }
+            
+            // Valid explicit surface point
+            surf[j][i].z[0] = wz;
+            
+            // Compute normal for explicit surface z = f(x,y)
+            // Normal = (-df/dx, -df/dy, 1) normalized
+            double eps = 0.001;
+            double dfx = 0.5 * (eval_rhs_only(wx+eps, wy, 0) - eval_rhs_only(wx-eps, wy, 0)) / eps;
+            double dfy = 0.5 * (eval_rhs_only(wx, wy+eps, 0) - eval_rhs_only(wx, wy-eps, 0)) / eps;
+            
+            double nx = -dfx;
+            double ny = -dfy;
+            double nz = 1.0;
+            double len = my_sqrt(nx*nx + ny*ny + nz*nz);
+            if (len > 1e-9) { nx /= len; ny /= len; nz /= len; }
+            else { nx = 0; ny = 0; nz = 1; }
+            
+            surf[j][i].nx[0] = (float)nx;
+            surf[j][i].ny[0] = (float)ny;
+            surf[j][i].nz[0] = (float)nz;
+            surf[j][i].count = 1;
         }
     }
 }
 
 static void eval_3d_implicit_job(void *arg) {
     eval_job_t *job = (eval_job_t *)arg;
-    int z_steps = 100;
+    int z_steps = 512;  
     double z_step = job->range * 2.0 / z_steps;
 
     for (int j = job->start_j; j < job->end_j; j++) {
         for (int i = 0; i < GRID_3D; i++) {
-            surf_v1[j][i] = surf_v2[j][i] = false;
             double wx = -job->range + i * job->step;
             double wy = -job->range + j * job->step;
             surf_x[j][i] = wx;
             surf_y_3d[j][i] = wy;
+            surf[j][i].count = 0;
 
             double prev_f = eval_implicit(wx, wy, -job->range);
+            double found_roots[MAX_Z_PER_POINT];
             int roots_found = 0;
-            for (int k = 1; k <= z_steps && roots_found < 2; k++) {
+            
+            for (int k = 1; k <= z_steps && roots_found < MAX_Z_PER_POINT; k++) {
                 double zz = -job->range + k * z_step;
                 double cur_f = eval_implicit(wx, wy, zz);
-                if ((prev_f > 0) != (cur_f > 0) && my_fabs(prev_f) < 1e10 && my_fabs(cur_f) < 1e10) {
-                    double za = zz - z_step, zb = zz;
-                    for (int b = 0; b < 15; b++) {
-                        double zm = (za + zb) * 0.5;
-                        double fm = eval_implicit(wx, wy, zm);
-                        if ((prev_f > 0) != (fm > 0)) zb = zm; else { za = zm; prev_f = fm; }
-                    }
-                    if (roots_found == 0) {
-                        surf_z1[j][i] = (za + zb) * 0.5; surf_v1[j][i] = true;
-                    } else {
-                        surf_z2[j][i] = (za + zb) * 0.5; surf_v2[j][i] = true;
-                        // Simple sort: ensure z1 < z2 (in screen space d/zd will handle it, but keep it stable here)
-                        if (surf_z1[j][i] > surf_z2[j][i]) {
-                            double tmp = surf_z1[j][i];
-                            surf_z1[j][i] = surf_z2[j][i];
-                            surf_z2[j][i] = tmp;
+                
+                if ((prev_f > 0) != (cur_f > 0)) {
+                    if (my_fabs(prev_f) < 1e10 && my_fabs(cur_f) < 1e10) {
+                        double za = zz - z_step, zb = zz;
+                        double fa = prev_f, fb = cur_f;
+                        
+                        for (int b = 0; b < 15; b++) {
+                            double zm = (za + zb) * 0.5;
+                            double fm = eval_implicit(wx, wy, zm);
+                            if ((fa > 0) != (fm > 0)) {
+                                zb = zm;
+                                fb = fm;
+                            } else {
+                                za = zm;
+                                fa = fm;
+                            }
                         }
+                        found_roots[roots_found++] = (za + zb) * 0.5;
                     }
-                    roots_found++;
                 }
                 prev_f = cur_f;
             }
+            
+            for (int r = 0; r < roots_found - 1; r++) {
+                for (int s = r + 1; s < roots_found; s++) {
+                    if (found_roots[r] > found_roots[s]) {
+                        double tmp = found_roots[r];
+                        found_roots[r] = found_roots[s];
+                        found_roots[s] = tmp;
+                    }
+                }
+            }
+            
+            for (int r = 0; r < roots_found; r++) {
+                surf[j][i].z[r] = found_roots[r];
+                
+                double wz = found_roots[r];
+                double eps = 0.001;
+                double nx = eval_implicit(wx+eps, wy, wz) - eval_implicit(wx-eps, wy, wz);
+                double ny = eval_implicit(wx, wy+eps, wz) - eval_implicit(wx, wy-eps, wz);
+                double nz = eval_implicit(wx, wy, wz+eps) - eval_implicit(wx, wy, wz-eps);
+                double d = my_sqrt(nx*nx + ny*ny + nz*nz);
+                if (d > 1e-12) { nx /= d; ny /= d; nz /= d; }
+                else { nx = 0; ny = 1; nz = 0; } 
+                
+                surf[j][i].nx[r] = (float)nx;
+                surf[j][i].ny[r] = (float)ny;
+                surf[j][i].nz[r] = (float)nz;
+            }
+            surf[j][i].count = roots_found;
         }
     }
 }
 
-// Parallel Projection Job
 static void eval_3d_project_job(void *arg) {
     eval_job_t *job = (eval_job_t *)arg;
     for (int j = job->start_j; j < job->end_j; j++) {
         for (int i = 0; i < GRID_3D; i++) {
-            if (surf_v1[j][i]) {
-                project_3d(surf_x[j][i], surf_z1[j][i] * job->z_scale, surf_y_3d[j][i], &surf_sx1[j][i], &surf_sy1[j][i], &surf_dz1[j][i]);
-            }
-            if (surf_v2[j][i]) {
-                project_3d(surf_x[j][i], surf_z2[j][i] * job->z_scale, surf_y_3d[j][i], &surf_sx2[j][i], &surf_sy2[j][i], &surf_dz2[j][i]);
+            for (int s = 0; s < surf[j][i].count; s++) {
+                project_3d(surf_x[j][i], surf[j][i].z[s] * job->z_scale, surf_y_3d[j][i], 
+                           &surf[j][i].sx[s], &surf[j][i].sy[s], &surf[j][i].dz[s]);
             }
         }
     }
@@ -993,50 +1100,101 @@ typedef struct {
     double zmin, zmax;
 } draw_job_t;
 
-// Parallel Draw Job
 static void render_3d_draw_job(void *arg) {
     draw_job_t *job = (draw_job_t *)arg;
     for (int j = job->start_j; j < job->end_j; j++) {
         for (int i = 0; i < GRID_3D; i++) {
-            for (int s = 0; s < 2; s++) {
-                bool *v = (s == 0) ? surf_v1[j] : surf_v2[j];
-                int *sx_row = (s == 0) ? surf_sx1[j] : surf_sx2[j];
-                int *sy_row = (s == 0) ? surf_sy1[j] : surf_sy2[j];
-                int *dz_row = (s == 0) ? surf_dz1[j] : surf_dz2[j];
-                double *z_row = (s == 0) ? surf_z1[j] : surf_z2[j];
-                
-                if (!v[i]) continue;
-                
-                int sx0 = sx_row[i], sy0 = sy_row[i], dz0 = dz_row[i];
-                uint32_t col = color_by_height(z_row[i], job->zmin, job->zmax);
+            if (surf[j][i].count == 0) continue;
 
-                if (i + 1 < GRID_3D) {
-                    bool v_next = (s == 0) ? surf_v1[j][i+1] : surf_v2[j][i+1];
-                    if (v_next) {
-                        int *sx_next_row = (s == 0) ? surf_sx1[j] : surf_sx2[j];
-                        int *sy_next_row = (s == 0) ? surf_sy1[j] : surf_sy2[j];
-                        int *dz_next_row = (s == 0) ? surf_dz1[j] : surf_dz2[j];
-                        gfb_line_z(sx0, sy0, dz0, sx_next_row[i+1], sy_next_row[i+1], dz_next_row[i+1], col);
+            // 1. Regular Surface Rendering
+            for (int s = 0; s < surf[j][i].count; s++) {
+                int sx0 = surf[j][i].sx[s], sy0 = surf[j][i].sy[s], dz0 = surf[j][i].dz[s];
+                uint32_t col = color_by_height(surf[j][i].z[s], job->zmin, job->zmax);
+
+                if (filled_mode) {
+                    bool v_tr = (i+1 < GRID_3D) && (s < surf[j][i+1].count);
+                    bool v_bl = (j+1 < GRID_3D) && (s < surf[j+1][i].count);
+                    bool v_br = (i+1 < GRID_3D && j+1 < GRID_3D) && (s < surf[j+1][i+1].count);
+
+                    if (v_tr && v_bl && v_br) {
+                        int sx_tr = surf[j][i+1].sx[s], sy_tr = surf[j][i+1].sy[s], dz_tr = surf[j][i+1].dz[s];
+                        int sx_bl = surf[j+1][i].sx[s], sy_bl = surf[j+1][i].sy[s], dz_bl = surf[j+1][i].dz[s];
+                        int sx_br = surf[j+1][i+1].sx[s], sy_br = surf[j+1][i+1].sy[s], dz_br = surf[j+1][i+1].dz[s];
+
+                        float avg_nx = surf[j][i].nx[s] + surf[j][i+1].nx[s] + surf[j+1][i].nx[s] + surf[j+1][i+1].nx[s];
+                        float avg_ny = surf[j][i].ny[s] + surf[j][i+1].ny[s] + surf[j+1][i].ny[s] + surf[j+1][i+1].ny[s];
+                        float avg_nz = surf[j][i].nz[s] + surf[j][i+1].nz[s] + surf[j+1][i].nz[s] + surf[j+1][i+1].nz[s];
+                        avg_nx *= 0.25f; avg_ny *= 0.25f; avg_nz *= 0.25f;
+                        
+                        float nlen = (float)my_sqrt(avg_nx*avg_nx + avg_ny*avg_ny + avg_nz*avg_nz);
+                        if (nlen > 1e-9) { avg_nx /= nlen; avg_ny /= nlen; avg_nz /= nlen; }
+                        else { avg_nx = 0; avg_ny = 0; avg_nz = 1; }
+                        
+                        uint32_t scol = apply_shading(col, avg_nx, avg_ny, avg_nz);
+                        gfb_triangle_z(sx0, sy0, dz0, sx_tr, sy_tr, dz_tr, sx_bl, sy_bl, dz_bl, scol);
+                        gfb_triangle_z(sx_tr, sy_tr, dz_tr, sx_br, sy_br, dz_br, sx_bl, sy_bl, dz_bl, scol);
+                    }
+                } else {
+                    if (i + 1 < GRID_3D && s < surf[j][i+1].count) {
+                        gfb_line_z(sx0, sy0, dz0, surf[j][i+1].sx[s], surf[j][i+1].sy[s], surf[j][i+1].dz[s], col);
+                    }
+                    if (j + 1 < GRID_3D && s < surf[j+1][i].count) {
+                        gfb_line_z(sx0, sy0, dz0, surf[j+1][i].sx[s], surf[j+1][i].sy[s], surf[j+1][i].dz[s], col);
                     }
                 }
-                if (j + 1 < GRID_3D) {
-                    bool v_next = (s == 0) ? surf_v1[j+1][i] : surf_v2[j+1][i];
-                    if (v_next) {
-                        int *sx_next_row = (s == 0) ? surf_sx1[j+1] : surf_sx2[j+1];
-                        int *sy_next_row = (s == 0) ? surf_sy1[j+1] : surf_sy2[j+1];
-                        int *dz_next_row = (s == 0) ? surf_dz1[j+1] : surf_dz2[j+1];
-                        gfb_line_z(sx0, sy0, dz0, sx_next_row[i], sy_next_row[i], dz_next_row[i], col);
-                    }
-                }
+            }
+
+            if (surf[j][i].count > 1) {
+                int s_last = surf[j][i].count - 1;
+                int sx0 = surf[j][i].sx[0], sy0 = surf[j][i].sy[0], dz0 = surf[j][i].dz[0];
+                int sx1 = surf[j][i].sx[s_last], sy1 = surf[j][i].sy[s_last], dz1 = surf[j][i].dz[s_last];
                 
-                if (s == 0 && surf_v1[j][i] && surf_v2[j][i]) {
-                    bool edge = false;
-                    if (i+1 < GRID_3D && !surf_v1[j][i+1]) edge = true;
-                    if (i-1 >= 0      && !surf_v1[j][i-1]) edge = true;
-                    if (j+1 < GRID_3D && !surf_v1[j+1][i]) edge = true;
-                    if (j-1 >= 0      && !surf_v1[j-1][i]) edge = true;
-                    if (edge) {
-                        gfb_line_z(sx0, sy0, dz0, surf_sx2[j][i], surf_sy2[j][i], surf_dz2[j][i], col);
+                bool right_empty = (i + 1 >= GRID_3D || surf[j][i+1].count == 0);
+                bool left_empty = (i - 1 < 0 || surf[j][i-1].count == 0);
+                bool bottom_empty = (j + 1 >= GRID_3D || surf[j+1][i].count == 0);
+                bool top_empty = (j - 1 < 0 || surf[j-1][i].count == 0);
+                
+                bool is_edge = (right_empty || left_empty || bottom_empty || top_empty);
+
+                if (is_edge) {
+                    if (!filled_mode) {
+                        uint32_t col = color_by_height(surf[j][i].z[0], job->zmin, job->zmax);
+                        gfb_line_z(sx0, sy0, dz0, sx1, sy1, dz1, col);
+                    } else {
+                        double mid_z = (surf[j][i].z[0] + surf[j][i].z[s_last]) * 0.5;
+                        double eps = 0.001;
+                        double wx = surf_x[j][i], wy = surf_y_3d[j][i];
+                        double gnx = eval_implicit(wx + eps, wy, mid_z) - eval_implicit(wx - eps, wy, mid_z);
+                        double gny = eval_implicit(wx, wy + eps, mid_z) - eval_implicit(wx, wy - eps, mid_z);
+                        double dmag = my_sqrt(gnx*gnx + gny*gny);
+                        if (dmag > 1e-12) { gnx /= dmag; gny /= dmag; }
+                        else { gnx = 0; gny = 1; }
+                        
+                        uint32_t wcol = apply_shading(color_by_height(mid_z, job->zmin, job->zmax), gnx, gny, 0);
+
+                        if (j + 1 < GRID_3D && surf[j+1][i].count > 1) {
+                            bool segment_is_right_edge = right_empty && (i + 1 >= GRID_3D || surf[j+1][i+1].count == 0);
+                            bool segment_is_left_edge = left_empty && (i - 1 < 0 || surf[j+1][i-1].count == 0);
+                            
+                            if (segment_is_right_edge || segment_is_left_edge) {
+                                int ns0 = surf[j+1][i].sx[0], ny0 = surf[j+1][i].sy[0], nz0 = surf[j+1][i].dz[0];
+                                int ns1 = surf[j+1][i].sx[surf[j+1][i].count-1], ny1 = surf[j+1][i].sy[surf[j+1][i].count-1], nz1 = surf[j+1][i].dz[surf[j+1][i].count-1];
+                                gfb_triangle_z(sx0, sy0, dz0, sx1, sy1, dz1, ns0, ny0, nz0, wcol);
+                                gfb_triangle_z(sx1, sy1, dz1, ns1, ny1, nz1, ns0, ny0, nz0, wcol);
+                            }
+                        }
+                        
+                        if (i + 1 < GRID_3D && surf[j][i+1].count > 1) {
+                            bool segment_is_bottom_edge = bottom_empty && (j + 1 >= GRID_3D || surf[j+1][i+1].count == 0);
+                            bool segment_is_top_edge = top_empty && (j - 1 < 0 || surf[j-1][i+1].count == 0);
+                            
+                            if (segment_is_bottom_edge || segment_is_top_edge) {
+                                int ns0 = surf[j][i+1].sx[0], ny0 = surf[j][i+1].sy[0], nz0 = surf[j][i+1].dz[0];
+                                int ns1 = surf[j][i+1].sx[surf[j][i+1].count-1], ny1 = surf[j][i+1].sy[surf[j][i+1].count-1], nz1 = surf[j][i+1].dz[surf[j][i+1].count-1];
+                                gfb_triangle_z(sx0, sy0, dz0, sx1, sy1, dz1, ns0, ny0, nz0, wcol);
+                                gfb_triangle_z(sx1, sy1, dz1, ns1, ny1, nz1, ns0, ny0, nz0, wcol);
+                            }
+                        }
                     }
                 }
             }
@@ -1049,7 +1207,11 @@ static void render_3d_explicit(void) {
     double zmin = 1e30, zmax = -1e30;
 
     if (surface_needs_eval) {
-        for (int j = 0; j < GRID_3D; j++) { for (int i = 0; i < GRID_3D; i++) { surf_v1[j][i] = false; surf_v2[j][i] = false; } }
+        for (int j = 0; j < GRID_3D; j++) { 
+            for (int i = 0; i < GRID_3D; i++) { 
+                surf[j][i].count = 0;
+            } 
+        }
 
         int num_chunks = 4;
         eval_job_t jobs[4];
@@ -1070,9 +1232,9 @@ static void render_3d_explicit(void) {
     // Compute min/max for coloring
     for (int j = 0; j < GRID_3D; j++) {
         for (int i = 0; i < GRID_3D; i++) {
-            if (surf_v1[j][i]) {
-                if (surf_z1[j][i] < zmin) zmin = surf_z1[j][i];
-                if (surf_z1[j][i] > zmax) zmax = surf_z1[j][i];
+            for (int s = 0; s < surf[j][i].count; s++) {
+                if (surf[j][i].z[s] < zmin) zmin = surf[j][i].z[s];
+                if (surf[j][i].z[s] > zmax) zmax = surf[j][i].z[s];
             }
         }
     }
@@ -1099,7 +1261,6 @@ static void render_3d_explicit(void) {
         sys_parallel_run(eval_3d_project_job, job_args, num_chunks);
     }
     
-    // Pass 3: Parallel Drawing
     {
         int num_chunks = 4;
         draw_job_t jobs[4];
@@ -1125,7 +1286,11 @@ static void render_3d_implicit(void) {
         int num_chunks = 4;
         eval_job_t jobs[4];
         void *job_args[4];
-        for (int j = 0; j < GRID_3D; j++) { for (int i = 0; i < GRID_3D; i++) { surf_v1[j][i] = false; surf_v2[j][i] = false; } }
+        for (int j = 0; j < GRID_3D; j++) { 
+            for (int i = 0; i < GRID_3D; i++) { 
+                surf[j][i].count = 0;
+            } 
+        }
 
         int rows_per_chunk = GRID_3D / num_chunks;
         
@@ -1140,7 +1305,6 @@ static void render_3d_implicit(void) {
         sys_parallel_run(eval_3d_implicit_job, job_args, num_chunks);
     }
     
-    // Pass 2: Parallel Projection
     {
         int num_chunks = 4;
         eval_job_t jobs[4];
@@ -1157,21 +1321,15 @@ static void render_3d_implicit(void) {
         sys_parallel_run(eval_3d_project_job, job_args, num_chunks);
     }
 
-    // Compute min/max for coloring based on what's visible
     for (int j = 0; j < GRID_3D; j++) {
         for (int i = 0; i < GRID_3D; i++) {
-            if (surf_v1[j][i]) {
-                if (surf_z1[j][i] < zmin) zmin = surf_z1[j][i];
-                if (surf_z1[j][i] > zmax) zmax = surf_z1[j][i];
-            }
-            if (surf_v2[j][i]) {
-                if (surf_z2[j][i] < zmin) zmin = surf_z2[j][i];
-                if (surf_z2[j][i] > zmax) zmax = surf_z2[j][i];
+            for (int s = 0; s < surf[j][i].count; s++) {
+                if (surf[j][i].z[s] < zmin) zmin = surf[j][i].z[s];
+                if (surf[j][i].z[s] > zmax) zmax = surf[j][i].z[s];
             }
         }
     }
     
-    // Pass 3: Parallel Drawing
     {
         int num_chunks = 4;
         draw_job_t jobs[4];
@@ -1232,10 +1390,9 @@ static void render_graph(void) {
     }
 
     if (graph_mode == MODE_2D) {
-        if (is_explicit_2d) render_2d_explicit(); // auto-fits Y before grid
+        if (is_explicit_2d) render_2d_explicit(); 
         render_2d_grid();
         if (is_explicit_2d) {
-            // Re-draw curve on top of grid
             int prev_sx = -1, prev_sy = -1;
             bool prev_valid = false;
             for (int px = 0; px < graph_w; px++) {
@@ -1256,12 +1413,10 @@ static void render_graph(void) {
 
     ui_draw_image(win_graph, 0, GRAPH_Y, graph_w, graph_h, graph_fb);
 
-    // Post-image overlay (labels)
     if (graph_mode == MODE_2D) {
         double x_step = get_nice_step(view_x_max - view_x_min, 8);
         double y_step = get_nice_step(view_y_max - view_y_min, 6);
 
-        // Labels need coordinate mapping to the window
         int axis_y = screen_y_2d(0);
         if (axis_y < 10) axis_y = 10;
         if (axis_y > graph_h - 20) axis_y = graph_h - 20;
@@ -1311,6 +1466,7 @@ static void paint_all(void) {
     ui_draw_rect(win_graph, 0, 0, win_w, TOOLBAR_H, COLOR_TOOLBAR_BG);
     widget_textbox_draw(&wctx, &tb_equation);
     widget_button_draw(&wctx, &btn_plot);
+    widget_button_draw(&wctx, &btn_mode);
     ui_draw_rounded_rect_filled(win_graph, win_w - 80, 4, 70, 22, 4, 0xFF3A3A5A);
     ui_draw_string(win_graph, win_w - 72, 8, "Presets", COLOR_DARK_TEXT);
     render_graph();
@@ -1338,7 +1494,6 @@ static void paint_all(void) {
         widget_button_draw(&wctx, &btn_range_plus);
     }
 
-    // Presets dropdown overlay
     if (presets_open) {
         int px = win_w - 150, py = TOOLBAR_H;
         ui_draw_rounded_rect_filled(win_graph, px, py, 140, NUM_PRESETS * 20 + 4, 4, COLOR_DARK_PANEL);
@@ -1357,9 +1512,8 @@ static void paint_all(void) {
 static void reset_view(void) {
     if (graph_mode == MODE_2D) {
         view_x_min = -10.0; view_x_max = 10.0;
-        // Centralize 0,0
         view_y_min = -6.4; view_y_max = 6.4;
-        apply_aspect_ratio(); // This will ensure 0,0 is at the center correctly
+        apply_aspect_ratio();
     } else {
         zoom_3d = 1.0;
         rot_x = -0.5;
@@ -1400,15 +1554,15 @@ static void handle_scroll(int dz) {
         if (dz > 0) zoom_2d(0.85);
         else zoom_2d(1.18);
     } else {
-        // Scroll only alters zoom factor, not computational bounds
         if (dz > 0) zoom_3d *= 1.15;
         else zoom_3d *= 0.87;
     }
 }
 
 static void update_widget_layout(void) {
-    tb_equation.w = win_w - 160;
-    btn_plot.x = win_w - 140;
+    tb_equation.w = win_w - 220;
+    btn_plot.x = win_w - 200;
+    widget_button_init(&btn_mode, win_w - 145, 4, 60, 22, filled_mode ? "Wire" : "Filled");
     
     int sty = win_h - STATUSBAR_H - 20;
     widget_button_init(&btn_range_minus, win_w - 95, sty + 4, 30, 22, "-");
@@ -1465,9 +1619,13 @@ int main(void) {
                         eq_len = strlen(eq_buffer);
                         needs_repaint = true;
                     }
-                } else if ((c == 'r' || c == 'R') && ev.arg3 == 1) { // reset view with ctrl + R
+                } else if ((c == 'r' || c == 'R') && ev.arg3 == 1) { 
                     reset_view();
                     surface_needs_eval = true;
+                    needs_repaint = true;
+                } else if ((c == 'f' || c == 'F')) {
+                    filled_mode = !filled_mode;
+                    update_widget_layout();
                     needs_repaint = true;
                 }
             } else if (ev.type == GUI_EVENT_RESIZE) {
@@ -1526,6 +1684,13 @@ int main(void) {
                     continue;
                 }
                 
+                if (widget_button_handle_mouse(&btn_mode, mx, my, false, true, NULL)) {
+                    filled_mode = !filled_mode;
+                    update_widget_layout();
+                    needs_repaint = true;
+                    continue;
+                }
+                
                 if (graph_mode == MODE_3D) {
                     if (widget_button_handle_mouse(&btn_range_plus, mx, my, false, true, NULL)) {
                         range_3d *= 1.25;
@@ -1547,6 +1712,7 @@ int main(void) {
             } else if (ev.type == GUI_EVENT_MOUSE_DOWN) {
                 int mx = ev.arg1, my = ev.arg2;
                 widget_button_handle_mouse(&btn_plot, mx, my, true, false, NULL);
+                widget_button_handle_mouse(&btn_mode, mx, my, true, false, NULL);
                 if (graph_mode == MODE_3D) {
                     widget_button_handle_mouse(&btn_range_plus, mx, my, true, false, NULL);
                     widget_button_handle_mouse(&btn_range_minus, mx, my, true, false, NULL);
@@ -1556,6 +1722,7 @@ int main(void) {
             } else if (ev.type == GUI_EVENT_MOUSE_UP) {
                 int mx = ev.arg1, my = ev.arg2;
                 widget_button_handle_mouse(&btn_plot, mx, my, false, false, NULL);
+                widget_button_handle_mouse(&btn_mode, mx, my, false, false, NULL);
                 if (graph_mode == MODE_3D) {
                     widget_button_handle_mouse(&btn_range_plus, mx, my, false, false, NULL);
                     widget_button_handle_mouse(&btn_range_minus, mx, my, false, false, NULL);
