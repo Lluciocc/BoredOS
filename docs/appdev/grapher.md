@@ -19,14 +19,14 @@ Grapher is a built-in GUI application that lets you type any mathematical equati
 | **2D Explicit** | Plot `y = f(x)` curves |
 | **2D Implicit** | Plot any `f(x, y) = g(x, y)` contour via marching squares |
 | **3D Explicit** | Plot `z = f(x, y)` surfaces |
-| **3D Implicit** | Plot `f(x, y, z) = c` surfaces via Z-axis root finding (has rendering issues in filled mode)|
+| **3D Implicit** | Plot any `f(x, y, z) = c` surface  |
 | **Rendering modes** | Wireframe and filled polygon modes |
 | **Height coloring** | Surfaces are colored by a blue→green→yellow→red gradient based on Z height |
 | **Phong-style shading** | Filled mode computes per-face normals and applies diffuse + ambient lighting |
 | **Parallel rendering** | Evaluation and projection are distributed across 4 worker threads via `sys_parallel_run` |
 | **Preset equations** | 7 built-in presets accessible from the toolbar |
 | **Auto-fit** | 2D view auto-fits the Y axis to the plotted curve on first plot |
-| **Z-buffer** | All 3D drawing uses a per-pixel depth buffer with atomic CAS for thread safety |
+| **Atomic Color-Depth Buffer** | All 3D drawing uses a 64-bit atomic buffer to prevent depth/color race conditions |
 
 ---
 
@@ -227,15 +227,31 @@ The resulting bytecode is then executed by `run_bc` for every sample point.
 
 #### 3D Rendering
 
-The 3D pipeline is a three-pass system, each parallelised across 4 threads:
+The 3D pipeline uses a multi-pass system parallelized across worker threads:
 
 | Pass | Function | Description |
 |---|---|---|
-| 1 | **Evaluation** | Samples the surface at every grid point in a `GRID_3D × GRID_3D` grid |
-| 2 | **Projection** | Projects 3D world coordinates to 2D screen coordinates with perspective |
-| 3 | **Drawing** | Rasterizes wireframe lines or filled triangles with Z-buffering |
+| 1 | **Evaluation** | Samples the surface at grid points. For implicit surfaces, this uses **tri-axis marching**. |
+| 2 | **Projection** | Projects 3D world coordinates to 2D screen coordinates with perspective. |
+| 3 | **Drawing** | Rasterizes wireframe lines or filled triangles with Z-buffering. |
 
-For **implicit surfaces**, Pass 1 additionally marches along the Z axis at 512 steps per column using bisection (15 iterations) to find up to `MAX_Z_PER_POINT = 4` roots.
+##### Tri-Axis Marching (Implicit Surfaces)
+
+Unlike explicit surfaces that only need one evaluation per grid point, implicit surfaces require finding roots of $f(x, y, z) = 0$. To ensure complete surface connectivity and eliminate "cracks," Grapher marches along all three primary axes:
+
+1.  **X-Axis Pass**: For every $(y, z)$ pair, march along $x$.
+2.  **Y-Axis Pass**: For every $(x, z)$ pair, march along $y$.
+3.  **Z-Axis Pass**: For every $(x, y)$ pair, march along $z$.
+
+Each pass uses a multi-stage root finder (170 linear steps followed by 15 bisection iterations). By sampling along all three axes, the engine "catches" surfaces that are nearly parallel to any specific marching direction, ensuring that vertical walls and steep gradients are rendered solidly from any viewing angle.
+
+##### Atomic Color-Depth Buffer
+
+To prevent "z-fighting" and race conditions between parallel threads, Grapher uses a 64-bit atomic buffer (`graph_czb`). Each 64-bit word stores:
+-   **Upper 32 bits**: Z-depth (integer).
+-   **Lower 32 bits**: Pixel color (0xAARRGGBB).
+
+A single `__atomic_compare_exchange_n` operation ensures that a pixel's color and depth are updated together only if the new depth is closer to the camera than the existing one.
 
 Surface normals are estimated using central finite differences of the implicit function.
 
@@ -283,7 +299,7 @@ These can be changed at the top of `grapher.c` to tune behaviour:
 | Constant | Default | Effect |
 |---|---|---|
 | `ROTATE` | `1` | Set to `0` to disable auto-rotation in 3D mode |
-| `GRID_3D` | `256` | Grid resolution for 3D sampling. Higher = more detail, much slower |
+| `GRID_3D` | `41` | Grid resolution for 3D sampling. Higher = more detail, much slower |
 
 > [!WARNING]
 > Setting `GRID_3D` too high (e.g. 9000) will exhaust available memory. The `surf` grid and `surf_x`/`surf_y_3d` arrays are statically allocated at compile time: memory usage grows as **O(GRID_3D²)**. Values above ~512 are not recommended.
@@ -324,7 +340,6 @@ The built-in presets are shown in the dropdown when you click **Presets**:
 
 - **No parameter slider** — equations are static; there is no way to animate a parameter.
 - **No multiple equations** — only one equation can be graphed at a time.
-- **Implicit surface gaps** — very thin or high-frequency implicit surfaces may have small gaps due to the fixed Z marching step count (512 steps per column).
-- **3D implicit performance** — implicit surfaces require significantly more work than explicit ones; evaluating `x^2+y^2+z^2=25` at `GRID_3D=256` takes a noticeable fraction of a second.
+- **Implicit surface precision** — extremely thin or high-frequency implicit surfaces may still have small artifacts if the grid resolution (`GRID_3D`) is too low.
+- **3D implicit performance** — tri-axis marching evaluates the function significantly more times than explicit rendering; high resolutions will impact frame rate.
 - **Integer axis labels only for large values** — very large axis values are capped at `>2G` or `<-2G` due to `itoa` limitations.
-- **3D polygon implicit mode** - 3D polygon implicit mode has problems with connecting hemispheres of a circle causing for dead space on the equator.

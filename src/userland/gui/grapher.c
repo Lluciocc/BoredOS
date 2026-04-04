@@ -1089,17 +1089,50 @@ static void render_3d_draw_job(void *arg) {
                     float anz = (float)fabs(surf[j][i].nz[s]);
                     bool dominant;
                     switch (job->normal_axis) {
-                        case 0: dominant = (anz >= anx - 0.12f) && (anz >= any - 0.12f); break;
-                        case 1: dominant = (anx >= any - 0.12f) && (anx >= anz - 0.12f); break;
-                        case 2: dominant = (any >= anx - 0.12f) && (any >= anz - 0.12f); break;
+                        case 0: dominant = (anz >= anx - 0.05f) && (anz >= any - 0.05f); break;
+                        case 1: dominant = (anx >= any - 0.05f) && (anx >= anz - 0.05f); break;
+                        case 2: dominant = (any >= anx - 0.05f) && (any >= anz - 0.05f); break;
                         default: dominant = true; break;
                     }
                     if (!dominant) continue;
+                    
+                    // Depth bias to prevent Z-fighting between passes
+                    int bias = (job->normal_axis == 0) ? 0 : (job->normal_axis == 1) ? 2 : 4;
+                    dz0 += bias; 
                 }
 
-                int s_tr = (i+1 < GRID_3D && surf[j][i+1].count > 0) ? (s < surf[j][i+1].count ? s : surf[j][i+1].count - 1) : -1;
-                int s_bl = (j+1 < GRID_3D && surf[j+1][i].count > 0) ? (s < surf[j+1][i].count ? s : surf[j+1][i].count - 1) : -1;
-                int s_br = (i+1 < GRID_3D && j+1 < GRID_3D && surf[j+1][i+1].count > 0) ? (s < surf[j+1][i+1].count ? s : surf[j+1][i+1].count - 1) : -1;
+                // Refined neighbor selection: only connect if points are world-space neighbors
+                float world_step = (float)(job->zmax - job->zmin) / (GRID_3D - 1); // rough scaling
+                if (world_step < 0.1f) world_step = 0.5f;
+                float thresh = world_step * 2.5f;
+
+                int s_tr = -1;
+                if (i+1 < GRID_3D) {
+                    float mind = 1e30f;
+                    for (int n=0; n < surf[j][i+1].count; n++) {
+                        float d = (float)fabs(surf[j][i+1].z[n] - surf[j][i].z[s]);
+                        if (d < mind) { mind = d; s_tr = n; }
+                    }
+                    if (mind > thresh) s_tr = -1;
+                }
+                int s_bl = -1;
+                if (j+1 < GRID_3D) {
+                    float mind = 1e30f;
+                    for (int n=0; n < surf[j+1][i].count; n++) {
+                        float d = (float)fabs(surf[j+1][i].z[n] - surf[j][i].z[s]);
+                        if (d < mind) { mind = d; s_bl = n; }
+                    }
+                    if (mind > thresh) s_bl = -1;
+                }
+                int s_br = -1;
+                if (i+1 < GRID_3D && j+1 < GRID_3D) {
+                    float mind = 1e30f;
+                    for (int n=0; n < surf[j+1][i+1].count; n++) {
+                        float d = (float)fabs(surf[j+1][i+1].z[n] - surf[j][i].z[s]);
+                        if (d < mind) { mind = d; s_br = n; }
+                    }
+                    if (mind > thresh) s_br = -1;
+                }
 
                 if (filled_mode) {
                     bool v_tr = (s_tr >= 0);
@@ -1107,9 +1140,10 @@ static void render_3d_draw_job(void *arg) {
                     bool v_br = (s_br >= 0);
 
                     if (v_tr && v_bl && v_br) {
-                        int sx_tr = surf[j][i+1].sx[s_tr], sy_tr = surf[j][i+1].sy[s_tr], dz_tr = surf[j][i+1].dz[s_tr];
-                        int sx_bl = surf[j+1][i].sx[s_bl], sy_bl = surf[j+1][i].sy[s_bl], dz_bl = surf[j+1][i].dz[s_bl];
-                        int sx_br = surf[j+1][i+1].sx[s_br], sy_br = surf[j+1][i+1].sy[s_br], dz_br = surf[j+1][i+1].dz[s_br];
+                        int bias = (job->normal_axis == 0) ? 0 : (job->normal_axis == 1) ? 2 : 4;
+                        int sx_tr = surf[j][i+1].sx[s_tr], sy_tr = surf[j][i+1].sy[s_tr], dz_tr = surf[j][i+1].dz[s_tr] + bias;
+                        int sx_bl = surf[j+1][i].sx[s_bl], sy_bl = surf[j+1][i].sy[s_bl], dz_bl = surf[j+1][i].dz[s_bl] + bias;
+                        int sx_br = surf[j+1][i+1].sx[s_br], sy_br = surf[j+1][i+1].sy[s_br], dz_br = surf[j+1][i+1].dz[s_br] + bias;
 
                         float avg_nx = surf[j][i].nx[s] + surf[j][i+1].nx[s_tr] + surf[j+1][i].nx[s_bl] + surf[j+1][i+1].nx[s_br];
                         float avg_ny = surf[j][i].ny[s] + surf[j][i+1].ny[s_tr] + surf[j+1][i].ny[s_bl] + surf[j+1][i+1].ny[s_br];
