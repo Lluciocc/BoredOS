@@ -25,7 +25,7 @@ typedef struct {
     uint16_t num_heads;             // Number of heads
     uint32_t hidden_sectors;        // Hidden sectors
     uint32_t total_sectors_32;      // Total sectors 32-bit
-    
+
     // FAT32 Specific
     uint32_t sectors_per_fat_32;    // Sectors per FAT 32-bit
     uint16_t flags;                 // Flags
@@ -61,6 +61,18 @@ typedef struct {
     uint32_t file_size;             // File size
 } __attribute__((packed)) FAT32_DirEntry;
 
+// Long File Name Directory Entry (32 bytes)
+typedef struct {
+    uint8_t order;                  // Sequence number (0x40 = last, | index)
+    uint16_t name1[5];              // Characters 1-5 (UCS-2)
+    uint8_t attr;                   // Always 0x0F
+    uint8_t type;                   // Always 0x00
+    uint8_t checksum;               // Checksum of short name
+    uint16_t name2[6];              // Characters 6-11 (UCS-2)
+    uint16_t first_cluster;         // Always 0x0000
+    uint16_t name3[2];              // Characters 12-13 (UCS-2)
+} __attribute__((packed)) FAT32_LFNEntry;
+
 // File Attributes
 #define ATTR_READ_ONLY   0x01
 #define ATTR_HIDDEN      0x02
@@ -70,6 +82,7 @@ typedef struct {
 #define ATTR_ARCHIVE     0x20
 #define ATTR_DEVICE      0x40
 #define ATTR_RESERVED    0x80
+#define ATTR_LFN         0x0F  // LFN marker (all of the above ORed)
 
 // FAT32 Constants
 #define FAT32_SECTOR_SIZE 512
@@ -88,7 +101,7 @@ typedef struct {
     bool valid;                     // Is this handle valid?
     uint32_t dir_sector;            // Sector containing the directory entry
     uint32_t dir_offset;            // Offset within that sector
-    char drive;                     // Drive letter (A, B, ...)
+    void *volume;                   // Pointer to owning FAT32_Volume (or NULL for ramfs)
 } FAT32_FileHandle;
 
 // Directory Entry Info (for listing)
@@ -101,12 +114,23 @@ typedef struct {
     uint16_t write_time;
 } FAT32_FileInfo;
 
+// === VFS Integration ===
+// Forward-declared VFS ops type (defined in vfs.h)
+struct vfs_fs_ops;
+
+// Get VFS ops structs for registration
+struct vfs_fs_ops* fat32_get_ramfs_ops(void);
+struct vfs_fs_ops* fat32_get_realfs_ops(void);
+
+// Mount a real FAT32 volume from a block device — returns fs_private for VFS
+void* fat32_mount_volume(void *disk_ptr);
+
 // === Function Declarations ===
 
 // Initialization
 void fat32_init(void);
 
-// File Operations
+// File Operations (backward-compat wrappers — dispatch through VFS)
 FAT32_FileHandle* fat32_open(const char *path, const char *mode);
 void fat32_close(FAT32_FileHandle *handle);
 int fat32_read(FAT32_FileHandle *handle, void *buffer, int size);
@@ -124,7 +148,10 @@ bool fat32_is_directory(const char *path);
 // Listing
 int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entries);
 
-// Working Directory
+// Info
+int fat32_get_info(const char *path, FAT32_FileInfo *info);
+
+// Working Directory (backward compat — wraps VFS path tracking)
 bool fat32_chdir(const char *path);
 void fat32_get_current_dir(char *buffer, int size);
 bool fat32_change_drive(char drive);

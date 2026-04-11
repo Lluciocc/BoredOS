@@ -8,6 +8,7 @@
 #include "process.h"
 #include "wm.h"
 #include "fat32.h"
+#include "vfs.h"
 #include "paging.h"
 #include "work_queue.h"
 #include "smp.h"
@@ -852,33 +853,33 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             const char *mode = (const char *)arg3;
             if (!path || !mode) return -1;
             
-            FAT32_FileHandle *fh = fat32_open(path, mode);
-            if (!fh) return -1;
+            vfs_file_t *vf = vfs_open(path, mode);
+            if (!vf) return -1;
             
             for (int i = 0; i < MAX_PROCESS_FDS; i++) {
                 if (proc->fds[i] == NULL) {
-                    proc->fds[i] = fh;
+                    proc->fds[i] = vf;
                     return (uint64_t)i;
                 }
             }
-            fat32_close(fh);
+            vfs_close(vf);
             return -1;
         } else if (cmd == FS_CMD_READ) {
             int fd = (int)arg2;
             void *buf = (void *)arg3;
             uint32_t len = (uint32_t)arg4;
             if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
-            return (uint64_t)fat32_read((FAT32_FileHandle*)proc->fds[fd], buf, (int)len);
+            return (uint64_t)vfs_read((vfs_file_t*)proc->fds[fd], buf, (int)len);
         } else if (cmd == FS_CMD_WRITE) {
             int fd = (int)arg2;
             const void *buf = (const void *)arg3;
             uint32_t len = (uint32_t)arg4;
             if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
-            return (uint64_t)fat32_write((FAT32_FileHandle*)proc->fds[fd], buf, (int)len);
+            return (uint64_t)vfs_write((vfs_file_t*)proc->fds[fd], buf, (int)len);
         } else if (cmd == FS_CMD_CLOSE) {
             int fd = (int)arg2;
             if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
-            fat32_close((FAT32_FileHandle*)proc->fds[fd]);
+            vfs_close((vfs_file_t*)proc->fds[fd]);
             proc->fds[fd] = NULL;
             return 0;
         } else if (cmd == FS_CMD_SEEK) {
@@ -886,49 +887,81 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             int offset = (int)arg3;
             int whence = (int)arg4; // 0=SET, 1=CUR, 2=END
             if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
-            return (uint64_t)fat32_seek((FAT32_FileHandle*)proc->fds[fd], offset, whence);
+            return (uint64_t)vfs_seek((vfs_file_t*)proc->fds[fd], offset, whence);
         } else if (cmd == FS_CMD_TELL) {
             int fd = (int)arg2;
             if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
-            return (uint64_t)((FAT32_FileHandle*)proc->fds[fd])->position;
+            return (uint64_t)vfs_file_position((vfs_file_t*)proc->fds[fd]);
         } else if (cmd == FS_CMD_SIZE) {
             int fd = (int)arg2;
             if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
-            return (uint64_t)((FAT32_FileHandle*)proc->fds[fd])->size;
-        }
- else if (cmd == FS_CMD_LIST) {
+            return (uint64_t)vfs_file_size((vfs_file_t*)proc->fds[fd]);
+        } else if (cmd == FS_CMD_LIST) {
             const char *path = (const char *)arg2;
-            FAT32_FileInfo *entries = (FAT32_FileInfo *)arg3;
+            FAT32_FileInfo *u_entries = (FAT32_FileInfo *)arg3;
             int max_entries = (int)arg4;
-            if (!path || !entries) return -1;
-            return (uint64_t)fat32_list_directory(path, entries, max_entries);
+            if (!path || !u_entries) return -1;
+            
+            // Safety cap for kernel allocation
+            if (max_entries > 256) max_entries = 256;
+            if (max_entries <= 0) return 0;
+            
+            vfs_dirent_t *v_entries = (vfs_dirent_t *)kmalloc(sizeof(vfs_dirent_t) * max_entries);
+            if (!v_entries) return -1;
+            
+            int count = vfs_list_directory(path, v_entries, max_entries);
+            if (count > 0) {
+                for (int i = 0; i < count; i++) {
+                    // Direct copy as layouts are now aligned
+                    k_strcpy(u_entries[i].name, v_entries[i].name);
+                    u_entries[i].size = v_entries[i].size;
+                    u_entries[i].is_directory = v_entries[i].is_directory;
+                    u_entries[i].start_cluster = v_entries[i].start_cluster;
+                    u_entries[i].write_date = v_entries[i].write_date;
+                    u_entries[i].write_time = v_entries[i].write_time;
+                }
+            }
+            kfree(v_entries);
+            return (uint64_t)count;
         } else if (cmd == FS_CMD_DELETE) {
             const char *path = (const char *)arg2;
             if (!path) return -1;
-            return fat32_delete(path) ? 0 : -1;
+            return vfs_delete(path) ? 0 : -1;
         } else if (cmd == FS_CMD_GET_INFO) {
             const char *path = (const char *)arg2;
-            FAT32_FileInfo *info = (FAT32_FileInfo *)arg3;
-            if (!path || !info) return -1;
-            extern int fat32_get_info(const char *path, FAT32_FileInfo *info);
-            return (uint64_t)fat32_get_info(path, info);
+            FAT32_FileInfo *u_info = (FAT32_FileInfo *)arg3;
+            if (!path || !u_info) return -1;
+            
+            vfs_dirent_t v_info;
+            int res = vfs_get_info(path, &v_info);
+            if (res == 0) {
+                k_strcpy(u_info->name, v_info.name);
+                u_info->size = v_info.size;
+                u_info->is_directory = v_info.is_directory;
+                u_info->start_cluster = v_info.start_cluster;
+                u_info->write_date = v_info.write_date;
+                u_info->write_time = v_info.write_time;
+            }
+            return (uint64_t)res;
         } else if (cmd == FS_CMD_MKDIR) {
             const char *path = (const char *)arg2;
             if (!path) return -1;
-            return fat32_mkdir(path) ? 0 : -1;
+            return vfs_mkdir(path) ? 0 : -1;
         } else if (cmd == FS_CMD_EXISTS) {
             const char *path = (const char *)arg2;
             if (!path) return 0;
-            return fat32_exists(path) ? 1 : 0;
+            return vfs_exists(path) ? 1 : 0;
         } else if (cmd == FS_CMD_GETCWD) {
             char *buf = (char *)arg2;
             int size = (int)arg3;
             if (!buf) return -1;
+            extern void fat32_get_current_dir(char *buf, int size);
             fat32_get_current_dir(buf, size);
             return 0;
         } else if (cmd == FS_CMD_CHDIR) {
             const char *path = (const char *)arg2;
             if (!path) return -1;
+            extern bool fat32_chdir(const char *path);
             return fat32_chdir(path) ? 0 : -1;
         }
         return 0;

@@ -8,6 +8,7 @@
 #include "rtc.h"
 
 #include "fat32.h"
+#include "vfs.h"
 #include "disk.h"
 #include "kutils.h"
 #include <stddef.h>
@@ -75,7 +76,6 @@ static ShellConfig shell_config;
 
 // CMD Window State (per-window context)
 typedef struct {
-    char current_drive;
     char current_dir[256];
 } CmdState;
 
@@ -554,10 +554,7 @@ void cmd_print_prompt(void) {
         cursor_col = 0;
         
         if (shell_config.show_drive) {
-            current_color = shell_config.prompt_drive_color;
-            cmd_putchar(cmd_state->current_drive);
-            current_color = shell_config.prompt_colon_color;
-            cmd_putchar(':');
+            // No more drive letter in VFS
         }
         
         if (shell_config.show_dir) {
@@ -951,11 +948,7 @@ static void internal_cmd_cd(char *args) {
     if (!args || !args[0]) {
         // No argument - show current directory
         if (cmd_state) {
-            char drive_str[3];
-            drive_str[0] = cmd_state->current_drive;
-            drive_str[1] = ':';
-            drive_str[2] = 0;
-            cmd_write(drive_str);
+            
             cmd_write(cmd_state->current_dir);
             cmd_write("\n");
         } else {
@@ -985,9 +978,7 @@ static void internal_cmd_cd(char *args) {
             cmd_strcpy(full_path, path);
         } else if (path[0] == '/') {
             // Absolute path
-            full_path[0] = cmd_state->current_drive;
-            full_path[1] = ':';
-            int j = 2;
+            int j = 0;
             int k = 0;
             while (path[k] && j < 509) {
                 full_path[j++] = path[k++];
@@ -995,9 +986,7 @@ static void internal_cmd_cd(char *args) {
             full_path[j] = 0;
         } else {
             // Relative path - resolve from current directory
-            full_path[0] = cmd_state->current_drive;
-            full_path[1] = ':';
-            int j = 2;
+            int j = 0;
             
             // Copy current directory
             const char *dir = cmd_state->current_dir;
@@ -1019,18 +1008,14 @@ static void internal_cmd_cd(char *args) {
         }
         
         // Validate directory exists
-        if (fat32_is_directory(full_path)) {
+        if (vfs_is_directory(full_path)) {
             // Normalize the path to resolve .. and .
             char normalized_path[512];
-            fat32_normalize_path(full_path, normalized_path);
+            vfs_normalize_path(full_path, normalized_path);
             
             cmd_update_dir(normalized_path);
             cmd_write("Changed to: ");
-            char drive_str[3];
-            drive_str[0] = cmd_state->current_drive;
-            drive_str[1] = ':';
-            drive_str[2] = 0;
-            cmd_write(drive_str);
+            
             cmd_write(cmd_state->current_dir);
             cmd_write("\n");
         } else {
@@ -1105,15 +1090,13 @@ void cmd_exec_elf(char *args) {
     char full_exec_path[512] = {0};
     int i = 0;
     
-    if (args[0] && args[1] != ':') {
+    if (args[0] && args[0] != '/') {
         if (cmd_state) {
-            full_exec_path[i++] = cmd_state->current_drive;
-            full_exec_path[i++] = ':';
             const char *dir = cmd_state->current_dir;
             while (*dir && i < 509) {
                 full_exec_path[i++] = *dir++;
             }
-            if (i > 2 && full_exec_path[i-1] != '/') {
+            if (i > 0 && full_exec_path[i-1] != '/') {
                 full_exec_path[i++] = '/';
             }
         }
@@ -1215,23 +1198,10 @@ static const CommandEntry commands[] = {
 
 
 
-// Helper to sync cmd window directory after cd
 static void cmd_update_dir(const char *path) {
     if (!cmd_state || !path) return;
     
-    // Extract drive if provided
     const char *p = path;
-    char drive = cmd_state->current_drive;
-    if (p[0] && p[1] == ':') {
-        drive = p[0];
-        if (drive >= 'a' && drive <= 'z') drive -= 32;
-        p += 2;
-    }
-    
-    // Update drive
-    cmd_state->current_drive = drive;
-    
-    // Update directory
     if (*p) {
         // Remove trailing slashes and copy
         int len = 0;
@@ -1269,20 +1239,7 @@ static void cmd_exec_single(char *cmd) {
 
     // Check for drive switch (e.g. "A:", "B:")
     if (cmd[0] && cmd[1] == ':' && cmd[2] == 0) {
-        char letter = cmd[0];
-        if (letter >= 'a' && letter <= 'z') letter -= 32;
-        
-        // Check if drive exists (don't change global, just check)
-        if (disk_get_by_letter(letter)) {
-            // Update cmd window's drive, not global
-            if (cmd_state) {
-                cmd_state->current_drive = letter;
-                cmd_state->current_dir[0] = '/';
-                cmd_state->current_dir[1] = 0;
-            }
-        } else {
-            cmd_write("Invalid drive.\n");
-        }
+        cmd_write("Drive letters are no longer supported. Use VFS paths (e.g. /dev/sda1)\n");
         return;
     }
 
@@ -1336,19 +1293,15 @@ static void cmd_exec_single(char *cmd) {
         char full_exec_path[512];
         int i = 0;
         
-        // Add drive letter
+        // Add current directory
         if (cmd_state) {
-            full_exec_path[i++] = cmd_state->current_drive;
-            full_exec_path[i++] = ':';
-            
-            // Add current directory
             const char *dir = cmd_state->current_dir;
             while (*dir && i < 509) {
                 full_exec_path[i++] = *dir++;
             }
             
             // Add separator if current dir doesn't end with /
-            if (i > 2 && full_exec_path[i-1] != '/') {
+            if (i > 0 && full_exec_path[i-1] != '/') {
                 full_exec_path[i++] = '/';
             }
         }
@@ -1436,15 +1389,11 @@ static void cmd_exec_single(char *cmd) {
                             i += 2;
                             while (args[i] == ' ') { temp_args[j++] = ' '; i++; }
                             
-                            // Prepend drive and directory to filename if relative
-                            if (args[i] && args[i+1] != ':') {
-                                temp_args[j++] = cmd_state->current_drive;
-                                temp_args[j++] = ':';
-                                if (args[i] != '/') {
-                                    const char *d = cmd_state->current_dir;
-                                    while (*d && j < 509) temp_args[j++] = *d++;
-                                    if (j > 2 && temp_args[j-1] != '/') temp_args[j++] = '/';
-                                }
+                            // Prepend directory to filename if relative
+                            if (args[i] && args[i] != '/') {
+                                const char *d = cmd_state->current_dir;
+                                while (*d && j < 509) temp_args[j++] = *d++;
+                                if (j > 0 && temp_args[j-1] != '/') temp_args[j++] = '/';
                             }
                             in_redirect = true;
                         } else if (args[i] == '>' && args[i+1] != '>') {
@@ -1453,15 +1402,11 @@ static void cmd_exec_single(char *cmd) {
                             i++;
                             while (args[i] == ' ') { temp_args[j++] = ' '; i++; }
                             
-                            // Prepend drive and directory to filename if relative
-                            if (args[i] && args[i+1] != ':') {
-                                temp_args[j++] = cmd_state->current_drive;
-                                temp_args[j++] = ':';
-                                if (args[i] != '/') {
-                                    const char *d = cmd_state->current_dir;
-                                    while (*d && j < 509) temp_args[j++] = *d++;
-                                    if (j > 2 && temp_args[j-1] != '/') temp_args[j++] = '/';
-                                }
+                            // Prepend directory to filename if relative
+                            if (args[i] && args[i] != '/') {
+                                const char *d = cmd_state->current_dir;
+                                while (*d && j < 509) temp_args[j++] = *d++;
+                                if (j > 0 && temp_args[j-1] != '/') temp_args[j++] = '/';
                             }
                             in_redirect = true;
                         } else {
@@ -1488,10 +1433,8 @@ static void cmd_exec_single(char *cmd) {
                         // Already has drive letter
                         cmd_strcpy(full_path_arg, args);
                     } else if (args[0] == '/') {
-                        // Absolute path, just prepend drive
-                        full_path_arg[0] = cmd_state->current_drive;
-                        full_path_arg[1] = ':';
-                        int i = 2;
+                        // Absolute path
+                        int i = 0;
                         int j = 0;
                         while (args[j] && i < 509) {
                             full_path_arg[i++] = args[j++];
@@ -1500,8 +1443,6 @@ static void cmd_exec_single(char *cmd) {
                     } else {
                         // Relative path - need to build from current directory
                         int i = 0;
-                        full_path_arg[i++] = cmd_state->current_drive;
-                        full_path_arg[i++] = ':';
                         
                         // Add current directory
                         const char *dir = cmd_state->current_dir;
@@ -1510,7 +1451,7 @@ static void cmd_exec_single(char *cmd) {
                         }
                         
                         // Add separator if current dir doesn't end with /
-                        if (i > 2 && full_path_arg[i-1] != '/') {
+                        if (i > 0 && full_path_arg[i-1] != '/') {
                             full_path_arg[i++] = '/';
                         }
                         
@@ -1529,10 +1470,8 @@ static void cmd_exec_single(char *cmd) {
                         // Has drive letter, use as-is
                         cmd_strcpy(full_path_arg, args);
                     } else if (args[0] == '/') {
-                        // Absolute path, just prepend drive
-                        full_path_arg[0] = cmd_state->current_drive;
-                        full_path_arg[1] = ':';
-                        int i = 2;
+                        // Absolute path
+                        int i = 0;
                         int j = 0;
                         while (args[j] && i < 509) {
                             full_path_arg[i++] = args[j++];
@@ -1541,8 +1480,6 @@ static void cmd_exec_single(char *cmd) {
                     } else {
                         // Relative path - need to build from current directory
                         int i = 0;
-                        full_path_arg[i++] = cmd_state->current_drive;
-                        full_path_arg[i++] = ':';
                         
                         // Add current directory
                         const char *dir = cmd_state->current_dir;
@@ -1551,7 +1488,7 @@ static void cmd_exec_single(char *cmd) {
                         }
                         
                         // Add separator if current dir doesn't end with /
-                        if (i > 2 && full_path_arg[i-1] != '/') {
+                        if (i > 0 && full_path_arg[i-1] != '/') {
                             full_path_arg[i++] = '/';
                         }
                         
@@ -1568,10 +1505,10 @@ static void cmd_exec_single(char *cmd) {
                     cmd_strcpy(full_path_arg, args);
                     args = full_path_arg;
                 } else {
-                    // Add drive letter
-                    full_path_arg[0] = cmd_state->current_drive;
-                    full_path_arg[1] = ':';
-                    int i = 2;
+                    // Try to use arg as is (it's either absolute or relative)
+                    // If it's relative, we should actually build it...
+                    // Let's just use it as is for now since later path resolving will catch it
+                    int i = 0;
                     int j = 0;
                     while (args[j] && i < 509) {
                         full_path_arg[i++] = args[j++];
@@ -1580,10 +1517,8 @@ static void cmd_exec_single(char *cmd) {
                     args = full_path_arg;
                 }
             } else if (is_ls_command || is_cd_command) {
-                // For ls and cd with no args, pass current directory with drive
-                full_path_arg[0] = cmd_state->current_drive;
-                full_path_arg[1] = ':';
-                int i = 2;
+                // For ls and cd with no args, pass current directory
+                int i = 0;
                 const char *dir = cmd_state->current_dir;
                 while (*dir && i < 509) {
                     full_path_arg[i++] = *dir++;
@@ -1619,11 +1554,9 @@ static void cmd_exec_single(char *cmd) {
     // 1. Try Current Directory + .elf
     if (cmd_state) {
         int idx = 0;
-        search_path[idx++] = cmd_state->current_drive;
-        search_path[idx++] = ':';
         const char *dir = cmd_state->current_dir;
         while (*dir && idx < 500) search_path[idx++] = *dir++;
-        if (idx > 2 && search_path[idx-1] != '/') search_path[idx++] = '/';
+        if (idx > 0 && search_path[idx-1] != '/') search_path[idx++] = '/';
         const char *c = cmd;
         while (*c && idx < 500) search_path[idx++] = *c++;
         if (!has_elf_ext) {
@@ -1644,10 +1577,10 @@ static void cmd_exec_single(char *cmd) {
         }
     }
     
-    // 2. Try A:/bin/ + .elf
+    // 2. Try /bin/ + .elf
     {
         int idx = 0;
-        const char *bin_prefix = "A:/bin/";
+        const char *bin_prefix = "/bin/";
         while (*bin_prefix) search_path[idx++] = *bin_prefix++;
         const char *c = cmd;
         while (*c && idx < 500) search_path[idx++] = *c++;
@@ -2389,7 +2322,7 @@ void cmd_init(void) {
     // Initialize cmd state (per-window context)
     CmdState *state = (CmdState*)kmalloc(sizeof(CmdState));
     if (state) {
-        state->current_drive = 'A';
+        
         state->current_dir[0] = '/';
         state->current_dir[1] = 0;
         win_cmd.data = state;

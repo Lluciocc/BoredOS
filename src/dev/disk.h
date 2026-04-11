@@ -8,6 +8,7 @@
 #include <stdbool.h>
 
 #define SECTOR_SIZE 512
+#define MAX_DISKS 16
 
 typedef enum {
     DISK_TYPE_RAM,
@@ -17,26 +18,45 @@ typedef enum {
 } DiskType;
 
 typedef struct Disk {
-    char letter;            
+    char devname[16];           // Device name: "sda", "sdb", "sda1", etc.
     DiskType type;
     bool is_fat32;
-    char name[32];
-    uint32_t partition_lba_offset;  // LBA offset of FAT32 partition (0 for raw)
-    
+    char label[32];             // Human-readable label
+    uint32_t partition_lba_offset;  // LBA offset of partition (0 for whole disk)
+    uint32_t total_sectors;     // Total sectors on this device/partition
+
     // Function pointers for driver operations
     int (*read_sector)(struct Disk *disk, uint32_t sector, uint8_t *buffer);
     int (*write_sector)(struct Disk *disk, uint32_t sector, const uint8_t *buffer);
-    
+
     // Private driver data
-    void *driver_data; 
+    void *driver_data;
+
+    // Parent disk (for partitions — points to the whole-disk Disk)
+    struct Disk *parent;
+    bool is_partition;
+    bool registered;
 } Disk;
 
+// Initialization and scanning
 void disk_manager_init(void);
-void disk_manager_scan(void); // Scans for new disks
-Disk* disk_get_by_letter(char letter);
-char disk_get_next_free_letter(void);
+void disk_manager_scan(void);
+
+// Device registration
 void disk_register(Disk *disk);
+void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_count,
+                             bool is_fat32, int part_num);
+
+// Lookup
+Disk* disk_get_by_name(const char *devname);
 int disk_get_count(void);
 Disk* disk_get_by_index(int index);
+
+// Auto-naming helpers
+const char* disk_get_next_dev_name(void);   // Returns "sda", "sdb", etc.
+
+// Backward compat (deprecated — wraps disk_get_by_name)
+Disk* disk_get_by_letter(char letter);
+char disk_get_next_free_letter(void);
 
 #endif

@@ -5,15 +5,39 @@
 #include "pci.h"
 #include "memory_manager.h"
 #include "io.h"
-#include "wm.h" 
+#include "wm.h"
+#include "ahci.h"
+#include "../fs/vfs.h"
+#include "../fs/fat32.h"
 #include <stddef.h>
-
-#define MAX_DISKS 26
 
 static Disk *disks[MAX_DISKS];
 static int disk_count = 0;
+static int next_drive_letter_idx = 0;  // For backward compat
+static int next_sd_index = 0;  // For sda, sdb, sdc...
 
-// === ATA Definitions ===
+extern void serial_write(const char *str);
+extern void serial_write_num(uint64_t num);
+
+// === String Helpers ===
+
+static void dm_strcpy(char *dest, const char *src) {
+    while (*src) *dest++ = *src++;
+    *dest = 0;
+}
+
+static int dm_strcmp(const char *a, const char *b) {
+    while (*a && *a == *b) { a++; b++; }
+    return (unsigned char)*a - (unsigned char)*b;
+}
+
+static int dm_strlen(const char *s) {
+    int n = 0;
+    while (s[n]) n++;
+    return n;
+}
+
+// === ATA Definitions (Legacy IDE PIO — kept as fallback) ===
 
 #define ATA_PRIMARY_IO   0x1F0
 #define ATA_PRIMARY_CTRL 0x3F6
@@ -35,40 +59,21 @@ static int disk_count = 0;
 #define ATA_CMD_WRITE_PIO  0x30
 #define ATA_CMD_IDENTIFY   0xEC
 
-#define ATA_SR_BSY     0x80    // Busy
-#define ATA_SR_DRDY    0x40    // Drive ready
-#define ATA_SR_DF      0x20    // Drive write fault
-#define ATA_SR_DSC     0x10    // Drive seek complete
-#define ATA_SR_DRQ     0x08    // Data request ready
-#define ATA_SR_CORR    0x04    // Corrected data
-#define ATA_SR_IDX     0x02    // Index
-#define ATA_SR_ERR     0x01    // Error
+#define ATA_SR_BSY     0x80
+#define ATA_SR_DRDY    0x40
+#define ATA_SR_DF      0x20
+#define ATA_SR_DSC     0x10
+#define ATA_SR_DRQ     0x08
+#define ATA_SR_CORR    0x04
+#define ATA_SR_IDX     0x02
+#define ATA_SR_ERR     0x01
 
 typedef struct {
     uint16_t port_base;
     bool slave;
 } ATADriverData;
 
-// === Helpers ===
-
-static void dm_strcpy(char *dest, const char *src) {
-    while (*src) *dest++ = *src++;
-    *dest = 0;
-}
-
-void disk_register(Disk *disk);
-
-
-static int ramdisk_read(Disk *disk, uint32_t sector, uint8_t *buffer) {
-    (void)disk; (void)sector; (void)buffer;
-    return 0; 
-}
-
-static int ramdisk_write(Disk *disk, uint32_t sector, const uint8_t *buffer) {
-    (void)disk; (void)sector; (void)buffer;
-    return 0;
-}
-
+// === ATA PIO Driver ===
 
 static void ata_wait_bsy(uint16_t port_base) {
     while (inb(port_base + ATA_REG_STATUS) & ATA_SR_BSY);
@@ -78,58 +83,57 @@ static void ata_wait_drq(uint16_t port_base) {
     while (!(inb(port_base + ATA_REG_STATUS) & ATA_SR_DRQ));
 }
 
-// Returns 1 if drive exists, 0 otherwise
 static int ata_identify(uint16_t port_base, bool slave) {
-    // Select Drive
     outb(port_base + ATA_REG_HDDEVSEL, slave ? 0xB0 : 0xA0);
-    // Zero out sector count and LBA registers
     outb(port_base + ATA_REG_SEC_COUNT0, 0);
     outb(port_base + ATA_REG_LBA0, 0);
     outb(port_base + ATA_REG_LBA1, 0);
     outb(port_base + ATA_REG_LBA2, 0);
-    
-    // Send Identify command
+
     outb(port_base + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
-    
-    // Check if status is 0 (no drive)
+
     uint8_t status = inb(port_base + ATA_REG_STATUS);
     if (status == 0) return 0;
-    
-    // Wait until BSY clears
+
     int timeout = 10000;
     while ((inb(port_base + ATA_REG_STATUS) & ATA_SR_BSY) && --timeout > 0) {
         status = inb(port_base + ATA_REG_STATUS);
-        if (status == 0) return 0; // Check again
+        if (status == 0) return 0;
     }
-    if (timeout <= 0) return 0; // Hardware didn't respond
-    
-    // Check for error
-    if (inb(port_base + ATA_REG_STATUS) & ATA_SR_ERR) {
-        return 0; // Error, likely not ATA
-    }
-    
-    // Wait for DRQ or ERR
-    while (!(inb(port_base + ATA_REG_STATUS) & (ATA_SR_DRQ | ATA_SR_ERR)));
-    
+    if (timeout <= 0) return 0;
+
     if (inb(port_base + ATA_REG_STATUS) & ATA_SR_ERR) return 0;
 
-    // Read 256 words (512 bytes) of identity data
+    while (!(inb(port_base + ATA_REG_STATUS) & (ATA_SR_DRQ | ATA_SR_ERR)));
+
+    if (inb(port_base + ATA_REG_STATUS) & ATA_SR_ERR) return 0;
+
+    uint32_t sectors = 0;
     for (int i = 0; i < 256; i++) {
         uint16_t data = inw(port_base + ATA_REG_DATA);
-        (void)data;
+        if (i == 60) sectors |= (uint32_t)data;
+        if (i == 61) sectors |= (uint32_t)data << 16;
     }
-    
-    return 1;
+
+    return sectors;
 }
 
 static int ata_read_sector(Disk *disk, uint32_t lba, uint8_t *buffer) {
     ATADriverData *data = (ATADriverData*)disk->driver_data;
     uint16_t port_base = data->port_base;
     bool slave = data->slave;
-    
+
+    // For partition reads, add the partition LBA offset
+    if (disk->is_partition && disk->parent) {
+        lba += disk->partition_lba_offset;
+        // Use parent's driver
+        data = (ATADriverData*)disk->parent->driver_data;
+        port_base = data->port_base;
+        slave = data->slave;
+    }
+
     ata_wait_bsy(port_base);
-    
-    // Select drive and send highest 4 bits of LBA
+
     outb(port_base + ATA_REG_HDDEVSEL, 0xE0 | (slave << 4) | ((lba >> 24) & 0x0F));
     outb(port_base + ATA_REG_FEATURES, 0x00);
     outb(port_base + ATA_REG_SEC_COUNT0, 1);
@@ -137,25 +141,33 @@ static int ata_read_sector(Disk *disk, uint32_t lba, uint8_t *buffer) {
     outb(port_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
     outb(port_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
     outb(port_base + ATA_REG_COMMAND, ATA_CMD_READ_PIO);
-    
+
     ata_wait_bsy(port_base);
     ata_wait_drq(port_base);
-    
+
     uint16_t *ptr = (uint16_t*)buffer;
     for (int i = 0; i < 256; i++) {
         ptr[i] = inw(port_base + ATA_REG_DATA);
     }
-    
-    return 0; // Success
+
+    return 0;
 }
 
 static int ata_write_sector(Disk *disk, uint32_t lba, const uint8_t *buffer) {
     ATADriverData *data = (ATADriverData*)disk->driver_data;
     uint16_t port_base = data->port_base;
     bool slave = data->slave;
-    
+
+    // For partition writes, add the partition LBA offset
+    if (disk->is_partition && disk->parent) {
+        lba += disk->partition_lba_offset;
+        data = (ATADriverData*)disk->parent->driver_data;
+        port_base = data->port_base;
+        slave = data->slave;
+    }
+
     ata_wait_bsy(port_base);
-    
+
     outb(port_base + ATA_REG_HDDEVSEL, 0xE0 | (slave << 4) | ((lba >> 24) & 0x0F));
     outb(port_base + ATA_REG_FEATURES, 0x00);
     outb(port_base + ATA_REG_SEC_COUNT0, 1);
@@ -163,75 +175,121 @@ static int ata_write_sector(Disk *disk, uint32_t lba, const uint8_t *buffer) {
     outb(port_base + ATA_REG_LBA1, (uint8_t)(lba >> 8));
     outb(port_base + ATA_REG_LBA2, (uint8_t)(lba >> 16));
     outb(port_base + ATA_REG_COMMAND, ATA_CMD_WRITE_PIO);
-    
+
     ata_wait_bsy(port_base);
     ata_wait_drq(port_base);
-    
+
     const uint16_t *ptr = (const uint16_t*)buffer;
     for (int i = 0; i < 256; i++) {
         outw(port_base + ATA_REG_DATA, ptr[i]);
     }
-    
-    // Flush / Sync
+
     outb(port_base + ATA_REG_COMMAND, 0xE7); // Cache Flush
     ata_wait_bsy(port_base);
-    
+
     return 0;
 }
 
+// === Device Naming ===
 
-char disk_get_next_free_letter(void) {
-    for (int i = 0; i < MAX_DISKS; i++) {
-        char letter = 'A' + i;
-        bool used = false;
-        for (int j = 0; j < disk_count; j++) {
-            if (disks[j]->letter == letter) {
-                used = true;
-                break;
-            }
-        }
-        if (!used) return letter;
-    }
-    return 0; // No free letters
+const char* disk_get_next_dev_name(void) {
+    static char name[8];
+    name[0] = 's';
+    name[1] = 'd';
+    name[2] = 'a' + next_sd_index;
+    name[3] = 0;
+    next_sd_index++;
+    return name;
 }
+
+// === Registration ===
 
 void disk_register(Disk *disk) {
     if (disk_count >= MAX_DISKS) return;
-    
-    // Ensure letter is unique
-    if (disk->letter == 0) {
-        disk->letter = disk_get_next_free_letter();
+
+    // Auto-assign devname if empty
+    if (disk->devname[0] == 0) {
+        const char *n = disk_get_next_dev_name();
+        dm_strcpy(disk->devname, n);
     }
-    
+
+    disk->registered = true;
     disks[disk_count++] = disk;
+
+    serial_write("[DISK] Registered /dev/");
+    serial_write(disk->devname);
+    serial_write(" (");
+    serial_write(disk->label);
+    serial_write(")\n");
 }
 
-void disk_manager_init(void) {
-    for (int i = 0; i < MAX_DISKS; i++) {
-        disks[i] = NULL;
+void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_count,
+                             bool is_fat32, int part_num) {
+    if (disk_count >= MAX_DISKS) return;
+
+    Disk *part = (Disk*)kmalloc(sizeof(Disk));
+    if (!part) return;
+
+    // Build name: parent_devname + partition number (e.g. "sda1")
+    int len = dm_strlen(parent->devname);
+    for (int i = 0; i < len; i++) part->devname[i] = parent->devname[i];
+    part->devname[len] = '0' + part_num;
+    part->devname[len + 1] = 0;
+
+    part->type = parent->type;
+    part->is_fat32 = is_fat32;
+    dm_strcpy(part->label, is_fat32 ? "FAT32 Partition" : "Unknown Partition");
+    part->partition_lba_offset = lba_offset;
+    part->total_sectors = sector_count;
+    part->read_sector = parent->read_sector;
+    part->write_sector = parent->write_sector;
+    part->driver_data = parent->driver_data;
+    part->parent = parent;
+    part->is_partition = true;
+    part->registered = true;
+
+    disks[disk_count++] = part;
+
+    serial_write("[DISK] Registered /dev/");
+    serial_write(part->devname);
+    serial_write(" (LBA offset ");
+    serial_write_num(lba_offset);
+    serial_write(", ");
+    serial_write_num(sector_count);
+    serial_write(" sectors, FAT32=");
+    serial_write(" sectors, FAT32=");
+    serial_write(is_fat32 ? "yes" : "no");
+    serial_write(")\n");
+
+    if (is_fat32) {
+        // Try to initialize and mount FAT32 volume to VFS
+        void *vol = fat32_mount_volume(part);
+        if (vol) {
+            char mount_path[32];
+            mount_path[0] = '/';
+            mount_path[1] = 'd'; mount_path[2] = 'e'; mount_path[3] = 'v'; mount_path[4] = '/';
+            dm_strcpy(mount_path + 5, part->devname);
+            
+            if (vfs_mount(mount_path, part->devname, "fat32", fat32_get_realfs_ops(), vol)) {
+                serial_write("[VFS] Mounted ");
+                serial_write(mount_path);
+                serial_write(" to VFS\n");
+                wm_notify_fs_change();
+            } else {
+                serial_write("[VFS] Failed to mount ");
+                serial_write(mount_path);
+                serial_write("\n");
+            }
+        }
     }
-    disk_count = 0;
-
-    // Register A: (Ramdisk)
-    Disk *ramdisk = (Disk*)kmalloc(sizeof(Disk));
-    ramdisk->letter = 'A';
-    ramdisk->type = DISK_TYPE_RAM;
-    ramdisk->is_fat32 = true; // Ramdisk is always formatted
-    dm_strcpy(ramdisk->name, "RAM");
-    ramdisk->read_sector = ramdisk_read;
-    ramdisk->write_sector = ramdisk_write;
-    ramdisk->driver_data = NULL;
-    ramdisk->partition_lba_offset = 0;
-    
-    disk_register(ramdisk);
 }
 
-Disk* disk_get_by_letter(char letter) {
-    // Uppercase
-    if (letter >= 'a' && letter <= 'z') letter -= 32;
-    
+// === Lookup ===
+
+Disk* disk_get_by_name(const char *devname) {
+    if (!devname) return NULL;
     for (int i = 0; i < disk_count; i++) {
-        if (disks[i]->letter == letter) {
+        if (dm_strcmp(disks[i]->devname, devname) == 0) {
             return disks[i];
         }
     }
@@ -247,130 +305,181 @@ Disk* disk_get_by_index(int index) {
     return disks[index];
 }
 
+// === Backward Compat (deprecated) ===
 
-// === MBR Partition Table Structures ===
+char disk_get_next_free_letter(void) {
+    char letter = 'B' + next_drive_letter_idx++;
+    if (letter > 'Z') return 0;
+    return letter;
+}
+
+Disk* disk_get_by_letter(char letter) {
+    // Maps old letter scheme: A=ramfs (not a block device), B+=first real disk, etc.
+    if (letter >= 'a' && letter <= 'z') letter -= 32;
+
+    // A: was the ramdisk — return NULL since ramfs is now VFS-managed
+    if (letter == 'A') return NULL;
+
+    // B-Z map to disk indices 0, 1, 2...
+    // Find real disks (non-RAM, non-partition-parent)
+    int real_idx = 0;
+    for (int i = 0; i < disk_count; i++) {
+        if (disks[i]->is_partition && disks[i]->is_fat32) {
+            if (real_idx == (letter - 'B')) {
+                return disks[i];
+            }
+            real_idx++;
+        }
+    }
+    return NULL;
+}
+
+// === MBR Partition Table ===
 
 typedef struct {
-    uint8_t  status;           // 0x80 = bootable, 0x00 = inactive
-    uint8_t  chs_first[3];    // CHS of first sector
-    uint8_t  type;             // Partition type
-    uint8_t  chs_last[3];     // CHS of last sector
-    uint32_t lba_start;        // LBA of first sector
-    uint32_t sector_count;     // Number of sectors
+    uint8_t  status;
+    uint8_t  chs_first[3];
+    uint8_t  type;
+    uint8_t  chs_last[3];
+    uint32_t lba_start;
+    uint32_t sector_count;
 } __attribute__((packed)) MBR_PartitionEntry;
 
-// FAT32 partition type codes
 #define PART_TYPE_FAT32     0x0B
 #define PART_TYPE_FAT32_LBA 0x0C
 
-// Check if sector contains a valid FAT32 BPB (Volume Boot Record)
 static bool is_fat32_bpb(const uint8_t *sector) {
-    // Must have 0xAA55 boot signature
     if (sector[510] != 0x55 || sector[511] != 0xAA) return false;
-    
-    // Check for FAT32 filesystem string at offset 82
-    // "FAT32   " in the fs_type field of the BPB
+
     if (sector[82] == 'F' && sector[83] == 'A' && sector[84] == 'T' &&
         sector[85] == '3' && sector[86] == '2') {
         return true;
     }
-    
-    // Also accept if bytes_per_sector is 512 and sectors_per_fat_16 is 0
-    // (FAT32 always has sectors_per_fat_16 == 0)
+
     uint16_t bps = *(uint16_t*)&sector[11];
     uint16_t spf16 = *(uint16_t*)&sector[22];
     uint32_t spf32 = *(uint32_t*)&sector[36];
     if (bps == 512 && spf16 == 0 && spf32 > 0) {
         return true;
     }
-    
+
     return false;
 }
 
-// Parse MBR partition table and find a FAT32 partition.
-// Sets disk->partition_lba_offset and returns true if found.
-static bool detect_fat32_partition(Disk *disk) {
+// Parse MBR and register each partition as a child block device
+static void parse_mbr_partitions(Disk *disk) {
     uint8_t *buffer = (uint8_t*)kmalloc(512);
-    if (!buffer) return false;
-    
-    // Read sector 0 (MBR or raw BPB)
+    if (!buffer) return;
+
     if (disk->read_sector(disk, 0, buffer) != 0) {
         kfree(buffer);
-        return false;
+        return;
     }
-    
-    // Must have 0xAA55 boot signature
+
+    // Check for valid MBR signature
     if (buffer[510] != 0x55 || buffer[511] != 0xAA) {
         kfree(buffer);
-        return false;
+        return;
     }
-    
-    // Check MBR partition table entries (4 entries at offset 446)
+
     MBR_PartitionEntry *partitions = (MBR_PartitionEntry*)&buffer[446];
-    
+    int part_num = 1;
+
     for (int i = 0; i < 4; i++) {
-        if (partitions[i].type == PART_TYPE_FAT32 ||
-            partitions[i].type == PART_TYPE_FAT32_LBA) {
-            
-            uint32_t part_lba = partitions[i].lba_start;
-            
-            // Read the partition's first sector to verify it's a valid FAT32 BPB
+        uint32_t start = partitions[i].lba_start;
+        uint32_t size = partitions[i].sector_count;
+        uint8_t type = partitions[i].type;
+
+        if (type == 0x00) continue; // Empty entry
+        if (size == 0) continue;
+        if (start >= disk->total_sectors) continue; // Invalid start
+        
+        bool fat32 = false;
+        if (type == PART_TYPE_FAT32 || type == PART_TYPE_FAT32_LBA) {
+            // Verify by reading the BPB
             uint8_t *pbuf = (uint8_t*)kmalloc(512);
-            if (!pbuf) { kfree(buffer); return false; }
-            
-            if (disk->read_sector(disk, part_lba, pbuf) == 0 && is_fat32_bpb(pbuf)) {
-                disk->partition_lba_offset = part_lba;
+            if (pbuf) {
+                if (disk->read_sector(disk, start, pbuf) == 0) {
+                    fat32 = is_fat32_bpb(pbuf);
+                }
                 kfree(pbuf);
-                kfree(buffer);
-                return true;
             }
-            kfree(pbuf);
         }
+
+        disk_register_partition(disk, partitions[i].lba_start,
+                                partitions[i].sector_count, fat32, part_num);
+        part_num++;
     }
-    
-    // Fallback: check if sector 0 itself is a raw FAT32 BPB (no partition table)
-    if (is_fat32_bpb(buffer)) {
+
+    // Fallback: if no partitions found, check if entire disk is a raw FAT32 volume
+    if (part_num == 1 && is_fat32_bpb(buffer)) {
+        serial_write("[DISK] No MBR partitions — raw FAT32 volume on /dev/");
+        serial_write(disk->devname);
+        serial_write("\n");
+        disk->is_fat32 = true;
         disk->partition_lba_offset = 0;
-        kfree(buffer);
-        return true;
     }
-    
+
     kfree(buffer);
-    return false;
 }
 
+// === ATA Drive Discovery ===
+
 static void try_add_ata_drive(uint16_t port, bool slave, const char *name) {
-    if (ata_identify(port, slave)) {
+    uint32_t sectors = ata_identify(port, slave);
+    if (sectors > 0) {
         Disk *new_disk = (Disk*)kmalloc(sizeof(Disk));
         if (!new_disk) return;
-        
+
         ATADriverData *data = (ATADriverData*)kmalloc(sizeof(ATADriverData));
         data->port_base = port;
         data->slave = slave;
-        
-        new_disk->letter = 0; // Auto-assign
+
+        new_disk->devname[0] = 0; // Auto-assign
         new_disk->type = DISK_TYPE_IDE;
-        dm_strcpy(new_disk->name, name);
+        dm_strcpy(new_disk->label, name);
         new_disk->read_sector = ata_read_sector;
         new_disk->write_sector = ata_write_sector;
         new_disk->driver_data = data;
         new_disk->partition_lba_offset = 0;
-        
-        // Detect FAT32 (with MBR partition support)
-        if (detect_fat32_partition(new_disk)) {
-            new_disk->is_fat32 = true;
-            disk_register(new_disk);
-        } else {
-            kfree(data);
-            kfree(new_disk);
-        }
+        new_disk->total_sectors = sectors;
+        new_disk->parent = NULL;
+        new_disk->is_partition = false;
+        new_disk->is_fat32 = false;
+
+        disk_register(new_disk);
+
+        // Parse MBR to find partitions
+        parse_mbr_partitions(new_disk);
     }
 }
 
+// === Init & Scan ===
+
+void disk_manager_init(void) {
+    for (int i = 0; i < MAX_DISKS; i++) {
+        disks[i] = NULL;
+    }
+    disk_count = 0;
+    next_sd_index = 0;
+    next_drive_letter_idx = 0;
+
+    serial_write("[DISK] Disk manager initialized (VFS mode)\n");
+    // NOTE: Ramdisk (A:) is no longer registered here.
+    // RAMFS is managed directly by fat32.c and mounted at "/" via VFS.
+}
+
 void disk_manager_scan(void) {
-    // Probe Standard ATA Ports
-    try_add_ata_drive(ATA_PRIMARY_IO, false, "IDE1");
-    try_add_ata_drive(ATA_PRIMARY_IO, true, "IDE2");
-    try_add_ata_drive(ATA_SECONDARY_IO, false, "IDE3");
-    try_add_ata_drive(ATA_SECONDARY_IO, true, "IDE4");
+    serial_write("[DISK] Initializing AHCI (SATA DMA)...\n");
+    ahci_init();
+    
+    if (ahci_get_port_count() == 0) {
+        serial_write("[DISK] No AHCI ports found, falling back to legacy IDE PIO...\n");
+        try_add_ata_drive(ATA_PRIMARY_IO, false, "IDE Primary Master");
+        try_add_ata_drive(ATA_PRIMARY_IO, true, "IDE Primary Slave");
+        try_add_ata_drive(ATA_SECONDARY_IO, false, "IDE Secondary Master");
+        try_add_ata_drive(ATA_SECONDARY_IO, true, "IDE Secondary Slave");
+    } else {
+        serial_write("[DISK] AHCI initialized successfully, skipping legacy IDE.\n");
+    }
 }

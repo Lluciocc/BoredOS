@@ -5,6 +5,7 @@
 #include "graphics.h"
 #include "font_manager.h"
 #include "fat32.h"
+#include "vfs.h"
 #include "disk.h"
 #include "wm.h"
 #include "memory_manager.h"
@@ -302,14 +303,14 @@ static void dialog_confirm_create_file(Window *win) {
     }
     explorer_strcat(full_path, state->dialog_input);
     
-    if (fat32_exists(full_path)) {
+    if (vfs_exists(full_path)) {
         state->dialog_state = DIALOG_CREATE_REPLACE_CONFIRM;
         return;
     }
     
-    FAT32_FileHandle *file = fat32_open(full_path, "w");
+    vfs_file_t *file = vfs_open(full_path, "w");
     if (file) {
-        fat32_close(file);
+        vfs_close(file);
         explorer_refresh_all();
     }
     
@@ -325,9 +326,9 @@ static void dialog_force_create_file(Window *win) {
     }
     explorer_strcat(full_path, state->dialog_input);
     
-    FAT32_FileHandle *file = fat32_open(full_path, "w");
+    vfs_file_t *file = vfs_open(full_path, "w");
     if (file) {
-        fat32_close(file);
+        vfs_close(file);
         explorer_refresh_all();
     }
     dialog_close(win);
@@ -346,7 +347,7 @@ static void dialog_confirm_create_folder(Window *win) {
     }
     explorer_strcat(full_path, state->dialog_input);
     
-    if (fat32_mkdir(full_path)) {
+    if (vfs_mkdir(full_path)) {
         explorer_refresh_all();
     }
     
@@ -354,18 +355,18 @@ static void dialog_confirm_create_folder(Window *win) {
 }
 
 bool explorer_delete_permanently(const char *path) {
-    if (fat32_is_directory(path)) {
+    if (vfs_is_directory(path)) {
         int capacity = 64;
-        FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(capacity * sizeof(FAT32_FileInfo));
+        vfs_dirent_t *entries = (vfs_dirent_t*)kmalloc(capacity * sizeof(vfs_dirent_t));
         if (!entries) return false;
 
-        int count = fat32_list_directory(path, entries, capacity);
+        int count = vfs_list_directory(path, entries, capacity);
         while (count == capacity) {
             capacity *= 2;
-            FAT32_FileInfo *new_entries = (FAT32_FileInfo*)krealloc(entries, capacity * sizeof(FAT32_FileInfo));
+            vfs_dirent_t *new_entries = (vfs_dirent_t*)krealloc(entries, capacity * sizeof(vfs_dirent_t));
             if (!new_entries) { kfree(entries); return false; }
             entries = new_entries;
-            count = fat32_list_directory(path, entries, capacity);
+            count = vfs_list_directory(path, entries, capacity);
         }
         
         for (int i = 0; i < count; i++) {
@@ -381,13 +382,13 @@ bool explorer_delete_permanently(const char *path) {
             if (entries[i].is_directory) {
                 explorer_delete_permanently(child_path);
             } else {
-                fat32_delete(child_path);
+                vfs_delete(child_path);
             }
         }
         kfree(entries);
-        return fat32_rmdir(path);
+        return vfs_rmdir(path);
     } else {
-        return fat32_delete(path);
+        return vfs_delete(path);
     }
 }
 
@@ -421,10 +422,10 @@ bool explorer_delete_recursive(const char *path) {
         char origin_path[FAT32_MAX_PATH];
         explorer_strcpy(origin_path, dest_path);
         explorer_strcat(origin_path, ".origin");
-        FAT32_FileHandle *fh = fat32_open(origin_path, "w");
+        vfs_file_t *fh = vfs_open(origin_path, "w");
         if (fh) {
-            fat32_write(fh, path, explorer_strlen(path));
-            fat32_close(fh);
+            vfs_write(fh, path, explorer_strlen(path));
+            vfs_close(fh);
         }
         
         explorer_copy_recursive(path, dest_path);
@@ -467,19 +468,19 @@ bool explorer_clipboard_has_content(void) {
 }
 
 static bool explorer_copy_recursive(const char *src_path, const char *dest_path) {
-    if (fat32_is_directory(src_path)) {
-        if (!fat32_mkdir(dest_path)) return false;
+    if (vfs_is_directory(src_path)) {
+        if (!vfs_mkdir(dest_path)) return false;
         int capacity = 64;
-        FAT32_FileInfo *files = (FAT32_FileInfo*)kmalloc(capacity * sizeof(FAT32_FileInfo));
+        vfs_dirent_t *files = (vfs_dirent_t*)kmalloc(capacity * sizeof(vfs_dirent_t));
         if (!files) return false;
         
-        int count = fat32_list_directory(src_path, files, capacity);
+        int count = vfs_list_directory(src_path, files, capacity);
         while (count == capacity) {
             capacity *= 2;
-            FAT32_FileInfo *new_files = (FAT32_FileInfo*)krealloc(files, capacity * sizeof(FAT32_FileInfo));
+            vfs_dirent_t *new_files = (vfs_dirent_t*)krealloc(files, capacity * sizeof(vfs_dirent_t));
             if (!new_files) { kfree(files); return false; }
             files = new_files;
-            count = fat32_list_directory(src_path, files, capacity);
+            count = vfs_list_directory(src_path, files, capacity);
         }
         for (int i = 0; i < count; i++) {
             if (explorer_strcmp(files[i].name, ".") == 0 || explorer_strcmp(files[i].name, "..") == 0) continue;
@@ -498,22 +499,22 @@ static bool explorer_copy_recursive(const char *src_path, const char *dest_path)
         kfree(files);
         return true;
     } else {
-        FAT32_FileHandle *src = fat32_open(src_path, "r");
-        FAT32_FileHandle *dst = fat32_open(dest_path, "w");
+        vfs_file_t *src = vfs_open(src_path, "r");
+        vfs_file_t *dst = vfs_open(dest_path, "w");
         bool success = false;
         if (src && dst) {
             uint8_t *buf = (uint8_t*)kmalloc(4096);
             if (buf) {
                 int bytes;
                 success = true;
-                while ((bytes = fat32_read(src, buf, 4096)) > 0) {
-                    if (fat32_write(dst, buf, bytes) != bytes) { success = false; break; }
+                while ((bytes = vfs_read(src, buf, 4096)) > 0) {
+                    if (vfs_write(dst, buf, bytes) != bytes) { success = false; break; }
                 }
                 kfree(buf);
             }
         }
-        if (src) fat32_close(src);
-        if (dst) fat32_close(dst);
+        if (src) vfs_close(src);
+        if (dst) vfs_close(dst);
         return success;
     }
 }
@@ -544,10 +545,10 @@ static void explorer_perform_paste(Window *win, const char *dest_dir) {
     explorer_copy_file_internal(clipboard_path, dest_dir);
     
     if (clipboard_action == 2) { 
-        if (fat32_is_directory(clipboard_path)) {
+        if (vfs_is_directory(clipboard_path)) {
             explorer_delete_permanently(clipboard_path);
         } else {
-            fat32_delete(clipboard_path);
+            vfs_delete(clipboard_path);
         }
         clipboard_action = 0;
     }
@@ -580,7 +581,7 @@ void explorer_clipboard_paste(Window *win, const char *dest_dir) {
     }
     explorer_strcat(dest_path, filename);
     
-    if (fat32_exists(dest_path)) {
+    if (vfs_exists(dest_path)) {
         state->dialog_state = DIALOG_REPLACE_CONFIRM;
         explorer_strcpy(state->dialog_dest_dir, dest_dir);
         return;
@@ -605,10 +606,10 @@ void explorer_create_shortcut(Window *win, const char *target_path) {
     explorer_strcat(shortcut_path, filename);
     explorer_strcat(shortcut_path, ".shortcut");
     
-    FAT32_FileHandle *fh = fat32_open(shortcut_path, "w");
+    vfs_file_t *fh = vfs_open(shortcut_path, "w");
     if (fh) {
-        fat32_write(fh, target_path, explorer_strlen(target_path));
-        fat32_close(fh);
+        vfs_write(fh, target_path, explorer_strlen(target_path));
+        vfs_close(fh);
         explorer_refresh_all();
     }
 }
@@ -680,18 +681,18 @@ static void explorer_restore_file(Window *win, int item_idx) {
     explorer_strcat(origin_file_path, ".origin");
     
     char original_path[FAT32_MAX_PATH] = {0};
-    FAT32_FileHandle *fh = fat32_open(origin_file_path, "r");
+    vfs_file_t *fh = vfs_open(origin_file_path, "r");
     if (fh) {
-        int len = fat32_read(fh, original_path, FAT32_MAX_PATH - 1);
+        int len = vfs_read(fh, original_path, FAT32_MAX_PATH - 1);
         if (len > 0) original_path[len] = 0;
-        fat32_close(fh);
+        vfs_close(fh);
     }
     
     if (original_path[0] == 0) return; 
     
     explorer_copy_recursive(recycle_path, original_path);
     explorer_delete_permanently(recycle_path);
-    fat32_delete(origin_file_path);
+    vfs_delete(origin_file_path);
     
     explorer_refresh_all();
 }
@@ -704,16 +705,16 @@ static void explorer_load_directory(Window *win, const char *path) {
     state->item_count = 0;
     
     int capacity = EXPLORER_INITIAL_CAPACITY;
-    FAT32_FileInfo *entries = (FAT32_FileInfo*)kmalloc(capacity * sizeof(FAT32_FileInfo));
+    vfs_dirent_t *entries = (vfs_dirent_t*)kmalloc(capacity * sizeof(vfs_dirent_t));
     if (!entries) return;
 
-    int count = fat32_list_directory(path, entries, capacity);
+    int count = vfs_list_directory(path, entries, capacity);
     while (count == capacity) {
         capacity *= 2;
-        FAT32_FileInfo *new_entries = (FAT32_FileInfo*)krealloc(entries, capacity * sizeof(FAT32_FileInfo));
+        vfs_dirent_t *new_entries = (vfs_dirent_t*)krealloc(entries, capacity * sizeof(vfs_dirent_t));
         if (!new_entries) { kfree(entries); return; }
         entries = new_entries;
-        count = fat32_list_directory(path, entries, capacity);
+        count = vfs_list_directory(path, entries, capacity);
     }
     
     if (state->items_capacity < count) {
@@ -804,7 +805,7 @@ void explorer_open_directory(const char *path) {
 }
 
 static void explorer_open_target(const char *path) {
-    if (fat32_is_directory(path)) {
+    if (vfs_is_directory(path)) {
         explorer_open_directory(path);
     } else {
         if (explorer_str_ends_with(path, ".elf")) {
@@ -864,11 +865,11 @@ static void explorer_open_item(Window *win, int index) {
             return;
         }
 
-        FAT32_FileHandle *fh = fat32_open(full_path, "r");
+        vfs_file_t *fh = vfs_open(full_path, "r");
         if (fh) {
             char buf[FAT32_MAX_PATH];
-            int len = fat32_read(fh, buf, 255);
-            fat32_close(fh);
+            int len = vfs_read(fh, buf, 255);
+            vfs_close(fh);
             if (len > 0) {
                 buf[len] = 0;
                 explorer_open_target(buf);
@@ -1025,14 +1026,11 @@ static void explorer_paint(Window *win) {
         for (int i = 0; i < count; i++) {
             Disk *d = disk_get_by_index(i);
             if (d) {
-                char buf[16];
-                buf[0] = d->letter;
-                buf[1] = ':';
-                buf[2] = ' ';
-                int n = 0; while(d->name[n] && n < 10) { buf[3+n] = d->name[n]; n++; }
-                buf[3+n] = 0;
+                char buf[32];
+                explorer_strcpy(buf, d->devname);
                 
-                if (d->letter == current_drv) {
+                // For now, simplify current check
+                if (explorer_strcmp(state->current_path, d->devname) == 0) {
                     draw_rounded_rect_filled(menu_x + 2, menu_y + i*25 + 2, menu_w - 4, 21, 4, 0xFF4A90E2);
                     draw_string(menu_x + 5, menu_y + i*25 + 6, buf, COLOR_WHITE);
                 } else {
@@ -1315,7 +1313,7 @@ static void explorer_handle_click(Window *win, int x, int y) {
             if (new_path[explorer_strlen(new_path)-1] != '/') explorer_strcat(new_path, "/");
             explorer_strcat(new_path, state->dialog_input);
             
-            if (fat32_rename(state->dialog_target_path, new_path)) explorer_refresh_all();
+            if (vfs_rename(state->dialog_target_path, new_path)) explorer_refresh_all();
             dialog_close(win);
             return;
         }
@@ -1347,11 +1345,10 @@ static void explorer_handle_click(Window *win, int x, int y) {
             int idx = (y - menu_y) / 25;
             Disk *d = disk_get_by_index(idx);
             if (d) {
-                char path[4];
-                path[0] = d->letter;
-                path[1] = ':';
-                path[2] = '/';
-                path[3] = 0;
+                char path[64];
+                explorer_strcpy(path, "/dev/");
+                explorer_strcat(path, d->devname);
+                explorer_strcat(path, "/"); // Mount point is /dev/devname
                 explorer_load_directory(win, path);
             }
             state->drive_menu_visible = false;
@@ -1477,7 +1474,7 @@ static void explorer_handle_key(Window *win, char c, bool pressed) {
                 explorer_strcpy(new_path, state->current_path);
                 if (new_path[explorer_strlen(new_path)-1] != '/') explorer_strcat(new_path, "/");
                 explorer_strcat(new_path, state->dialog_input);
-                if (fat32_rename(state->dialog_target_path, new_path)) explorer_refresh(win);
+                if (vfs_rename(state->dialog_target_path, new_path)) explorer_refresh(win);
                 dialog_close(win);
             }
         } else if (c == 19) {
@@ -1793,10 +1790,10 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
         char origin_path[FAT32_MAX_PATH];
         explorer_strcpy(origin_path, dest_path);
         explorer_strcat(origin_path, ".origin");
-        FAT32_FileHandle *fh = fat32_open(origin_path, "w");
+        vfs_file_t *fh = vfs_open(origin_path, "w");
         if (fh) {
-            fat32_write(fh, source_path, explorer_strlen(source_path));
-            fat32_close(fh);
+            vfs_write(fh, source_path, explorer_strlen(source_path));
+            vfs_close(fh);
         }
     }
 
@@ -1804,7 +1801,7 @@ static void explorer_perform_move_internal(Window *win, const char *source_path,
         char origin_path[FAT32_MAX_PATH];
         explorer_strcpy(origin_path, source_path);
         explorer_strcat(origin_path, ".origin");
-        fat32_delete(origin_path);
+        vfs_delete(origin_path);
     }
 
     if (explorer_copy_recursive(source_path, dest_path)) {
@@ -1838,7 +1835,7 @@ void explorer_import_file_to(Window *win, const char *source_path, const char *d
     if (dest_path[explorer_strlen(dest_path) - 1] != '/') explorer_strcat(dest_path, "/");
     explorer_strcat(dest_path, filename);
     
-    if (fat32_exists(dest_path) && explorer_strcmp(source_path, dest_path) != 0) {
+    if (vfs_exists(dest_path) && explorer_strcmp(source_path, dest_path) != 0) {
         explorer_strcpy(state->dialog_move_src, source_path);
         explorer_strcpy(state->dialog_dest_dir, dest_dir);
         state->dialog_state = DIALOG_REPLACE_MOVE_CONFIRM;

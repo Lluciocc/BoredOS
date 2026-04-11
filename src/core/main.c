@@ -17,6 +17,7 @@
 #include "io.h"
 #include "fat32.h"
 #include "tar.h"
+#include "vfs.h"
 #include "memory_manager.h"
 #include "platform.h"
 #include "wallpaper.h"
@@ -133,6 +134,7 @@ static void fat32_mkdir_recursive(const char *path) {
 
 void kmain(void) {
     init_serial();
+    vfs_init();
     serial_write("\n[DEBUG] Entering kmain...\n");
 
     platform_init();

@@ -97,3 +97,23 @@ int pci_find_device_by_class(uint8_t class_code, uint8_t subclass, pci_device_t*
     }
     return 0;
 }
+
+uint32_t pci_get_bar(pci_device_t *dev, int bar_num) {
+    if (!dev || bar_num < 0 || bar_num > 5) return 0;
+    uint8_t offset = 0x10 + (bar_num * 4);
+    return pci_read_config(dev->bus, dev->device, dev->function, offset);
+}
+
+void pci_enable_bus_mastering(pci_device_t *dev) {
+    if (!dev) return;
+    uint32_t cmd = pci_read_config(dev->bus, dev->device, dev->function, 0x04);
+    cmd |= (1 << 2); // Set Bus Master bit
+    pci_write_config(dev->bus, dev->device, dev->function, 0x04, cmd);
+}
+
+void pci_enable_mmio(pci_device_t *dev) {
+    if (!dev) return;
+    uint32_t cmd = pci_read_config(dev->bus, dev->device, dev->function, 0x04);
+    cmd |= (1 << 1); // Set Memory Space bit
+    pci_write_config(dev->bus, dev->device, dev->function, 0x04, cmd);
+}
