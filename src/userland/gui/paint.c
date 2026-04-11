@@ -79,12 +79,7 @@ static void paint_paint(ui_window_t win) {
 
     // Draw canvas content
     if (canvas_buffer) {
-        for (int y = 0; y < CANVAS_H; y++) {
-            for (int x = 0; x < CANVAS_W; x++) {
-                uint32_t color = canvas_buffer[y * CANVAS_W + x];
-                ui_draw_rect(win, canvas_x + x, canvas_y + y, 1, 1, color);
-            }
-        }
+        ui_draw_image(win, canvas_x, canvas_y, CANVAS_W, CANVAS_H, canvas_buffer);
     }
 }
 
@@ -96,7 +91,6 @@ static void paint_put_brush(ui_window_t win, int cx, int cy, int *min_x, int *mi
             int py = cy + dy;
             if (px >= 0 && px < CANVAS_W && py >= 0 && py < CANVAS_H) {
                 canvas_buffer[py * CANVAS_W + px] = current_color;
-                ui_draw_rect(win, 60 + px, 0 + py, 1, 1, current_color);
                 
                 if (px < *min_x) *min_x = px;
                 if (py < *min_y) *min_y = py;
@@ -140,6 +134,7 @@ void paint_handle_mouse(ui_window_t win, int x, int y) {
     }
     
     if (min_x <= max_x && min_y <= max_y) {
+        ui_draw_image(win, 60, 0, CANVAS_W, CANVAS_H, canvas_buffer);
         ui_mark_dirty(win, 60 + min_x, 0 + min_y, (max_x - min_x) + 1, (max_y - min_y) + 1);
     }
 
