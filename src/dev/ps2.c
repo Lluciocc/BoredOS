@@ -23,11 +23,10 @@ uint64_t timer_handler(registers_t *regs) {
     extern void k_beep_process(void);
     k_beep_process();
     
-    outb(0x20, 0x20); // EOI after processing to prevent nested timer interrupts
+    outb(0x20, 0x20); 
     extern uint64_t process_schedule(uint64_t current_rsp);
     uint64_t new_rsp = process_schedule((uint64_t)regs);
     
-    // SMP: Wake AP cores to run their assigned processes
     if (smp_cpu_count() > 1) {
         lapic_send_ipi_all();
     }
@@ -37,8 +36,26 @@ uint64_t timer_handler(registers_t *regs) {
 
 // --- Keyboard ---
 static bool shift_pressed = false;
+static bool caps_lock_on = false;
 bool ps2_ctrl_pressed = false;
 static bool extended_scancode = false;
+
+static void ps2_kbd_wait_write(void) {
+    uint32_t timeout = 100000;
+    while (timeout--) {
+        if ((inb(0x64) & 2) == 0) return;
+    }
+}
+
+static void ps2_update_leds(void) {
+    uint8_t led_status = 0;
+    if (caps_lock_on) led_status |= 4;
+    
+    ps2_kbd_wait_write();
+    outb(0x60, 0xED);
+    ps2_kbd_wait_write();
+    outb(0x60, led_status);
+}
 
 static char scancode_map[128] = {
     0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
@@ -67,7 +84,7 @@ uint64_t keyboard_handler(registers_t *regs) {
 
     if (scancode == 0x1D) {
         ps2_ctrl_pressed = true;
-        extended_scancode = false; // Reset if Ctrl is pressed (prevents E0 1D bug)
+        extended_scancode = false; 
     } else if (scancode == 0x9D) {
         ps2_ctrl_pressed = false;
         extended_scancode = false;
@@ -77,10 +94,9 @@ uint64_t keyboard_handler(registers_t *regs) {
         extern process_t* process_get_current(void);
         process_t* proc = process_get_current();
         if (proc && proc->is_user && proc->is_terminal_proc && proc->ui_window) {
-            // Only kill if the associated terminal window is focused
             if (((Window*)proc->ui_window)->focused) {
                 extern uint64_t process_terminate_current(void);
-                outb(0x20, 0x20); // EOI before context switch
+                outb(0x20, 0x20); 
                 return process_terminate_current();
             }
         }
@@ -90,7 +106,10 @@ uint64_t keyboard_handler(registers_t *regs) {
         shift_pressed = true;
     } else if (scancode == 0xAA || scancode == 0xB6) { // Shift Up
         shift_pressed = false;
-    } else if (!(scancode & 0x80)) { // Key Press (not release)
+    } else if (scancode == 0x3A) { // Caps Lock Down
+        caps_lock_on = !caps_lock_on;
+        ps2_update_leds();
+    } else if (!(scancode & 0x80)) { // Key Press
         if (extended_scancode) {
             extended_scancode = false;
             switch (scancode) {
@@ -102,6 +121,10 @@ uint64_t keyboard_handler(registers_t *regs) {
         } else {
             char c = shift_pressed ? scancode_map_shift[scancode] : scancode_map[scancode];
             if (c) {
+                if (caps_lock_on) {
+                    if (c >= 'a' && c <= 'z') c -= 32;
+                    else if (c >= 'A' && c <= 'Z') c += 32;
+                }
                 wm_handle_key(c, true);
             }
         }
@@ -115,8 +138,13 @@ uint64_t keyboard_handler(registers_t *regs) {
                 case 0x4D: wm_handle_key(20, false); break; // Right arrow
             }
         } else {
-            char c = shift_pressed ? scancode_map_shift[scancode & 0x7F] : scancode_map[scancode & 0x7F];
+            uint8_t base_scancode = scancode & 0x7F;
+            char c = shift_pressed ? scancode_map_shift[base_scancode] : scancode_map[base_scancode];
             if (c) {
+                if (caps_lock_on) {
+                    if (c >= 'a' && c <= 'z') c -= 32;
+                    else if (c >= 'A' && c <= 'Z') c += 32;
+                }
                 wm_handle_key(c, false);
             }
         }
@@ -177,7 +205,7 @@ void mouse_init(void) {
     mouse_write(0xF6);
     mouse_read();
 
-    // Enable Wheel - Magic Sequence
+    // Enable Wheel
     mouse_write(0xF3); mouse_read(); mouse_write(200); mouse_read();
     mouse_write(0xF3); mouse_read(); mouse_write(100); mouse_read();
     mouse_write(0xF3); mouse_read(); mouse_write(80); mouse_read();
