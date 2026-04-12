@@ -415,10 +415,18 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                             int baseline = uy + font_manager_get_font_ascent_scaled(font, font->pixel_height) - 2;
                             int cur_x = ux;
                             const char *s = kernel_str;
+                            int start_x = cur_x;
                             while (*s) {
                                 uint32_t codepoint = utf8_decode(&s);
-                                font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, font->pixel_height, put_pixel);
-                                cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, font->pixel_height);
+                                if (codepoint == '\n') {
+                                    cur_x = start_x;
+                                    baseline += font_manager_get_font_line_height_scaled(font, font->pixel_height);
+                                } else if (codepoint == '\t') {
+                                    cur_x += font_manager_get_codepoint_width_scaled(font, ' ', font->pixel_height) * 4;
+                                } else {
+                                    font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, font->pixel_height, put_pixel);
+                                    cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, font->pixel_height);
+                                }
                             }
                         } else {
                             draw_string(ux, uy, kernel_str, color);
@@ -430,10 +438,18 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                         int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, font->pixel_height) - 2;
                         int cur_x = win->x + ux;
                         const char *s = kernel_str;
+                        int start_x = cur_x;
                         while (*s) {
                             uint32_t codepoint = utf8_decode(&s);
-                            font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, font->pixel_height, put_pixel);
-                            cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, font->pixel_height);
+                            if (codepoint == '\n') {
+                                cur_x = start_x;
+                                baseline += font_manager_get_font_line_height_scaled(font, font->pixel_height);
+                            } else if (codepoint == '\t') {
+                                cur_x += font_manager_get_codepoint_width_scaled(font, ' ', font->pixel_height) * 4;
+                            } else {
+                                font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, font->pixel_height, put_pixel);
+                                cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, font->pixel_height);
+                            }
                         }
                     } else {
                         draw_string(win->x + ux, win->y + uy, kernel_str, color);
@@ -519,10 +535,18 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                             int baseline = uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
                             int cur_x = ux;
                             const char *s = kernel_str;
+                            int start_x = cur_x;
                             while (*s) {
                                 uint32_t codepoint = utf8_decode(&s);
-                                font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, scale, put_pixel);
-                                cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                                if (codepoint == '\n') {
+                                    cur_x = start_x;
+                                    baseline += font_manager_get_font_line_height_scaled(font, scale);
+                                } else if (codepoint == '\t') {
+                                    cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
+                                } else {
+                                    font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, scale, put_pixel);
+                                    cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                                }
                             }
                         } else {
                             draw_string_scaled(ux, uy, kernel_str, color, scale);
@@ -534,10 +558,18 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                         int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
                         int cur_x = win->x + ux;
                         const char *s = kernel_str;
+                        int start_x = cur_x;
                         while (*s) {
                             uint32_t codepoint = utf8_decode(&s);
-                            font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, scale, put_pixel);
-                            cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                            if (codepoint == '\n') {
+                                cur_x = start_x;
+                                baseline += font_manager_get_font_line_height_scaled(font, scale);
+                            } else if (codepoint == '\t') {
+                                cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
+                            } else {
+                                font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, scale, put_pixel);
+                                cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                            }
                         }
                     } else {
                         draw_string_scaled(win->x + ux, win->y + uy, kernel_str, color, scale);
@@ -595,11 +627,19 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                             int baseline = uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
                             int cur_x = ux;
                             const char *s = kernel_str;
+                            int start_x = cur_x;
                             while (*s) {
                                 extern void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
                                 uint32_t codepoint = utf8_decode(&s);
-                                font_manager_render_char_sloped(font, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
-                                cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                                if (codepoint == '\n') {
+                                    cur_x = start_x;
+                                    baseline += font_manager_get_font_line_height_scaled(font, scale);
+                                } else if (codepoint == '\t') {
+                                    cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
+                                } else {
+                                    font_manager_render_char_sloped(font, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
+                                    cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                                }
                             }
                         } else {
                             draw_string_scaled_sloped(ux, uy, kernel_str, color, scale, slope);
@@ -611,11 +651,19 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                         int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
                         int cur_x = win->x + ux;
                         const char *s = kernel_str;
+                        int start_x = cur_x;
                         while (*s) {
                             extern void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
                             uint32_t codepoint = utf8_decode(&s);
-                            font_manager_render_char_sloped(font, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
-                            cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                            if (codepoint == '\n') {
+                                cur_x = start_x;
+                                baseline += font_manager_get_font_line_height_scaled(font, scale);
+                            } else if (codepoint == '\t') {
+                                cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
+                            } else {
+                                font_manager_render_char_sloped(font, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
+                                cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
+                            }
                         }
                     } else {
                         draw_string_scaled_sloped(win->x + ux, win->y + uy, kernel_str, color, scale, slope);

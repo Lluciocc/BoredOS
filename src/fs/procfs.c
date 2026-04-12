@@ -56,7 +56,8 @@ int procfs_read(void *fs_private, void *handle, void *buf, int size) {
     procfs_handle_t *h = (procfs_handle_t*)handle;
     if (!h) return -1;
 
-    char out[1024];
+    char *out = (char*)kmalloc(16384);
+    if (!out) return -1;
     out[0] = 0;
 
     if (h->pid == 0xFFFFFFFF) {
@@ -291,7 +292,7 @@ int procfs_read(void *fs_private, void *handle, void *buf, int size) {
     }
  else {
         process_t *proc = process_get_by_pid(h->pid);
-        if (!proc) return -1;
+        if (!proc) { kfree(out); return -1; }
 
         if (k_strcmp(h->type, "name") == 0 || k_strcmp(h->type, "cmdline") == 0) {
             k_strcpy(out, proc->name);
@@ -320,13 +321,14 @@ int procfs_read(void *fs_private, void *handle, void *buf, int size) {
     }
 
     int len = k_strlen(out);
-    if (h->offset >= len) return 0;
+    if (h->offset >= len) { kfree(out); return 0; }
 
     int to_copy = len - h->offset;
     if (to_copy > size) to_copy = size;
 
     k_memcpy(buf, out + h->offset, to_copy);
     h->offset += to_copy;
+    kfree(out);
     return to_copy;
 }
 

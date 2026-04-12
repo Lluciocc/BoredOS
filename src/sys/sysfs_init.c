@@ -132,8 +132,9 @@ static int read_pci_bus(char *buf, int size, int offset) {
 
 // --- CPU System Implementation ---
 static int read_cpu_info(char *buf, int size, int offset) {
-    char out[2048];
-    k_memset(out, 0, 2048);
+    char *out = (char*)kmalloc(16384);
+    if (!out) return 0;
+    out[0] = 0;
     
     char vendor[16];
     char model[64];
@@ -147,34 +148,105 @@ static int read_cpu_info(char *buf, int size, int offset) {
     
     uint32_t cpu_count = smp_cpu_count();
     
-    k_strcpy(out, "Vendor: ");
-    k_strcpy(out + k_strlen(out), vendor);
-    k_strcpy(out + k_strlen(out), "\nModel: ");
-    k_strcpy(out + k_strlen(out), model);
-    k_strcpy(out + k_strlen(out), "\nCores: ");
-    char c_s[16]; k_itoa(cpu_count, c_s);
-    k_strcpy(out + k_strlen(out), c_s);
-    k_strcpy(out + k_strlen(out), "\nCPU Family: ");
-    k_itoa(info.family, c_s);
-    k_strcpy(out + k_strlen(out), c_s);
-    k_strcpy(out + k_strlen(out), "\nModel Number: ");
-    k_itoa(info.model, c_s);
-    k_strcpy(out + k_strlen(out), c_s);
-    k_strcpy(out + k_strlen(out), "\nStepping: ");
-    k_itoa(info.stepping, c_s);
-    k_strcpy(out + k_strlen(out), c_s);
-    k_strcpy(out + k_strlen(out), "\nCache Size: ");
-    k_itoa(info.cache_size, c_s);
-    k_strcpy(out + k_strlen(out), c_s);
-    k_strcpy(out + k_strlen(out), " KB\nSpeed: ~3.00 GHz\nFlags: ");
-    k_strcpy(out + k_strlen(out), flags);
-    k_strcpy(out + k_strlen(out), "\n");
+    for (uint32_t i = 0; i < cpu_count; i++) {
+        char c_s[32];
+        
+        k_strcpy(out + k_strlen(out), "processor\t: ");
+        k_itoa(i, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "vendor_id\t: ");
+        k_strcpy(out + k_strlen(out), vendor);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "cpu family\t: ");
+        k_itoa(info.family, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "model\t\t: ");
+        k_itoa(info.model, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "model name\t: ");
+        k_strcpy(out + k_strlen(out), model);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "stepping\t: ");
+        k_itoa(info.stepping, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "microcode\t: 0x");
+        char hex[16];
+        int temp = info.microcode;
+        int hex_pos = 0;
+        for (int j = 7; j >= 0; j--) {
+            int digit = (temp >> (j * 4)) & 0xF;
+            hex[hex_pos++] = digit < 10 ? '0' + digit : 'a' + (digit - 10);
+        }
+        hex[hex_pos] = '\0';
+        k_strcpy(out + k_strlen(out), hex);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "cache size\t: ");
+        k_itoa(info.cache_size, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), " KB\n");
+        
+        k_strcpy(out + k_strlen(out), "physical id\t: 0\n");
+        k_strcpy(out + k_strlen(out), "siblings\t: ");
+        k_itoa(cpu_count, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "core id\t\t: ");
+        k_itoa(i, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "cpu cores\t: ");
+        k_itoa(cpu_count, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "apicid\t\t: ");
+        k_itoa(i, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "initial apicid\t: ");
+        k_itoa(i, c_s);
+        k_strcpy(out + k_strlen(out), c_s);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "fpu\t\t: yes\n");
+        k_strcpy(out + k_strlen(out), "fpu_exception\t: yes\n");
+        
+        k_strcpy(out + k_strlen(out), "cpuid level\t: 13\n");
+        
+        k_strcpy(out + k_strlen(out), "wp\t\t: yes\n");
+        
+        k_strcpy(out + k_strlen(out), "flags\t\t: ");
+        k_strcpy(out + k_strlen(out), flags);
+        k_strcpy(out + k_strlen(out), "\n");
+        
+        k_strcpy(out + k_strlen(out), "bugs\t\t: \n");
+        k_strcpy(out + k_strlen(out), "bogomips\t: 4800.00\n");
+        
+        if (i < cpu_count - 1) {
+            k_strcpy(out + k_strlen(out), "\n");
+        }
+    }
     
     int len = (int)k_strlen(out);
-    if (offset >= len) return 0;
+    if (offset >= len) { kfree(out); return 0; }
     int to_copy = len - offset;
     if (to_copy > size) to_copy = size;
     k_memcpy(buf, out + offset, to_copy);
+    kfree(out);
     return to_copy;
 }
 

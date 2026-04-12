@@ -330,6 +330,13 @@ int font_manager_get_string_width_scaled(ttf_font_t *font, const char *s, float 
     while (*s) {
         int advance, lsb;
         uint32_t codepoint = utf8_decode(&s);
+        
+        if (codepoint == '\t') {
+            stbtt_GetCodepointHMetrics(info, ' ', &advance, &lsb);
+            width += (int)(advance * real_scale + 0.5f) * 4;
+            continue;
+        }
+        
         stbtt_fontinfo *current_info = info;
         float current_scale = real_scale;
         
@@ -349,6 +356,12 @@ int font_manager_get_codepoint_width_scaled(ttf_font_t *font, uint32_t codepoint
     if (!font) return 0;
     stbtt_fontinfo *info = (stbtt_fontinfo *)font->info;
     float real_scale = stbtt_ScaleForPixelHeight(info, scale);
+    
+    if (codepoint == '\t') {
+        int advance, lsb;
+        stbtt_GetCodepointHMetrics(info, ' ', &advance, &lsb);
+        return (int)(advance * real_scale + 0.5f) * 4;
+    }
     
     if (stbtt_FindGlyphIndex(info, codepoint) == 0 && fallback_font) {
         info = (stbtt_fontinfo *)fallback_font->info;

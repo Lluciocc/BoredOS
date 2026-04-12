@@ -555,6 +555,8 @@ void draw_string_bitmap(int x, int y, const char *str, uint32_t color) {
         if (*s == '\n') {
             cur_x = x;
             cur_y += 10;
+        } else if (*s == '\t') {
+            cur_x += 8 * 4;
         } else {
             draw_char_bitmap(cur_x, cur_y, *s, color);
             cur_x += 8;
@@ -583,8 +585,9 @@ int graphics_get_string_width_scaled(const char *s, float scale) {
     }
     int len = 0;
     while (s && *s) {
-        utf8_decode(&s);
-        len++;
+        uint32_t codepoint = utf8_decode(&s);
+        if (codepoint == '\t') len += 4;
+        else len++;
     }
     return len * 8; // Fallback bitmap width
 }
@@ -607,6 +610,8 @@ void draw_string_scaled(int x, int y, const char *s, uint32_t color, float scale
             if (codepoint == '\n') {
                 cur_x = x;
                 baseline += line_height;
+            } else if (codepoint == '\t') {
+                cur_x += font_manager_get_codepoint_width_scaled(g_current_ttf, ' ', scale) * 4;
             } else {
                 font_manager_render_char_scaled(g_current_ttf, cur_x, baseline, codepoint, color, scale, put_pixel);
                 cur_x += font_manager_get_codepoint_width_scaled(g_current_ttf, codepoint, scale);
@@ -621,6 +626,8 @@ void draw_string_scaled(int x, int y, const char *s, uint32_t color, float scale
         if (codepoint == '\n') {
             cur_x = x;
             cur_y += 10;
+        } else if (codepoint == '\t') {
+            cur_x += 8 * 4;
         } else {
             draw_char(cur_x, cur_y, (codepoint < 128) ? (char)codepoint : '?', color);
             cur_x += 8;
@@ -646,6 +653,8 @@ void draw_string_scaled_sloped(int x, int y, const char *s, uint32_t color, floa
             if (codepoint == '\n') {
                 cur_x = x;
                 baseline += line_height;
+            } else if (codepoint == '\t') {
+                cur_x += font_manager_get_codepoint_width_scaled(g_current_ttf, ' ', scale) * 4;
             } else {
                 font_manager_render_char_sloped(g_current_ttf, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
                 cur_x += font_manager_get_codepoint_width_scaled(g_current_ttf, codepoint, scale);
