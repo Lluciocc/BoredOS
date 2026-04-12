@@ -24,6 +24,12 @@
 #include "smp.h"
 #include "work_queue.h"
 #include "lapic.h"
+#include "fs/sysfs.h"
+#include "fs/procfs.h"
+#include "sys/kernel_subsystem.h"
+#include "sys/module_manager.h"
+
+extern void sysfs_init_subsystems(void);
 
 // --- Limine Requests ---
 __attribute__((used, section(".requests")))
@@ -202,6 +208,11 @@ void kmain(void) {
     fat32_mkdir("/Library/DOOM");
     fat32_mkdir("/docs");
 
+    // Initialize Virtual Filesystems
+    sysfs_init_subsystems();
+    vfs_mount("/sys", "sysfs", "sysfs", sysfs_get_ops(), NULL);
+    vfs_mount("/proc", "procfs", "procfs", procfs_get_ops(), NULL);
+
     if (module_request.response == NULL) {
         serial_write("[DEBUG] ERROR: Limine Module Response is NULL!\n");
     } else {
@@ -241,6 +252,8 @@ void kmain(void) {
                     fat32_close(fh);
                 }
             }
+            // Register all discovered modules in our module manager for /sys/module
+            module_manager_register(clean_path, (uint64_t)mod->address, mod->size);
         }
     }
     
@@ -260,7 +273,7 @@ void kmain(void) {
     // Initialize LAPIC for IPI support
     lapic_init();
 
-    // Initialize SMP — bring up all CPU cores
+    // Initialize SMP 
     if (smp_request.response != NULL) {
         uint32_t online = smp_init(smp_request.response);
         serial_write("[DEBUG] SMP init complete, CPUs online: ");
@@ -268,7 +281,6 @@ void kmain(void) {
         serial_write("\n");
     } else {
         serial_write("[DEBUG] No SMP response from bootloader\n");
-        // Still init as single-CPU
         smp_init(NULL);
     }
 

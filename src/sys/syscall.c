@@ -861,6 +861,8 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             const char *mode = (const char *)arg3;
             if (!path || !mode) return -1;
             
+            // vfs_open now handles normalization internally with process_get_current()
+            // but let's be explicit if we can.
             vfs_file_t *vf = vfs_open(path, mode);
             if (!vf) return -1;
             
@@ -904,11 +906,32 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             int fd = (int)arg2;
             if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
             return (uint64_t)vfs_file_size((vfs_file_t*)proc->fds[fd]);
+        } else if (cmd == FS_CMD_GETCWD) {
+            char *buf = (char *)arg2;
+            int size = (int)arg3;
+            if (!buf || size <= 0) return -1;
+            int len = (int)k_strlen(proc->cwd);
+            if (len >= size) return -1;
+            k_strcpy(buf, proc->cwd);
+            return (uint64_t)len;
+        } else if (cmd == FS_CMD_CHDIR) {
+            const char *path = (const char *)arg2;
+            if (!path) return -1;
+            char normalized[VFS_MAX_PATH];
+            vfs_normalize_path(proc->cwd, path, normalized);
+            if (vfs_is_directory(normalized)) {
+                k_strcpy(proc->cwd, normalized);
+                return 0;
+            }
+            return -1;
         } else if (cmd == FS_CMD_LIST) {
             const char *path = (const char *)arg2;
             FAT32_FileInfo *u_entries = (FAT32_FileInfo *)arg3;
             int max_entries = (int)arg4;
             if (!path || !u_entries) return -1;
+            
+            char normalized[VFS_MAX_PATH];
+            vfs_normalize_path(proc->cwd, path, normalized);
             
             // Safety cap for kernel allocation
             if (max_entries > 256) max_entries = 256;
@@ -917,7 +940,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             vfs_dirent_t *v_entries = (vfs_dirent_t *)kmalloc(sizeof(vfs_dirent_t) * max_entries);
             if (!v_entries) return -1;
             
-            int count = vfs_list_directory(path, v_entries, max_entries);
+            int count = vfs_list_directory(normalized, v_entries, max_entries);
             if (count > 0) {
                 for (int i = 0; i < count; i++) {
                     // Direct copy as layouts are now aligned
@@ -934,14 +957,19 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
         } else if (cmd == FS_CMD_DELETE) {
             const char *path = (const char *)arg2;
             if (!path) return -1;
-            return vfs_delete(path) ? 0 : -1;
+            char normalized[VFS_MAX_PATH];
+            vfs_normalize_path(proc->cwd, path, normalized);
+            return vfs_delete(normalized) ? 0 : -1;
         } else if (cmd == FS_CMD_GET_INFO) {
             const char *path = (const char *)arg2;
             FAT32_FileInfo *u_info = (FAT32_FileInfo *)arg3;
             if (!path || !u_info) return -1;
             
+            char normalized[VFS_MAX_PATH];
+            vfs_normalize_path(proc->cwd, path, normalized);
+            
             vfs_dirent_t v_info;
-            int res = vfs_get_info(path, &v_info);
+            int res = vfs_get_info(normalized, &v_info);
             if (res == 0) {
                 k_strcpy(u_info->name, v_info.name);
                 u_info->size = v_info.size;
@@ -1096,15 +1124,6 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             extern void k_beep(int freq, int ms);
             k_beep(freq, ms);
             return 0;
-        } else if (cmd == 15) { // SYSTEM_CMD_MEMINFO
-            uint64_t *out = (uint64_t *)arg2;
-            if (!out) return -1;
-            MemStats stats = memory_get_stats();
-            out[0] = stats.total_memory;
-            out[1] = stats.used_memory;
-            return 0;
-        } else if (cmd == 16) { // SYSTEM_CMD_UPTIME
-            return wm_get_ticks();
         } else if (cmd == 17) { // SYSTEM_CMD_PCI_LIST
             typedef struct {
                 uint16_t vendor;
@@ -1265,54 +1284,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             size_t max_len = (size_t)arg3;
             extern int network_tcp_recv_nb(void *buf, size_t max_len);
             return (uint64_t)network_tcp_recv_nb(buf, max_len);
-        } else if (cmd == SYSTEM_CMD_PROCESS_LIST) {
-            ProcessInfo *out = (ProcessInfo *)arg2;
-            int max_procs = (int)arg3;
-            if (!out) return 0;
-            
-            extern process_t processes[];
-            
-            // Dynamically calculate kernel usage as: Total System Used - User Process Sum
-            MemStats stats = memory_get_stats();
-            size_t total_used = stats.used_memory;
-            size_t user_used = 0;
-            for (int i = 0; i < 16; i++) {
-                if (processes[i].pid != 0xFFFFFFFF && processes[i].pid != 0 && processes[i].is_user) {
-                    user_used += processes[i].used_memory;
-                }
-            }
-            if (total_used > user_used) processes[0].used_memory = total_used - user_used;
-            else processes[0].used_memory = 0;
-            
-            int count = 0;
-            for (int i = 0; i < 16; i++) {
-                if (processes[i].pid != 0xFFFFFFFF && (processes[i].is_user || processes[i].pid == 0)) {
-                    out[count].pid = processes[i].pid;
-                    extern void mem_memcpy(void *dest, const void *src, size_t len);
-                    mem_memcpy(out[count].name, processes[i].name, 64);
-                    
-                    if (processes[i].pid == 0) {
-                        out[count].name[0] = 'k'; out[count].name[1] = 'e'; out[count].name[2] = 'r';
-                        out[count].name[3] = 'n'; out[count].name[4] = 'e'; out[count].name[5] = 'l';
-                        out[count].name[6] = '\0';
-                    }
-                    
-                    out[count].ticks = processes[i].ticks;
-                    out[count].used_memory = processes[i].used_memory;
-                    
-                    count++;
-                    if (count >= max_procs) break;
-                }
-            }
-            return (uint64_t)count;
-        } else if (cmd == SYSTEM_CMD_GET_CPU_MODEL) {
-            char *user_buf = (char *)arg2;
-            if (!user_buf) return -1;
-            char model[64];
-            platform_get_cpu_model(model);
-            extern void mem_memcpy(void *dest, const void *src, size_t len);
-            mem_memcpy(user_buf, model, 49);
-            return 0;
+            return -1;
         } else if (cmd == 47) { // SYSTEM_CMD_SET_RESOLUTION
             uint16_t req_w = (uint16_t)arg2;
             uint16_t req_h = (uint16_t)arg3;
@@ -1351,12 +1323,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 return 0;
             }
             return -1;
-        } else if (cmd == 49) { // SYSTEM_CMD_GET_OS_INFO
-            os_info_t *info = (os_info_t *)arg2;
-            if (!info) return -1;
-            extern void get_os_info(os_info_t *info);
-            get_os_info(info);
-            return 0;
+            return -1;
         } else if (cmd == SYSTEM_CMD_PARALLEL_RUN) {
             void (*user_fn)(void*) = (void (*)(void*))arg2;
             void **args = (void **)arg3;

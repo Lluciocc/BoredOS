@@ -20,7 +20,6 @@ extern void serial_write(const char *str);
 #define MAX_PROCESSES 16
 #define MAX_CPUS_SCHED 32
 process_t processes[MAX_PROCESSES] __attribute__((aligned(16)));
-int process_count = 0;
 static process_t* current_process[MAX_CPUS_SCHED] = {0}; // Per-CPU
 static uint32_t next_pid = 0;
 static void *free_kernel_stack_later[MAX_CPUS_SCHED] = {0};
@@ -34,9 +33,10 @@ void process_init(void) {
     }
 
     // Current kernel execution is PID 0
-    process_t *kernel_proc = &processes[process_count++];
+    process_t *kernel_proc = &processes[0];
     kernel_proc->pid = next_pid++;
     kernel_proc->is_user = false;
+    kernel_proc->is_idle = true;
     
     // We don't have its RSP or PML4 yet, but it's already running.
     // The timer interrupt will naturally capture its context on the first tick!
@@ -55,20 +55,38 @@ void process_init(void) {
 
     kernel_proc->next = kernel_proc; // Circular linked list
     kernel_proc->cpu_affinity = 0;   // Kernel always on BSP
+    mem_memset(kernel_proc->cwd, 0, 1024);
+    kernel_proc->cwd[0] = '/';
     current_process[0] = kernel_proc;
 }
 
 process_t* process_create(void (*entry_point)(void), bool is_user) {
     uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
     
-    if (process_count >= MAX_PROCESSES) {
+    process_t *new_proc = NULL;
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[i].pid == 0xFFFFFFFF) {
+            new_proc = &processes[i];
+            break;
+        }
+    }
+
+    if (!new_proc) {
         spinlock_release_irqrestore(&runqueue_lock, rflags);
         return NULL;
     }
     
-    process_t *new_proc = &processes[process_count++];
     new_proc->pid = next_pid++;
     new_proc->is_user = is_user;
+    
+    process_t *parent = process_get_current();
+    if (parent) {
+        extern void mem_memcpy(void *dest, const void *src, size_t len);
+        mem_memcpy(new_proc->cwd, parent->cwd, 1024);
+    } else {
+        mem_memset(new_proc->cwd, 0, 1024);
+        new_proc->cwd[0] = '/';
+    }
     
     // 1. Setup Page Table
     if (is_user) {
@@ -163,9 +181,8 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     
     // Find an available slot
     for (int i = 0; i < MAX_PROCESSES; i++) {
-        if (processes[i].pid == 0xFFFFFFFF || i >= process_count) {
+        if (processes[i].pid == 0xFFFFFFFF) {
             new_proc = &processes[i];
-            if (i >= process_count) process_count = i + 1;
             break;
         }
     }

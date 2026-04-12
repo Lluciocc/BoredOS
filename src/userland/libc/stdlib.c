@@ -202,9 +202,27 @@ char* strcat(char *dest, const char *src) {
     return ret;
 }
 
+char *strchr(const char *s, int c) {
+    while (*s != (char)c) {
+        if (!*s++) return NULL;
+    }
+    return (char *)s;
+}
+
+char *strstr(const char *haystack, const char *needle) {
+    size_t needle_len = strlen(needle);
+    if (!needle_len) return (char *)haystack;
+    while (*haystack) {
+        if (memcmp(haystack, needle, needle_len) == 0) return (char *)haystack;
+        haystack++;
+    }
+    return NULL;
+}
+
 int atoi(const char *nptr) {
     int res = 0;
     int sign = 1;
+    while (*nptr == ' ' || *nptr == '\t' || *nptr == '\n' || *nptr == '\r') nptr++;
     if (*nptr == '-') {
         sign = -1;
         nptr++;

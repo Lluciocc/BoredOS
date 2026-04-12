@@ -39,8 +39,19 @@ void DG_SleepMs(uint32_t ms) {
 }
 
 uint32_t DG_GetTicksMs(void) {
-    uint64_t ticks = sys_system(16, 0, 0, 0, 0); // SYSTEM_CMD_UPTIME = 16 (100Hz)
-    return (uint32_t)(ticks * 10);
+    int fd = sys_open("/proc/uptime", "r");
+    if (fd < 0) return 0;
+    char buf[128];
+    int bytes = sys_read(fd, buf, 127);
+    sys_close(fd);
+    if (bytes <= 0) return 0;
+    buf[bytes] = 0;
+
+    char *p = strstr(buf, "Raw_Ticks:");
+    if (!p) return 0;
+    uint32_t ticks = atoi(p + 10);
+    // 60Hz to ms: ticks * 1000 / 60 = ticks * 50 / 3
+    return (ticks * 50) / 3;
 }
 
 void DG_SetWindowTitle(const char * title) {
@@ -108,7 +119,7 @@ int DG_GetKey(int* pressed, unsigned char* key) {
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    char* fake_argv[] = {"doom", "-iwad", "A:/Library/DOOM/doom1.wad"};
+    char* fake_argv[] = {"doom", "-iwad", "/Library/DOOM/doom1.wad"};
     doomgeneric_Create(3, fake_argv);
 
     while (1) {

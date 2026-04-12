@@ -32,19 +32,6 @@ static int win_h = 960;
 static char history_stack[HISTORY_MAX][512];
 static int history_count = 0;
 
-static char* strstr(const char* haystack, const char* needle) {
-    if (!*needle) return (char*)haystack;
-    for (; *haystack; haystack++) {
-        const char *h = haystack;
-        const char *n = needle;
-        while (*h && *n && *h == *n) {
-            h++; n++;
-        }
-        if (!*n) return (char*)haystack;
-    }
-    return NULL;
-}
-
 static char* str_istrstr(const char* haystack, const char* needle) {
     if (!*needle) return (char*)haystack;
     for (; *haystack; haystack++) {

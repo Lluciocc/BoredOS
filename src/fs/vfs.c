@@ -6,10 +6,8 @@
 #include "spinlock.h"
 #include <stddef.h>
 #include "disk.h"
+#include "process.h"
 
-// ============================================================================
-// VFS Mount Table and File Handle Pool
-// ============================================================================
 
 static vfs_mount_t mounts[VFS_MAX_MOUNTS];
 static int mount_count = 0;
@@ -18,10 +16,6 @@ static spinlock_t vfs_lock = SPINLOCK_INIT;
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint64_t num);
-
-// ============================================================================
-// String helpers (freestanding — no libc)
-// ============================================================================
 
 static int vfs_strlen(const char *s) {
     int n = 0;
@@ -53,44 +47,63 @@ static bool vfs_starts_with(const char *str, const char *prefix) {
     return true;
 }
 
-// ============================================================================
-// Path Normalization
-// ============================================================================
+static bool vfs_path_is_parent(const char *parent, const char *child) {
+    int plen = vfs_strlen(parent);
+    if (vfs_strncmp(parent, child, plen) != 0) return false;
+    if (child[plen] == '\0') return true;
+    if (child[plen] == '/') return true;
+    if (plen == 1 && parent[0] == '/') return true;
+    return false;
+}
 
-void vfs_normalize_path(const char *path, char *normalized) {
-    // Resolve . and .. components, remove duplicate slashes
-    char parts[32][128];
+void vfs_normalize_path(const char *cwd, const char *path, char *normalized) {
+    char parts[32][64]; // Reduced size to save stack, 64 is enough for most names
     int depth = 0;
     int i = 0;
 
-    // Skip leading slash
+    // Handle relative path by starting with CWD
+    if (path[0] != '/' && cwd) {
+        int ci = 0;
+        if (cwd[0] == '/') ci = 1;
+        while (cwd[ci]) {
+            if (cwd[ci] == '/') { ci++; continue; }
+            int j = 0;
+            while (cwd[ci] && cwd[ci] != '/' && j < 63) {
+                parts[depth][j++] = cwd[ci++];
+            }
+            parts[depth][j] = 0;
+            if (j > 0) depth++;
+            if (depth >= 32) break;
+            if (cwd[ci] == '/') ci++;
+        }
+    }
+
     if (path[0] == '/') i = 1;
 
     while (path[i]) {
-        // Skip duplicate slashes
         if (path[i] == '/') { i++; continue; }
 
-        // Extract component
         int j = 0;
-        while (path[i] && path[i] != '/' && j < 127) {
+        while (path[i] && path[i] != '/' && j < 63) {
             parts[depth][j++] = path[i++];
         }
         parts[depth][j] = 0;
 
         if (parts[depth][0] == '.' && parts[depth][1] == 0) {
-            // "." — skip
+            // "." skip
         } else if (parts[depth][0] == '.' && parts[depth][1] == '.' && parts[depth][2] == 0) {
-            // ".." — go up
+            // ".." pop
             if (depth > 0) depth--;
         } else {
-            depth++;
-            if (depth >= 32) break;
+            if (j > 0) {
+                depth++;
+                if (depth >= 32) break;
+            }
         }
 
         if (path[i] == '/') i++;
     }
 
-    // Reconstruct
     normalized[0] = '/';
     int pos = 1;
     for (int k = 0; k < depth; k++) {
@@ -102,15 +115,10 @@ void vfs_normalize_path(const char *path, char *normalized) {
     }
     normalized[pos] = 0;
 
-    // Ensure root is just "/"
     if (pos == 1 && normalized[0] == '/') {
         normalized[1] = 0;
     }
 }
-
-// ============================================================================
-// Mount Resolution — find the longest-prefix mount for a path
-// ============================================================================
 
 static vfs_mount_t* vfs_resolve_mount(const char *path, const char **rel_path_out) {
     vfs_mount_t *best = NULL;
@@ -121,7 +129,6 @@ static vfs_mount_t* vfs_resolve_mount(const char *path, const char **rel_path_ou
 
         int mlen = mounts[i].path_len;
 
-        // Root mount "/" matches everything
         if (mlen == 1 && mounts[i].path[0] == '/') {
             if (best_len < 1) {
                 best = &mounts[i];
@@ -130,9 +137,7 @@ static vfs_mount_t* vfs_resolve_mount(const char *path, const char **rel_path_ou
             continue;
         }
 
-        // Check if path starts with this mount point
         if (vfs_strncmp(path, mounts[i].path, mlen) == 0) {
-            // Must be followed by '/' or end of string
             if (path[mlen] == '/' || path[mlen] == '\0') {
                 if (mlen > best_len) {
                     best = &mounts[i];
@@ -144,7 +149,6 @@ static vfs_mount_t* vfs_resolve_mount(const char *path, const char **rel_path_ou
 
     if (best && rel_path_out) {
         const char *rel = path + best_len;
-        // Skip leading slash in relative path
         while (*rel == '/') rel++;
         *rel_path_out = rel;
     }
@@ -152,14 +156,14 @@ static vfs_mount_t* vfs_resolve_mount(const char *path, const char **rel_path_ou
     return best;
 }
 
-// ============================================================================
-// File Handle Pool
-// ============================================================================
-
 static vfs_file_t* vfs_alloc_file(void) {
     for (int i = 0; i < VFS_MAX_OPEN_FILES; i++) {
         if (!open_files[i].valid) {
             open_files[i].valid = true;
+            open_files[i].fs_handle = NULL;
+            open_files[i].mount = NULL;
+            open_files[i].position = 0;
+            open_files[i].is_device = false;
             return &open_files[i];
         }
     }
@@ -171,12 +175,10 @@ static void vfs_free_file(vfs_file_t *f) {
         f->valid = false;
         f->fs_handle = NULL;
         f->mount = NULL;
+        f->position = 0;
+        f->is_device = false;
     }
 }
-
-// ============================================================================
-// Initialization
-// ============================================================================
 
 void vfs_init(void) {
     for (int i = 0; i < VFS_MAX_MOUNTS; i++) {
@@ -190,9 +192,9 @@ void vfs_init(void) {
     serial_write("[VFS] Virtual File System initialized\n");
 }
 
-// ============================================================================
+// ===============
 // Mount / Unmount
-// ============================================================================
+// ===============
 
 bool vfs_mount(const char *mount_path, const char *device, const char *fs_type,
                vfs_fs_ops_t *ops, void *fs_private) {
@@ -204,7 +206,6 @@ bool vfs_mount(const char *mount_path, const char *device, const char *fs_type,
         return false;
     }
 
-    // Check for duplicate mount
     for (int i = 0; i < mount_count; i++) {
         if (mounts[i].active && vfs_strcmp(mounts[i].path, mount_path) == 0) {
             spinlock_release_irqrestore(&vfs_lock, flags);
@@ -243,7 +244,6 @@ bool vfs_umount(const char *mount_path) {
 
     for (int i = 0; i < mount_count; i++) {
         if (mounts[i].active && vfs_strcmp(mounts[i].path, mount_path) == 0) {
-            // Close any open files on this mount
             for (int j = 0; j < VFS_MAX_OPEN_FILES; j++) {
                 if (open_files[j].valid && open_files[j].mount == &mounts[i]) {
                     if (mounts[i].ops->close) {
@@ -274,27 +274,44 @@ bool vfs_umount(const char *mount_path) {
     return false;
 }
 
-// ============================================================================
+// ==============
 // File Operations
-// ============================================================================
+// ==============
 
 vfs_file_t* vfs_open(const char *path, const char *mode) {
     if (!path || !mode) return NULL;
 
-    // Normalize path
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    process_t *proc = process_get_current();
+    vfs_normalize_path(proc ? proc->cwd : "/", path, normalized);
 
     uint64_t flags = spinlock_acquire_irqsave(&vfs_lock);
 
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
+    
+    // Fallback for block devices (/dev/sda etc)
+    if (vfs_starts_with(normalized, "/dev/")) {
+        const char *devname = normalized + 5;
+        Disk *d = disk_get_by_name(devname);
+        if (d && (!mount || mount->path_len == 1)) {
+            vfs_file_t *vf = vfs_alloc_file();
+            if (vf) {
+                vf->mount = &mounts[0];
+                vf->fs_handle = (void*)d; 
+                vf->is_device = true;
+                vf->position = 0;
+                spinlock_release_irqrestore(&vfs_lock, flags);
+                return vf;
+            }
+        }
+    }
+    
     if (!mount || !mount->ops->open) {
         spinlock_release_irqrestore(&vfs_lock, flags);
         return NULL;
     }
 
-    // If rel_path is empty, use root
     if (!rel_path || rel_path[0] == '\0') {
         rel_path = "/";
     }
@@ -308,7 +325,6 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
 
     vf->mount = mount;
 
-    // Release lock before calling FS ops (FS has its own locking)
     spinlock_release_irqrestore(&vfs_lock, flags);
 
     void *fs_handle = mount->ops->open(mount->fs_private, rel_path, mode);
@@ -338,9 +354,38 @@ void vfs_close(vfs_file_t *file) {
 
 int vfs_read(vfs_file_t *file, void *buf, int size) {
     if (!file || !file->valid || !file->mount) return -1;
-    if (!file->mount->ops->read) return -1;
     
-    return file->mount->ops->read(file->mount->fs_private, file->fs_handle, buf, size);
+    if (file->is_device) {
+        Disk *d = (Disk*)file->fs_handle;
+        if (!d) return -1;
+        
+        uint32_t total_read = 0;
+        uint32_t sector = (uint32_t)(file->position / 512);
+        uint32_t offset = (uint32_t)(file->position % 512);
+        uint8_t sector_buf[512];
+        
+        while (total_read < (uint32_t)size) {
+            if (sector >= d->total_sectors) break;
+            if (d->read_sector(d, sector, sector_buf) != 0) break;
+            
+            uint32_t to_copy = 512 - offset;
+            if (to_copy > (uint32_t)size - total_read) to_copy = (uint32_t)size - total_read;
+            
+            extern void mem_memcpy(void *dest, const void *src, size_t len);
+            mem_memcpy((uint8_t*)buf + total_read, sector_buf + offset, to_copy);
+            
+            total_read += to_copy;
+            file->position += to_copy;
+            sector++;
+            offset = 0;
+        }
+        return (int)total_read;
+    }
+
+    if (!file->mount->ops->read) return -1;
+    int ret = file->mount->ops->read(file->mount->fs_private, file->fs_handle, buf, size);
+    if (ret > 0) file->position += ret;
+    return ret;
 }
 
 int vfs_write(vfs_file_t *file, const void *buf, int size) {
@@ -352,32 +397,60 @@ int vfs_write(vfs_file_t *file, const void *buf, int size) {
 
 int vfs_seek(vfs_file_t *file, int offset, int whence) {
     if (!file || !file->valid || !file->mount) return -1;
+    
+    if (file->is_device) {
+        Disk *d = (Disk*)file->fs_handle;
+        if (!d) return -1;
+        uint64_t new_pos = file->position;
+        if (whence == 0) new_pos = (uint64_t)offset; // SET
+        else if (whence == 1) new_pos += (uint64_t)offset; // CUR
+        else if (whence == 2) new_pos = (uint64_t)(d->total_sectors * 512 + offset); // END
+        
+        if (new_pos > (uint64_t)d->total_sectors * 512) new_pos = (uint64_t)d->total_sectors * 512;
+        file->position = new_pos;
+        return 0;
+    }
+
     if (!file->mount->ops->seek) return -1;
-    return file->mount->ops->seek(file->mount->fs_private, file->fs_handle, offset, whence);
+    int ret = file->mount->ops->seek(file->mount->fs_private, file->fs_handle, offset, whence);
+    if (ret == 0) {
+        // Sync position back from driver if possible
+        if (file->mount->ops->get_position) {
+            file->position = file->mount->ops->get_position(file->fs_handle);
+        } else {
+            // Manual sync if driver doesn't support get_position but seek succeeded
+            if (whence == 0) file->position = offset;
+            else if (whence == 1) file->position += offset;
+        }
+    }
+    return ret;
 }
 
 uint32_t vfs_file_position(vfs_file_t *file) {
     if (!file || !file->valid || !file->mount) return 0;
+    if (file->is_device) return (uint32_t)file->position;
     if (!file->mount->ops->get_position) return 0;
     return file->mount->ops->get_position(file->fs_handle);
 }
 
 uint32_t vfs_file_size(vfs_file_t *file) {
     if (!file || !file->valid || !file->mount) return 0;
+    if (file->is_device) {
+        Disk *d = (Disk*)file->fs_handle;
+        return d ? d->total_sectors * 512 : 0;
+    }
     if (!file->mount->ops->get_size) return 0;
     return file->mount->ops->get_size(file->fs_handle);
 }
 
-// ============================================================================
-// Directory Operations
-// ============================================================================
+
 
 int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max) {
     if (!path || !entries) return -1;
     
 
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    vfs_normalize_path("/", path, normalized);
 
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
@@ -386,22 +459,19 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max) {
     if (mount && mount->ops->readdir) {
         if (!rel_path || rel_path[0] == '\0') rel_path = "/";
         count = mount->ops->readdir(mount->fs_private, rel_path, entries, max);
-        if (count < 0) count = 0; // Treat as virtual if readdir fails
+        if (count < 0) count = 0; 
     }
 
-    // Merge in other mount points that are direct children of this path
     uint64_t v_flags = spinlock_acquire_irqsave(&vfs_lock);
     for (int i = 0; i < mount_count; i++) {
         if (!mounts[i].active) continue;
-        if (vfs_strcmp(mounts[i].path, normalized) == 0) continue; // Skip ourselves
+        if (vfs_strcmp(mounts[i].path, normalized) == 0) continue; 
 
-        // Check if mount path starts with current path
-        if (vfs_starts_with(mounts[i].path, normalized)) {
+        if (vfs_path_is_parent(normalized, mounts[i].path)) {
             const char *sub = mounts[i].path + vfs_strlen(normalized);
-            if (*sub == '/') sub++; // skip slash
+            if (*sub == '/') sub++; 
 
             if (*sub != '\0') {
-                // Extract first component (direct child name)
                 char comp[VFS_MAX_NAME];
                 int j = 0;
                 while (sub[j] && sub[j] != '/' && j < VFS_MAX_NAME - 1) {
@@ -410,7 +480,6 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max) {
                 }
                 comp[j] = 0;
 
-                // Check if already in results
                 bool found = false;
                 for (int k = 0; k < count; k++) {
                     if (vfs_strcmp(entries[k].name, comp) == 0) {
@@ -431,21 +500,24 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max) {
     }
     spinlock_release_irqrestore(&vfs_lock, v_flags);
 
-    // Special case: Ensure "dev" is visible in "/"
+    // Special case: Ensure "dev", "sys", "proc" are visible in "/"
     if (vfs_strcmp(normalized, "/") == 0) {
-        bool found_dev = false;
-        for (int i = 0; i < count; i++) {
-            if (vfs_strcmp(entries[i].name, "dev") == 0) {
-                found_dev = true;
-                break;
+        const char *virtual_dirs[] = {"dev", "sys", "proc"};
+        for (int v = 0; v < 3; v++) {
+            bool found = false;
+            for (int i = 0; i < count; i++) {
+                if (vfs_strcmp(entries[i].name, virtual_dirs[v]) == 0) {
+                    found = true;
+                    break;
+                }
             }
-        }
-        if (!found_dev && count < max) {
-            vfs_strcpy(entries[count].name, "dev");
-            entries[count].is_directory = 1;
-            entries[count].size = 0;
-            entries[count].start_cluster = 0;
-            count++;
+            if (!found && count < max) {
+                vfs_strcpy(entries[count].name, virtual_dirs[v]);
+                entries[count].is_directory = 1;
+                entries[count].size = 0;
+                entries[count].start_cluster = 0;
+                count++;
+            }
         }
     }
 
@@ -465,7 +537,7 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max) {
                 if (!found) {
                     vfs_strcpy(entries[count].name, d->devname);
                     entries[count].size = d->total_sectors * 512;
-                    entries[count].is_directory = d->is_partition ? 1 : 0;
+                    entries[count].is_directory = 0;
                     entries[count].start_cluster = 0;
                     entries[count].write_date = 0;
                     entries[count].write_time = 0;
@@ -482,15 +554,14 @@ bool vfs_mkdir(const char *path) {
     if (!path) return false;
 
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    vfs_normalize_path("/", path, normalized);
 
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
 
-    // If it's in /dev/, check if it's within a mounted volume deeper than the device node
     if (vfs_starts_with(normalized, "/dev/")) {
         if (!mount || !rel_path || rel_path[0] == '\0') {
-            return false; // Protect raw device nodes
+            return false; 
         }
     }
 
@@ -502,19 +573,17 @@ bool vfs_rmdir(const char *path) {
     if (!path) return false;
 
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    vfs_normalize_path("/", path, normalized);
 
-    // Protect root and virtual /dev directory itself
     if (normalized[0] == '/' && normalized[1] == '\0') return false;
     if (vfs_strcmp(normalized, "/dev") == 0) return false;
 
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
 
-    // If it's in /dev/, allow only if it's inside a mount beyond the device node
     if (vfs_starts_with(normalized, "/dev/")) {
         if (!mount || !rel_path || rel_path[0] == '\0') {
-            return false; // Protect raw device nodes
+            return false; 
         }
     }
 
@@ -526,19 +595,17 @@ bool vfs_delete(const char *path) {
     if (!path) return false;
 
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    vfs_normalize_path("/", path, normalized);
 
-    // Protect root and virtual /dev directory itself
     if (normalized[0] == '/' && normalized[1] == '\0') return false;
     if (vfs_strcmp(normalized, "/dev") == 0) return false;
 
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
 
-    // If it's in /dev/, allow only if it's inside a mount beyond the device node
     if (vfs_starts_with(normalized, "/dev/")) {
         if (!mount || !rel_path || rel_path[0] == '\0') {
-            return false; // Protect raw device nodes
+            return false; 
         }
     }
 
@@ -550,14 +617,13 @@ bool vfs_rename(const char *old_path, const char *new_path) {
     if (!old_path || !new_path) return false;
 
     char norm_old[VFS_MAX_PATH], norm_new[VFS_MAX_PATH];
-    vfs_normalize_path(old_path, norm_old);
-    vfs_normalize_path(new_path, norm_new);
+    vfs_normalize_path("/", old_path, norm_old);
+    vfs_normalize_path("/", new_path, norm_new);
 
     const char *rel_old = NULL, *rel_new = NULL;
     vfs_mount_t *mount_old = vfs_resolve_mount(norm_old, &rel_old);
     vfs_mount_t *mount_new = vfs_resolve_mount(norm_new, &rel_new);
 
-    // Can only rename within the same mount
     if (!mount_old || mount_old != mount_new) return false;
     if (!mount_old->ops->rename) return false;
 
@@ -567,20 +633,14 @@ bool vfs_rename(const char *old_path, const char *new_path) {
     return mount_old->ops->rename(mount_old->fs_private, rel_old, rel_new);
 }
 
-// ============================================================================
-// Query Operations
-// ============================================================================
-
 bool vfs_exists(const char *path) {
     if (!path) return false;
 
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    vfs_normalize_path("/", path, normalized);
 
-    // Root always exists
     if (normalized[0] == '/' && normalized[1] == '\0') return true;
 
-    // Check if it's a prefix of any active mount point
     uint64_t flags_vfs = spinlock_acquire_irqsave(&vfs_lock);
     for (int i = 0; i < mount_count; i++) {
         if (mounts[i].active && vfs_starts_with(mounts[i].path, normalized)) {
@@ -590,10 +650,10 @@ bool vfs_exists(const char *path) {
     }
     spinlock_release_irqrestore(&vfs_lock, flags_vfs);
 
-    // /dev always exists as a virtual directory
-    if (vfs_strcmp(normalized, "/dev") == 0) return true;
+    if (vfs_strcmp(normalized, "/dev") == 0 || 
+        vfs_strcmp(normalized, "/sys") == 0 || 
+        vfs_strcmp(normalized, "/proc") == 0) return true;
 
-    // Check if it's a device in /dev
     if (vfs_starts_with(normalized, "/dev/")) {
         const char *dev = normalized + 5;
         if (disk_get_by_name(dev)) return true;
@@ -603,7 +663,7 @@ bool vfs_exists(const char *path) {
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
     if (!mount || !mount->ops->exists) return false;
 
-    if (!rel_path || rel_path[0] == '\0') return true; // Mount point itself exists
+    if (!rel_path || rel_path[0] == '\0') return true; 
 
     return mount->ops->exists(mount->fs_private, rel_path);
 }
@@ -612,43 +672,38 @@ bool vfs_is_directory(const char *path) {
     if (!path) return false;
 
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    vfs_normalize_path("/", path, normalized);
 
-    // Root is always a directory
     if (normalized[0] == '/' && normalized[1] == '\0') return true;
 
-    // Check if it's a prefix of any active mount point (virtual directory)
     uint64_t flags_vfs = spinlock_acquire_irqsave(&vfs_lock);
     for (int i = 0; i < mount_count; i++) {
-        if (mounts[i].active && vfs_starts_with(mounts[i].path, normalized)) {
-            // If it matches exactly a mount point, we still need to check if that FS is a dir
+        if (mounts[i].active && vfs_path_is_parent(normalized, mounts[i].path)) {
             if (vfs_strcmp(mounts[i].path, normalized) == 0) {
-                // Exact mount point - it is a directory (mount root)
                 spinlock_release_irqrestore(&vfs_lock, flags_vfs);
                 return true;
             }
-            // Prefix only - it is a virtual intermediate directory
+            // If normalized is a parent of a mount, it's a virtual directory
             spinlock_release_irqrestore(&vfs_lock, flags_vfs);
             return true;
         }
     }
     spinlock_release_irqrestore(&vfs_lock, flags_vfs);
 
-    // /dev is always a virtual directory
-    if (vfs_strcmp(normalized, "/dev") == 0) return true;
+    if (vfs_strcmp(normalized, "/dev") == 0 || 
+        vfs_strcmp(normalized, "/sys") == 0 || 
+        vfs_strcmp(normalized, "/proc") == 0) return true;
 
-    // Device check
     if (vfs_starts_with(normalized, "/dev/")) {
         const char *dev = normalized + 5;
         Disk *d = disk_get_by_name(dev);
-        if (d) return d->is_partition ? true : false;
+        if (d) return false;
     }
 
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
     if (!mount) return false;
 
-    // If it's a mount point and we're at its root, it definitely exists as a dir
     if (!rel_path || rel_path[0] == '\0') return true;
 
     if (!mount->ops->is_dir) return false;
@@ -659,9 +714,8 @@ int vfs_get_info(const char *path, vfs_dirent_t *info) {
     if (!path || !info) return -1;
 
     char normalized[VFS_MAX_PATH];
-    vfs_normalize_path(path, normalized);
+    vfs_normalize_path("/", path, normalized);
 
-    // Root info
     if (normalized[0] == '/' && normalized[1] == '\0') {
         vfs_strcpy(info->name, "/");
         info->size = 0;
@@ -672,9 +726,11 @@ int vfs_get_info(const char *path, vfs_dirent_t *info) {
         return 0;
     }
 
-    // /dev virtual directory info
-    if (vfs_strcmp(normalized, "/dev") == 0) {
-        vfs_strcpy(info->name, "dev");
+    if (vfs_strcmp(normalized, "/dev") == 0 || 
+        vfs_strcmp(normalized, "/sys") == 0 || 
+        vfs_strcmp(normalized, "/proc") == 0) {
+        const char *name = normalized + 1;
+        vfs_strcpy(info->name, name);
         info->size = 0;
         info->is_directory = 1;
         info->start_cluster = 0;
@@ -683,13 +739,10 @@ int vfs_get_info(const char *path, vfs_dirent_t *info) {
         return 0;
     }
 
-    // Check if it's a prefix of any active mount point (virtual directory)
     uint64_t flags_vfs = spinlock_acquire_irqsave(&vfs_lock);
     for (int i = 0; i < mount_count; i++) {
-        if (mounts[i].active && vfs_starts_with(mounts[i].path, normalized)) {
+        if (mounts[i].active && vfs_path_is_parent(normalized, mounts[i].path)) {
             if (vfs_strcmp(mounts[i].path, normalized) != 0) {
-                // Virtual intermediate directory
-                // Get component name
                 const char *p = normalized + vfs_strlen(normalized);
                 while (p > normalized && *(p-1) != '/') p--;
                 vfs_strcpy(info->name, p);
@@ -712,7 +765,7 @@ int vfs_get_info(const char *path, vfs_dirent_t *info) {
         if (d) {
             vfs_strcpy(info->name, d->devname);
             info->size = d->total_sectors * 512;
-            info->is_directory = d->is_partition ? 1 : 0;
+            info->is_directory = 0;
             info->start_cluster = 0;
             info->write_date = 0;
             info->write_time = 0;
@@ -738,10 +791,6 @@ int vfs_get_info(const char *path, vfs_dirent_t *info) {
     return mount->ops->get_info(mount->fs_private, rel_path, info);
 }
 
-// ============================================================================
-// Mount Enumeration
-// ============================================================================
-
 int vfs_get_mount_count(void) {
     return mount_count;
 }
@@ -752,12 +801,7 @@ vfs_mount_t* vfs_get_mount(int index) {
     return &mounts[index];
 }
 
-// ============================================================================
-// Auto-Mount (called when a new partition is discovered)
-// ============================================================================
-
 void vfs_automount_partition(const char *devname) {
-    // Build mount point: /mnt/<devname>
     char mount_path[64] = "/mnt/";
     int i = 5;
     const char *d = devname;
@@ -769,8 +813,4 @@ void vfs_automount_partition(const char *devname) {
     serial_write(" at ");
     serial_write(mount_path);
     serial_write("\n");
-
-    // The actual FAT32 volume creation and mount happens in disk_manager
-    // after probing the partition. This function is called by disk_manager
-    // after it has created the FAT32_Volume.
 }

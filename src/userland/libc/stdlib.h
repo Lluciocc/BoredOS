@@ -11,11 +11,9 @@ void* realloc(void* ptr, size_t size);
 void *memset(void *s, int c, size_t n);
 void *memcpy(void *dest, const void *src, size_t n);
 
-// String functions
-size_t strlen(const char *s);
-int strcmp(const char *s1, const char *s2);
-char* strcpy(char *dest, const char *src);
-char* strcat(char *dest, const char *src);
+#include "string.h"
+
+// Math/Utility functions
 int atoi(const char *nptr);
 void itoa(int n, char *buf);
 

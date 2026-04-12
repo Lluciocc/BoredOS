@@ -149,25 +149,11 @@ char *strrchr(const char *s, int c) {
     if (c == 0) last = s;
     return (char*)last;
 }
-char *strchr(const char *s, int c) {
-    while (*s) { if (*s == c) return (char*)s; s++; }
-    if (c == 0) return (char*)s;
-    return NULL;
-}
 char *strdup(const char *s) {
     size_t len = strlen(s) + 1;
     char *dup = malloc(len);
     if (dup) memcpy(dup, s, len);
     return dup;
-}
-char *strstr(const char *haystack, const char *needle) {
-    size_t n = strlen(needle);
-    if (!n) return (char *)haystack;
-    while (*haystack) {
-        if (!strncmp(haystack, needle, n)) return (char *)haystack;
-        haystack++;
-    }
-    return NULL;
 }
 
 int toupper(int c) { return (c >= 'a' && c <= 'z') ? c - 32 : c; }

@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
     uint64_t dt[6] = {0};
     syscall2(SYS_GUI, GUI_CMD_GET_DATETIME, (uint64_t)dt);
     
-    strcpy(g_filename, "/Desktop/screenshot-");
+    strcpy(g_filename, "/root/Desktop/screenshot-");
     append_num((int)dt[0], 4); // Year
     append_num((int)dt[1], 2); // Month
     append_num((int)dt[2], 2); // Day
@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
             
             // Show notification
             char notif[256] = "Saved ";
-            strcat(notif, g_filename + 9); // Skip "/Desktop/"
+            strcat(notif, g_filename + 14); // Skip "/root/Desktop/"
             syscall2(SYS_GUI, GUI_CMD_SHOW_NOTIFICATION, (uint64_t)notif);
         } else {
             res = 0;

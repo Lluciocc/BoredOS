@@ -58,6 +58,8 @@ struct vfs_file {
     void *fs_handle;        // FS-specific handle (e.g. FAT32_FileHandle*)
     vfs_mount_t *mount;     // Mount this file belongs to
     bool valid;
+    uint64_t position;      // Current Seek Position (for raw devices/fallbacks)
+    bool is_device;         // Is this a raw device handle?
 };
 
 // Mount entry
@@ -106,7 +108,7 @@ vfs_mount_t* vfs_get_mount(int index);
 void vfs_automount_partition(const char *devname);
 
 // Path utilities
-void vfs_normalize_path(const char *path, char *normalized);
+void vfs_normalize_path(const char *cwd, const char *path, char *normalized);
 
 // Backward compat: get position/size from vfs_file
 uint32_t vfs_file_position(vfs_file_t *file);

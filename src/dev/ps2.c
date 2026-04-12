@@ -16,12 +16,14 @@ extern void serial_print_hex(uint64_t n);
 volatile uint64_t kernel_ticks = 0;
 
 uint64_t timer_handler(registers_t *regs) {
-    kernel_ticks++;
-    wm_timer_tick();
-    network_process_frames();
-    
-    extern void k_beep_process(void);
-    k_beep_process();
+    if (smp_this_cpu_id() == 0) {
+        kernel_ticks++;
+        wm_timer_tick();
+        network_process_frames();
+        
+        extern void k_beep_process(void);
+        k_beep_process();
+    }
     
     outb(0x20, 0x20); 
     extern uint64_t process_schedule(uint64_t current_rsp);

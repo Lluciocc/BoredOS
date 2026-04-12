@@ -10,6 +10,7 @@
 #include "paging.h"
 #include "process.h"
 #include "work_queue.h"
+#include "core/kutils.h"
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint32_t n);
@@ -108,6 +109,11 @@ static void ap_entry(struct limine_smp_info *info) {
 
     process_t *ap_idle = process_create(NULL, false); 
     ap_idle->cpu_affinity = my_id;
+    ap_idle->is_idle = true;
+    k_strcpy(ap_idle->name, "idle:");
+    char id_s[8]; k_itoa(my_id, id_s);
+    k_strcpy(ap_idle->name + 5, id_s);
+    
     process_set_current_for_cpu(my_id, ap_idle);
     asm volatile("sti");
 

@@ -1011,7 +1011,7 @@ static void internal_cmd_cd(char *args) {
         if (vfs_is_directory(full_path)) {
             // Normalize the path to resolve .. and .
             char normalized_path[512];
-            vfs_normalize_path(full_path, normalized_path);
+            vfs_normalize_path(cmd_state->current_dir, full_path, normalized_path);
             
             cmd_update_dir(normalized_path);
             cmd_write("Changed to: ");
@@ -1071,7 +1071,7 @@ static void internal_cmd_txtedit(char *args) {
     cmd_write("\n");
 
     cmd_is_waiting_for_process = true;
-    process_t *proc = process_create_elf("A:/bin/txtedit.elf", normalized_path);
+    process_t *proc = process_create_elf("/bin/txtedit.elf", normalized_path);
     if (proc) {
         proc->is_terminal_proc = true;
         proc->ui_window = &win_cmd;
@@ -1537,7 +1537,7 @@ static void cmd_exec_single(char *cmd) {
         }
     }
 
-    // Check for executable in Current Directory or A:/bin/
+    // Check for executable in Current Directory or /bin/
     char search_path[512];
     
     // Check if the command already ends in .elf (case insensitive)
@@ -2104,11 +2104,12 @@ void cmd_reset(void) {
 }
 
 static void create_ramfs_files(void) {
-    if (!fat32_exists("Documents")) fat32_mkdir("Documents");
-    if (!fat32_exists("Projects")) fat32_mkdir("Projects");
-    if (!fat32_exists("Documents/Important")) fat32_mkdir("Documents/Important");
-    if (!fat32_exists("Apps")) fat32_mkdir("Apps");
-    if (!fat32_exists("Desktop")) fat32_mkdir("Desktop");
+    if (!fat32_exists("root")) fat32_mkdir("root");
+    if (!fat32_exists("root/Documents")) fat32_mkdir("root/Documents");
+    if (!fat32_exists("root/Documents/Important")) fat32_mkdir("root/Documents/Important");
+    if (!fat32_exists("root/Apps")) fat32_mkdir("root/Apps");
+    if (!fat32_exists("root/Desktop")) fat32_mkdir("root/Desktop");
+    if (!fat32_exists("root/projects")) fat32_mkdir("root/projects");
     if (!fat32_exists("RecycleBin")) fat32_mkdir("RecycleBin");
     if (!fat32_exists("Library/conf")) fat32_mkdir("Library/conf");
 
@@ -2156,7 +2157,7 @@ static void create_ramfs_files(void) {
                 "// BoredOS System Fetch Configuration\n"
                 "// ----------------------------------\n"
                 "// To use custom ascii art, uncomment the line below and point it to your file.\n"
-                "ascii_art_file=A:/Library/art/boredos.txt\n"
+                "ascii_art_file=/Library/art/boredos.txt\n"
                 "user_host_string=root@boredos\n"
                 "separator=------------\n"
                 "\n"
@@ -2192,7 +2193,7 @@ static void create_ramfs_files(void) {
 
     
   
-    FAT32_FileHandle *fh = fat32_open("Apps/README.md", "w");
+    FAT32_FileHandle *fh = fat32_open("root/Apps/README.md", "w");
     if (fh) {
         const char *content = 
             "# All compiled C files in this directory are openable from any other directory by typing in the name of the compiled file by typing in the name of the compiled file.\n\n"            
@@ -2202,24 +2203,24 @@ static void create_ramfs_files(void) {
         fat32_close(fh);
     }    
     
-    fh = fat32_open("Documents/notes.txt", "w");
+    fh = fat32_open("root/Documents/notes.txt", "w");
     if (fh) {
         const char *content = "My Notes\n\n- First note\n- Second note\n";
         fat32_write(fh, (void *)content, 39);
         fat32_close(fh);
     }
     
-    fh = fat32_open("Projects/project1.txt", "w");
+    fh = fat32_open("root/projects/project1.txt", "w");
     if (fh) {
         const char *content = "Project 1\n\nStatus: In Progress\n";
         fat32_write(fh, (void *)content, 32);
         fat32_close(fh);
     }
 
-    fat32_open("Desktop/Recycle Bin.shortcut", "w");
+    fat32_open("root/Desktop/Recycle Bin.shortcut", "w");
 
     
-    fh = fat32_open("Apps/wordofgod.c", "w");
+    fh = fat32_open("root/Apps/wordofgod.c", "w");
     if (fh) {
         // Buffer the entire file content to write in one go
         // This prevents issues with multiple small writes causing truncation
@@ -2273,7 +2274,7 @@ static void create_ramfs_files(void) {
         fat32_close(fh);
     }
 
-    fh = fat32_open("Apps/DOOM.c", "w");
+    fh = fat32_open("root/Apps/DOOM.c", "w");
     if (fh) {
         const char *content = 
             "int main(){\n"
@@ -2324,7 +2325,11 @@ void cmd_init(void) {
     if (state) {
         
         state->current_dir[0] = '/';
-        state->current_dir[1] = 0;
+        state->current_dir[1] = 'r';
+        state->current_dir[2] = 'o';
+        state->current_dir[3] = 'o';
+        state->current_dir[4] = 't';
+        state->current_dir[5] = 0;
         win_cmd.data = state;
         cmd_state = state;  // Set static pointer
     }

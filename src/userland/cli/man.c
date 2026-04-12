@@ -14,7 +14,7 @@ int main(int argc, char **argv) {
     printf("Manual for: %s\n", argv[1]);
     printf("---------------------------\n");
     
-    strcpy(path, "A:/Library/man/");
+    strcpy(path, "/Library/man/");
     strcat(path, argv[1]);
     strcat(path, ".txt");
     

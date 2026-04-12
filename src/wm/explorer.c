@@ -240,8 +240,8 @@ static void explorer_draw_icon_label(int x, int y, const char *label, uint32_t c
 
 static bool check_desktop_limit_explorer(Window *win) {
     ExplorerState *state = (ExplorerState*)win->data;
-    if (explorer_str_starts_with(state->current_path, "/Desktop")) {
-        if (explorer_strcmp(state->current_path, "/Desktop") == 0 || explorer_strcmp(state->current_path, "/Desktop/") == 0) { // Check if root desktop
+    if (explorer_str_starts_with(state->current_path, "/root/Desktop")) {
+        if (explorer_strcmp(state->current_path, "/root/Desktop") == 0 || explorer_strcmp(state->current_path, "/root/Desktop/") == 0) { // Check if root desktop
              if (state->item_count >= desktop_max_cols * (desktop_max_rows_per_col > 1 ? desktop_max_rows_per_col - 1 : 0)) {
                  state->dialog_state = DIALOG_ERROR;
                  explorer_strcpy(state->dialog_input, "Desktop is full!");

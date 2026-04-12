@@ -32,38 +32,111 @@ static uint64_t kernel_ticks_prev = 0;
 static uint64_t total_mem_system = 0;
 static uint64_t used_mem_system = 0;
 static char cpu_model_name[64] = "Unknown CPU";
+static int cpu_cores = 1;
 
-typedef struct {
-    size_t total_memory;
-    size_t used_memory;
-    size_t available_memory;
-    size_t allocated_blocks;
-    size_t free_blocks;
-    size_t largest_free_block;
-    size_t smallest_free_block;
-    size_t fragmentation_percent;
-    size_t peak_memory_used;
-} MemStats;
+static int find_value(const char *buf, const char *key) {
+    char *p = (char*)buf;
+    int key_len = strlen(key);
+    while (*p) {
+        if (memcmp(p, key, key_len) == 0 && p[key_len] == ':') {
+            p += key_len + 1;
+            while (*p == ' ') p++;
+            return atoi(p);
+        }
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
+    }
+    return 0;
+}
+
+static void find_string(const char *buf, const char *key, char *out, int max_len) {
+    char *p = (char*)buf;
+    int key_len = strlen(key);
+    while (*p) {
+        if (memcmp(p, key, key_len) == 0 && p[key_len] == ':') {
+            p += key_len + 1;
+            while (*p == ' ') p++;
+            int i = 0;
+            while (*p && *p != '\n' && i < max_len - 1) {
+                out[i++] = *p++;
+            }
+            out[i] = 0;
+            return;
+        }
+        while (*p && *p != '\n') p++;
+        if (*p == '\n') p++;
+    }
+    strcpy(out, "Unknown");
+}
 
 static void update_proc_list(void) {
-    proc_count = sys_system(SYSTEM_CMD_PROCESS_LIST, (uint64_t)proc_list, 32, 0, 0);
-    
-    uint64_t uptime_now = sys_system(SYSTEM_CMD_UPTIME, 0, 0, 0, 0);
+    FAT32_FileInfo entries[64];
+    int count = sys_list("/proc", entries, 64);
+    if (count < 0) return;
+
+    proc_count = 0;
     uint64_t user_ticks_now = 0;
-    
-    for (int i = 0; i < proc_count; i++) {
-        if (proc_list[i].pid != 0) {
-            user_ticks_now += proc_list[i].ticks;
+
+    for (int i = 0; i < count; i++) {
+        if (entries[i].is_directory) {
+            // Check if name is numeric (PID)
+            bool numeric = true;
+            for (int j = 0; entries[i].name[j]; j++) {
+                if (entries[i].name[j] < '0' || entries[i].name[j] > '9') {
+                    numeric = false;
+                    break;
+                }
+            }
+            if (!numeric) continue;
+
+            int pid = atoi(entries[i].name);
+            char path[64];
+            strcpy(path, "/proc/");
+            strcat(path, entries[i].name);
+            strcat(path, "/status");
+
+            int fd = sys_open(path, "r");
+            if (fd >= 0) {
+                char buf[512];
+                int bytes = sys_read(fd, buf, 511);
+                sys_close(fd);
+                if (bytes > 0) {
+                    buf[bytes] = 0;
+                    proc_list[proc_count].pid = pid;
+                    find_string(buf, "Name", proc_list[proc_count].name, 64);
+                    proc_list[proc_count].used_memory = (size_t)find_value(buf, "Memory") * 1024;
+                    uint64_t ticks = (uint64_t)find_value(buf, "Ticks");
+                    proc_list[proc_count].ticks = ticks;
+                    
+                    proc_list[proc_count].is_idle = find_value(buf, "Idle") == 1;
+                    
+                    if (!proc_list[proc_count].is_idle) user_ticks_now += ticks;
+                    proc_count++;
+                    if (proc_count >= 32) break;
+                }
+            }
         }
     }
-    
+
+    // Global stats
+    int fd_u = sys_open("/proc/uptime", "r");
+    uint64_t uptime_now = 0;
+    if (fd_u >= 0) {
+        char buf[256];
+        int bytes = sys_read(fd_u, buf, 255);
+        sys_close(fd_u);
+        if (bytes > 0) {
+            buf[bytes] = 0;
+            uptime_now = (uint64_t)find_value(buf, "Raw_Ticks");
+        }
+    }
+
     if (uptime_prev > 0) {
         uint64_t total_delta = uptime_now - uptime_prev;
         if (total_delta > 0) {
-            uint64_t used_delta = user_ticks_now - kernel_ticks_prev; // Reusing the global state variable for prev user_ticks
-            
-            // On a 4 CPU system, theoretically used_delta can be 4x total_delta
-            int usage = (int)((used_delta * 100) / (total_delta * 4));
+            uint64_t used_delta = user_ticks_now - kernel_ticks_prev;
+            int cores = cpu_cores > 0 ? cpu_cores : 1;
+            int usage = (int)((used_delta * 100) / (total_delta * cores));
             if (usage > 100) usage = 100;
             cpu_history[history_idx] = usage;
         }
@@ -72,11 +145,18 @@ static void update_proc_list(void) {
     uptime_prev = uptime_now;
     kernel_ticks_prev = user_ticks_now;
     
-    MemStats stats;
-    sys_system(SYSTEM_CMD_MEMINFO, (uint64_t)&stats, 0, 0, 0);
-    total_mem_system = stats.total_memory;
-    used_mem_system = stats.used_memory;
-    mem_history[history_idx] = (int)(stats.used_memory / 1024);
+    int fd_m = sys_open("/proc/meminfo", "r");
+    if (fd_m >= 0) {
+        char buf[1024];
+        int bytes = sys_read(fd_m, buf, 1023);
+        sys_close(fd_m);
+        if (bytes > 0) {
+            buf[bytes] = 0;
+            total_mem_system = (uint64_t)find_value(buf, "MemTotal") * 1024;
+            used_mem_system = (uint64_t)find_value(buf, "MemUsed") * 1024;
+            mem_history[history_idx] = (int)(used_mem_system / 1024);
+        }
+    }
     
     history_idx = (history_idx + 1) % GRAPH_POINTS;
 }
@@ -168,9 +248,12 @@ static void draw_taskman(void) {
     // Memory Graph Area
     ui_draw_string(win_taskman, 205, 10, "MEMORY", COLOR_MEM);
     char mem_pct_label[16];
-    int current_mem_pct = 0;
-    if (total_mem_system > 0) current_mem_pct = (int)((used_mem_system * 100) / total_mem_system);
-    itoa(current_mem_pct, mem_pct_label);
+    int current_mem_pct_x10 = 0;
+    if (total_mem_system > 0) current_mem_pct_x10 = (int)((used_mem_system * 1000) / total_mem_system);
+    itoa(current_mem_pct_x10 / 10, mem_pct_label);
+    strcat(mem_pct_label, ".");
+    char frac[4]; itoa(current_mem_pct_x10 % 10, frac);
+    strcat(mem_pct_label, frac);
     strcat(mem_pct_label, "%");
     ui_draw_string(win_taskman, 340, 10, mem_pct_label, COLOR_MEM);
     
@@ -255,8 +338,18 @@ static void draw_taskman(void) {
 int main(void) {
     win_taskman = ui_window_create("Task Manager", 100, 100, 400, 480);
     
-    // Fetch CPU model
-    sys_system(SYSTEM_CMD_GET_CPU_MODEL, (uint64_t)cpu_model_name, 0, 0, 0);
+    int fd_c = sys_open("/proc/cpuinfo", "r");
+    if (fd_c >= 0) {
+        char buf[1024];
+        int bytes = sys_read(fd_c, buf, 1023);
+        sys_close(fd_c);
+        if (bytes > 0) {
+            buf[bytes] = 0;
+            find_string(buf, "Processor", cpu_model_name, 64);
+            int cores = find_value(buf, "Cores");
+            if (cores > 0) cpu_cores = cores;
+        }
+    }
     
     for(int i=0; i<GRAPH_POINTS; i++) { cpu_history[i] = 0; mem_history[i] = 0; }
     

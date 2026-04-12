@@ -188,7 +188,7 @@ static void refresh_desktop_icons(void) {
     FAT32_FileInfo *files = (FAT32_FileInfo*)kmalloc(MAX_DESKTOP_ICONS * sizeof(FAT32_FileInfo));
     if (!files) return;
 
-    int file_count = fat32_list_directory("/Desktop", files, MAX_DESKTOP_ICONS);
+    int file_count = fat32_list_directory("/root/Desktop", files, MAX_DESKTOP_ICONS);
     
     // Temp array to hold new state
     DesktopIcon new_icons[MAX_DESKTOP_ICONS];
@@ -310,7 +310,7 @@ void wm_refresh_desktop(void) {
 }
 
 static void create_desktop_shortcut(const char *app_name) {
-    char path[128] = "/Desktop/";
+    char path[128] = "/root/Desktop/";
     int p = 9;
     int n = 0; while(app_name[n]) path[p++] = app_name[n++];
     const char *ext = ".shortcut";
@@ -1358,7 +1358,7 @@ static void wm_paint_region(int y_start, int y_end, DirtyRect dirty, int pass) {
                 if (str_ends_with(icon->name, ".elf")) draw_elf_icon(icon->x, icon->y, icon->name);
                 else if (str_ends_with(icon->name, ".pnt")) draw_paint_icon(icon->x, icon->y, icon->name);
                 else if (is_image_file(icon->name)) {
-                    char full_path[128] = "/Desktop/"; int p=9; int n=0; while(icon->name[n] && p < 127) full_path[p++] = icon->name[n++]; full_path[p]=0;
+                    char full_path[128] = "/root/Desktop/"; int p=14; int n=0; while(icon->name[n] && p < 127) full_path[p++] = icon->name[n++]; full_path[p]=0;
                     draw_image_icon(icon->x, icon->y, full_path);
                     draw_icon_label(icon->x, icon->y, icon->name);
                 }
@@ -1702,13 +1702,13 @@ void wm_handle_click(int x, int y) {
             
             if (item == 0 && desktop_menu_target_icon != -1) { // Cut
                 DesktopIcon *icon = &desktop_icons[desktop_menu_target_icon];
-                char path[128] = "/Desktop/";
-                int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                char path[128] = "/root/Desktop/";
+                int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                 explorer_clipboard_cut(path);
             } else if (item == 1 && desktop_menu_target_icon != -1) { // Copy
                 DesktopIcon *icon = &desktop_icons[desktop_menu_target_icon];
-                char path[128] = "/Desktop/";
-                int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                char path[128] = "/root/Desktop/";
+                int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                 explorer_clipboard_copy(path);
             } else if (item == 0 && desktop_menu_target_icon == -1) { // New File
                 desktop_dialog_state = 1;
@@ -1729,13 +1729,13 @@ void wm_handle_click(int x, int y) {
                     int old_count = desktop_icon_count;
                     if (desktop_menu_target_icon != -1 && desktop_icons[desktop_menu_target_icon].type == 1) {
                         // Paste into folder
-                        char path[128] = "/Desktop/";
+                        char path[128] = "/root/Desktop/";
                         DesktopIcon *icon = &desktop_icons[desktop_menu_target_icon];
-                        int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                        int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                         explorer_clipboard_paste(&win_explorer, path);
                     } else {
                         // Paste to desktop
-                        explorer_clipboard_paste(&win_explorer, "/Desktop");
+                        explorer_clipboard_paste(&win_explorer, "/root/Desktop");
                     }
                     refresh_desktop_icons();
 
@@ -1756,8 +1756,8 @@ void wm_handle_click(int x, int y) {
             }
             else if (item == 3 && desktop_menu_target_icon != -1) { // Delete
                 DesktopIcon *icon = &desktop_icons[desktop_menu_target_icon];
-                char path[128] = "/Desktop/";
-                int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                char path[128] = "/root/Desktop/";
+                int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                 explorer_delete_recursive(path);
                 refresh_desktop_icons();
             }
@@ -1782,10 +1782,10 @@ void wm_handle_click(int x, int y) {
         int dlg_x = (sw - 300) / 2; int dlg_y = (sh - 110) / 2;
         if (rect_contains(dlg_x + 50, dlg_y + 65, 80, 25, x, y)) { // Confirm
             if (desktop_dialog_state == 8) { // Rename
-                char old_path[128] = "/Desktop/";
-                char new_path[128] = "/Desktop/";
-                int p=9; int n=0; while(desktop_icons[desktop_dialog_target].name[n]) old_path[p++] = desktop_icons[desktop_dialog_target].name[n++]; old_path[p]=0;
-                p=9; n=0; while(desktop_dialog_input[n]) new_path[p++] = desktop_dialog_input[n++]; new_path[p]=0;
+                char old_path[128] = "/root/Desktop/";
+                char new_path[128] = "/root/Desktop/";
+                int p=14; int n=0; while(desktop_icons[desktop_dialog_target].name[n]) old_path[p++] = desktop_icons[desktop_dialog_target].name[n++]; old_path[p]=0;
+                p=14; n=0; while(desktop_dialog_input[n]) new_path[p++] = desktop_dialog_input[n++]; new_path[p]=0;
                 
                 if (fat32_rename(old_path, new_path)) {
                     refresh_desktop_icons();
@@ -1795,8 +1795,8 @@ void wm_handle_click(int x, int y) {
                 if (desktop_icon_count >= desktop_max_cols * desktop_max_rows_per_col) {
                     wm_show_message("Error", "Desktop is full!");
                 } else if (desktop_dialog_input[0] != 0) {
-                    char path[128] = "/Desktop/";
-                    int p=9; int n=0; while(desktop_dialog_input[n]) path[p++] = desktop_dialog_input[n++]; path[p]=0;
+                    char path[128] = "/root/Desktop/";
+                    int p=14; int n=0; while(desktop_dialog_input[n]) path[p++] = desktop_dialog_input[n++]; path[p]=0;
                     if (desktop_dialog_state == 1) {
                         FAT32_FileHandle *fh = fat32_open(path, "w");
                         if (fh) fat32_close(fh);
@@ -2130,8 +2130,8 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                 drag_icon_orig_x = icon->x;
                 drag_icon_orig_y = icon->y;
                 // Construct path
-                char path[128] = "/Desktop/";
-                int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                char path[128] = "/root/Desktop/";
+                int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                 int k=0; while(path[k]) { drag_file_path[k] = path[k]; k++; } drag_file_path[k]=0;
             }
             // 2. Check Explorer Items
@@ -2184,7 +2184,7 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
         if (start_menu_pending_app) {
             // Launch App
             if (str_starts_with(start_menu_pending_app, "Files")) {
-                explorer_open_directory("/");
+                explorer_open_directory("/root");
             } else if (str_starts_with(start_menu_pending_app, "Notepad")) {
                 Window *existing = wm_find_window_by_title_locked("Notepad");
                 if (existing) {
@@ -2279,8 +2279,8 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                     
                     if (!handled) {
                         // Generic Shortcut Handling
-                        char path[128] = "/Desktop/";
-                        int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                        char path[128] = "/root/Desktop/";
+                        int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                         
                         if (str_ends_with(icon->name, ".shortcut") && !str_starts_with(icon->name, "Recycle Bin")) {
                             FAT32_FileHandle *fh = fat32_open(path, "r");
@@ -2303,12 +2303,12 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                         }
                     }
                 } else if (icon->type == 1) { // Folder
-                    char path[128] = "/Desktop/";
-                    int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                    char path[128] = "/root/Desktop/";
+                    int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                     explorer_open_directory(path);
                 } else { // File
-                    char path[128] = "/Desktop/";
-                    int p=9; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
+                    char path[128] = "/root/Desktop/";
+                    int p=14; int n=0; while(icon->name[n]) path[p++] = icon->name[n++]; path[p]=0;
                     
                     if (str_ends_with(icon->name, ".elf")) {
                         process_create_elf(path, NULL);
@@ -2354,7 +2354,7 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                     explorer_import_file(drop_win, drag_file_path);
                 }
 
-                if (str_starts_with(drag_file_path, "/Desktop/")) {
+                if (str_starts_with(drag_file_path, "/root/Desktop/")) {
                     refresh_desktop_icons();
                 }
             } else {
@@ -2366,15 +2366,15 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                     bool dropped_on_target = false;
                     for (int i = 0; i < desktop_icon_count; i++) {
                         if (from_desktop) {
-                            char path[128] = "/Desktop/";
-                            int p=9; int n=0; while(desktop_icons[i].name[n]) path[p++] = desktop_icons[i].name[n++]; path[p]=0;
+                            char path[128] = "/root/Desktop/";
+                            int p=14; int n=0; while(desktop_icons[i].name[n]) path[p++] = desktop_icons[i].name[n++]; path[p]=0;
                             if (str_eq(path, drag_file_path) != 0) continue;
                         }
 
                         if (rect_contains(desktop_icons[i].x + 20, desktop_icons[i].y, 40, 40, mx, my)) {
                             if (desktop_icons[i].type == 1) {
-                                char target_path[256] = "/Desktop/";
-                                int p=9; int n=0; while(desktop_icons[i].name[n]) target_path[p++] = desktop_icons[i].name[n++]; target_path[p]=0;
+                                char target_path[256] = "/root/Desktop/";
+                                int p=14; int n=0; while(desktop_icons[i].name[n]) target_path[p++] = desktop_icons[i].name[n++]; target_path[p]=0;
                                 explorer_import_file_to(&win_explorer, drag_file_path, target_path);
                                 refresh_desktop_icons();
                                 dropped_on_target = true;
@@ -2397,7 +2397,7 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                         if (desktop_icon_count >= desktop_max_cols * desktop_max_rows_per_col) {
                             wm_show_message("Error", "Desktop is full!");
                         } else {
-                            explorer_import_file_to(&win_explorer, drag_file_path, "/Desktop");
+                            explorer_import_file_to(&win_explorer, drag_file_path, "/root/Desktop");
                         }
                         
                         // Handle insertion at specific position
@@ -2453,8 +2453,8 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                     } else if (!dropped_on_target) {
                         int dragged_idx = -1;
                         for(int i=0; i<desktop_icon_count; i++) {
-                            char path[128] = "/Desktop/";
-                            int p=9; int n=0; while(desktop_icons[i].name[n]) path[p++] = desktop_icons[i].name[n++]; path[p]=0;
+                            char path[128] = "/root/Desktop/";
+                            int p=14; int n=0; while(desktop_icons[i].name[n]) path[p++] = desktop_icons[i].name[n++]; path[p]=0;
                             if (str_eq(path, drag_file_path) != 0) {
                                 dragged_idx = i;
                                 break;
@@ -2634,10 +2634,10 @@ static void wm_dispatch_key(char c, bool pressed) {
         int len = 0; while(desktop_dialog_input[len]) len++;
         if (c == '\n') {
             if (desktop_dialog_state == 8) { // Rename
-                char old_path[128] = "/Desktop/";
-                char new_path[128] = "/Desktop/";
-                int p=9; int n=0; while(desktop_icons[desktop_dialog_target].name[n]) old_path[p++] = desktop_icons[desktop_dialog_target].name[n++]; old_path[p]=0;
-                p=9; n=0; while(desktop_dialog_input[n]) new_path[p++] = desktop_dialog_input[n++]; new_path[p]=0;
+                char old_path[128] = "/root/Desktop/";
+                char new_path[128] = "/root/Desktop/";
+                int p=14; int n=0; while(desktop_icons[desktop_dialog_target].name[n]) old_path[p++] = desktop_icons[desktop_dialog_target].name[n++]; old_path[p]=0;
+                p=14; n=0; while(desktop_dialog_input[n]) new_path[p++] = desktop_dialog_input[n++]; new_path[p]=0;
                 if (fat32_rename(old_path, new_path)) {
                     refresh_desktop_icons();
                     explorer_refresh_all();
@@ -2646,8 +2646,8 @@ static void wm_dispatch_key(char c, bool pressed) {
                 if (desktop_icon_count >= desktop_max_cols * desktop_max_rows_per_col) {
                     wm_show_message("Error", "Desktop is full!");
                 } else if (desktop_dialog_input[0] != 0) {
-                    char path[128] = "/Desktop/";
-                    int p=9; int n=0; while(desktop_dialog_input[n]) path[p++] = desktop_dialog_input[n++]; path[p]=0;
+                    char path[128] = "/root/Desktop/";
+                    int p=14; int n=0; while(desktop_dialog_input[n]) path[p++] = desktop_dialog_input[n++]; path[p]=0;
                     if (desktop_dialog_state == 1) {
                         FAT32_FileHandle *fh = fat32_open(path, "w");
                         if (fh) fat32_close(fh);

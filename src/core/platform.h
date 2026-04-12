@@ -10,5 +10,6 @@ void platform_init(void);
 uint64_t p2v(uint64_t phys);
 uint64_t v2p(uint64_t virt);
 void platform_get_cpu_model(char *model);
+void platform_get_cpu_vendor(char *vendor);
 
 #endif

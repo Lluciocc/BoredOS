@@ -108,6 +108,14 @@ int get_screen_height(void) {
     return g_fb ? g_fb->height : 0;
 }
 
+uint64_t graphics_get_fb_addr(void) {
+    return g_fb ? (uint64_t)g_fb->address : 0;
+}
+
+int graphics_get_fb_bpp(void) {
+    return g_fb ? g_fb->bpp : 0;
+}
+
 // Merge new dirty rect with existing one
 static void merge_dirty_rect(int x, int y, int w, int h) {
     if (!g_dirty.active) {

@@ -44,8 +44,6 @@
 #define SYSTEM_CMD_REBOOT 12
 #define SYSTEM_CMD_SHUTDOWN 13
 #define SYSTEM_CMD_BEEP 14
-#define SYSTEM_CMD_MEMINFO 15
-#define SYSTEM_CMD_UPTIME 16
 #define SYSTEM_CMD_PCI_LIST 17
 #define SYSTEM_CMD_NETWORK_DHCP 18
 #define SYSTEM_CMD_NETWORK_GET_MAC 19
@@ -69,13 +67,10 @@
 #define SYSTEM_CMD_DNS_LOOKUP 37
 #define SYSTEM_CMD_SET_DNS 38
 #define SYSTEM_CMD_NET_UNLOCK 39
-#define SYSTEM_CMD_PROCESS_LIST 44
-#define SYSTEM_CMD_GET_CPU_MODEL 45
 #define SYSTEM_CMD_SLEEP 46
 #define SYSTEM_CMD_SET_RAW_MODE 41
 #define SYSTEM_CMD_TCP_RECV_NB 42
 #define SYSTEM_CMD_YIELD 43
-#define SYSTEM_CMD_GET_OS_INFO 49
 #define SYSTEM_CMD_PARALLEL_RUN 50
 
 // Internal assembly entry into Ring 0
@@ -137,6 +132,7 @@ typedef struct {
     char name[64];
     uint64_t ticks;
     size_t used_memory;
+    uint32_t is_idle;
 } ProcessInfo;
 
 // Network API

@@ -6,7 +6,6 @@
 
 #include <stdint.h>
 
-// Forward declarations
 typedef struct Window Window;
 typedef struct registers_t registers_t;
 
@@ -53,11 +52,8 @@ typedef struct {
 #define SYSTEM_CMD_SET_RAW_MODE 41
 #define SYSTEM_CMD_TCP_RECV_NB 42
 #define SYSTEM_CMD_YIELD 43
-#define SYSTEM_CMD_PROCESS_LIST 44
-#define SYSTEM_CMD_GET_CPU_MODEL 45
 #define SYSTEM_CMD_SLEEP 46
 #define SYSTEM_CMD_SET_RESOLUTION 47
-#define SYSTEM_CMD_GET_OS_INFO 49
 #define SYSTEM_CMD_PARALLEL_RUN 50
 
 void syscall_init(void);

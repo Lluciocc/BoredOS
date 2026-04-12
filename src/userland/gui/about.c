@@ -95,36 +95,39 @@ static void about_paint(ui_window_t win) {
     draw_ascii_logo(win, 14, offset_y);
     
     int fh = ui_get_font_height();
-    os_info_t os_info;
-    sys_get_os_info(&os_info);
-    
-    char os_name_str[128];
-    os_name_str[0] = 0;
-    strcat(os_name_str, os_info.os_name);
-    strcat(os_name_str, " '");
-    strcat(os_name_str, os_info.os_codename);
-    strcat(os_name_str, "'");
+    int fd_v = sys_open("/proc/version", "r");
+    char v_buf[1024]; v_buf[0] = 0;
+    if (fd_v >= 0) {
+        int b = sys_read(fd_v, v_buf, 1023);
+        v_buf[b] = 0;
+        sys_close(fd_v);
+    }
 
-    char os_version_str[128];
-    os_version_str[0] = 0;
-    strcat(os_version_str, os_info.os_name);
-    strcat(os_version_str, " Version ");
-    strcat(os_version_str, os_info.os_version);
-    
-    char kernel_version_str[128];
-    kernel_version_str[0] = 0;
-    strcat(kernel_version_str, os_info.kernel_name);
-    strcat(kernel_version_str, " Version ");
-    strcat(kernel_version_str, os_info.kernel_version);
-    strcat(kernel_version_str, " ");
-    strcat(kernel_version_str, os_info.build_arch);
+    char os_name_str[128] = "Unknown OS";
+    char os_version_str[128] = "Unknown Version";
+    char kernel_version_str[128] = "Unknown Kernel";
+    char build_date_str[128] = "Unknown Build";
 
-    char build_date_str[128];
-    build_date_str[0] = 0;
-    strcat(build_date_str, "Build Date: ");
-    strcat(build_date_str, os_info.build_date);
-    strcat(build_date_str, " ");
-    strcat(build_date_str, os_info.build_time);
+    if (v_buf[0]) {
+        char *line1 = v_buf;
+        char *line2 = strchr(line1, '\n'); if (line2) { *line2 = 0; line2++; }
+        char *line3 = line2 ? strchr(line2, '\n') : NULL; if (line3) { *line3 = 0; line3++; }
+
+        strcpy(os_name_str, line1);
+        if (line2) {
+            strcpy(os_version_str, line2);
+        }
+        if (line3) {
+            strcpy(kernel_version_str, line3);
+            char *line4 = strchr(line3, '\n');
+            if (line4) {
+                *line4 = 0; line4++;
+                strcpy(build_date_str, line4);
+                char *line5 = strchr(build_date_str, '\n');
+                if (line5) *line5 = 0;
+            }
+        }
+    }
 
     ui_draw_string(win, offset_x, offset_y + 105, os_name_str, 0xFFFFFFFF);
     ui_draw_string(win, offset_x, offset_y + 105 + fh, os_version_str, 0xFFFFFFFF);

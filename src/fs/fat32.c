@@ -276,19 +276,22 @@ static int ramfs_count_files_in_dir(const char *normalized_path) {
 
 static bool check_desktop_limit(const char *normalized_path) {
     if (desktop_file_limit < 0) return true;
-    if (fs_strlen(normalized_path) > 9 && 
+    if (fs_strlen(normalized_path) > 14 && 
         normalized_path[0] == '/' && 
-        normalized_path[1] == 'D' && normalized_path[2] == 'e' && 
-        normalized_path[3] == 's' && normalized_path[4] == 'k' && 
-        normalized_path[5] == 't' && normalized_path[6] == 'o' && 
-        normalized_path[7] == 'p' && normalized_path[8] == '/') {
-        const char *p = normalized_path + 9;
+        normalized_path[1] == 'r' && normalized_path[2] == 'o' && 
+        normalized_path[3] == 'o' && normalized_path[4] == 't' && 
+        normalized_path[5] == '/' &&
+        normalized_path[6] == 'D' && normalized_path[7] == 'e' && 
+        normalized_path[8] == 's' && normalized_path[9] == 'k' && 
+        normalized_path[10] == 't' && normalized_path[11] == 'o' && 
+        normalized_path[12] == 'p' && normalized_path[13] == '/') {
+        const char *p = normalized_path + 14;
         while (*p) {
             if (*p == '/') return true; 
             p++;
         }
         
-        int count = ramfs_count_files_in_dir("/Desktop");
+        int count = ramfs_count_files_in_dir("/root/Desktop");
         if (count >= desktop_file_limit) return false;
     }
     return true;
@@ -707,7 +710,27 @@ static FAT32_FileHandle* realfs_open_from_vol(FAT32_Volume *vol, const char *pat
                   to_dos_filename(component, dos_name);
                   
                   int name_len = fs_strlen(component);
-                  bool needs_lfn = (name_len > 12); 
+                  
+                  // Determine if LFN is needed:
+                  // LFN is needed if the name contains characters that don't fit in 8.3 format
+                  // or if the extension is longer than 3 chars or name part is longer than 8 chars
+                  bool needs_lfn = false;
+                  int dot_pos = -1;
+                  for (int i = 0; i < name_len; i++) {
+                      if (component[i] == '.') { dot_pos = i; break; }
+                  }
+                  
+                  if (dot_pos == -1) {
+                      // No extension - need LFN if name > 8 chars
+                      needs_lfn = (name_len > 8);
+                  } else {
+                      // Has extension
+                      int name_part = dot_pos;
+                      int ext_part = name_len - dot_pos - 1;
+                      // Need LFN if name > 8 chars or extension > 3 chars
+                      needs_lfn = (name_part > 8) || (ext_part > 3);
+                  }
+                  
                   int lfn_entries = needs_lfn ? ((name_len + 12) / 13) : 0;
                   int total_entries = lfn_entries + 1;
                   
@@ -753,29 +776,29 @@ static FAT32_FileHandle* realfs_open_from_vol(FAT32_Volume *vol, const char *pat
                           d->start_cluster_low = 0;
                           d->file_size = 0;
                           
-                          realfs_write_cluster(vol, free_cluster, lfn_cl_buf);
-                          
-                          uint32_t lba = vol->cluster_begin_lba + (free_cluster - 2) * vol->sectors_per_cluster;
-                          entry_sector = lba + ((start_entry_idx + lfn_entries) * 32) / 512;
-                          entry_offset = ((start_entry_idx + lfn_entries) * 32) % 512;
-                          
-                          kfree(lfn_cl_buf);
-                          if (cluster_buf) kfree(cluster_buf);
-                          
-                          FAT32_FileHandle *fh = ramfs_find_free_handle();
-                          if (fh) {
-                              fh->valid = true;
-                              fh->volume = vol;
-                              fh->start_cluster = 0;
-                              fh->cluster = 0;
-                              fh->position = 0;
-                              fh->size = 0;
-                              fh->mode = (mode[0] == 'a' ? 2 : 1);
-                              fh->is_directory = false;
-                              fh->attributes = ATTR_ARCHIVE;
-                              fh->dir_sector = entry_sector;
-                              fh->dir_offset = entry_offset;
-                              return fh;
+                          if (realfs_write_cluster(vol, free_cluster, lfn_cl_buf) == 0) {
+                              uint32_t lba = vol->cluster_begin_lba + (free_cluster - 2) * vol->sectors_per_cluster;
+                              entry_sector = lba + ((start_entry_idx + lfn_entries) * 32) / 512;
+                              entry_offset = ((start_entry_idx + lfn_entries) * 32) % 512;
+                              
+                              kfree(lfn_cl_buf);
+                              if (cluster_buf) kfree(cluster_buf);
+                              
+                              FAT32_FileHandle *fh = ramfs_find_free_handle();
+                              if (fh) {
+                                  fh->valid = true;
+                                  fh->volume = vol;
+                                  fh->start_cluster = 0;
+                                  fh->cluster = 0;
+                                  fh->position = 0;
+                                  fh->size = 0;
+                                  fh->mode = (mode[0] == 'a' ? 2 : 1);
+                                  fh->is_directory = false;
+                                  fh->attributes = ATTR_ARCHIVE;
+                                  fh->dir_sector = entry_sector;
+                                  fh->dir_offset = entry_offset;
+                                  return fh;
+                              }
                           }
                       }
                   }
@@ -951,6 +974,9 @@ static uint32_t realfs_allocate_cluster(FAT32_Volume *vol) {
     uint32_t current = 2;
     uint32_t fat_entries = (vol->fat_size * 512) / 4;
     
+    // Skip cluster 2 as it's reserved for the root directory in FAT32
+    if (current == vol->root_cluster) current++;
+    
     uint8_t *fat_buf = (uint8_t*)kmalloc(512);
     if (!fat_buf) return 0;
     
@@ -1006,18 +1032,33 @@ static int realfs_write_file(FAT32_FileHandle *handle, const void *buffer, int s
         }
         handle->start_cluster = new_cluster;
         handle->cluster = new_cluster;
+        handle->position = 0;
+        handle->size = 0;
+        
+        // Update directory entry immediately with correct start_cluster
+        // This ensures the directory always points to the right cluster
         realfs_update_dir_entry_size(vol, handle);
     }
     
     while (bytes_written < size) {
-        if (realfs_read_cluster(vol, handle->cluster, cluster_buf) != 0) break;
-        
         uint32_t offset = handle->position % cluster_size;
+        
+        // Always zero the buffer first to ensure clean state
+        for (int i = 0; i < (int)cluster_size; i++) cluster_buf[i] = 0;
+        
+        // If we're in the middle of a cluster, read the existing data first
+        if (offset > 0) {
+            if (realfs_read_cluster(vol, handle->cluster, cluster_buf) != 0) break;
+        }
+        
         int to_copy = size - bytes_written;
         int available = cluster_size - offset; 
         if (to_copy > available) to_copy = available;
         
-        for (int i = 0; i < to_copy; i++) cluster_buf[offset + i] = src_buf[bytes_written + i];
+        // Copy new data into the cluster buffer
+        for (int i = 0; i < to_copy; i++) {
+            cluster_buf[offset + i] = src_buf[bytes_written + i];
+        }
         
         if (realfs_write_cluster(vol, handle->cluster, cluster_buf) != 0) break;
         
@@ -1152,10 +1193,15 @@ static bool realfs_delete_from_vol(FAT32_Volume *vol, const char *path) {
 
                 int lfn_start_entry = -1;
                 if (has_lfn) {
-                    // This is an oversimplification, but for same-sector LFNs:
+                    // Find all LFN entries in reverse from the main entry
+                    // LFN entries are marked by their order field and must be contiguous
                     for (int k = e - 1; k >= 0; k--) {
-                        if (entry[k].attributes == ATTR_LFN) lfn_start_entry = k;
-                        else break;
+                        if (entry[k].attributes == ATTR_LFN) {
+                            lfn_start_entry = k;  // Keep updating to find earliest LFN
+                        } else {
+                            // Stop when we hit a non-LFN entry that's not deleted
+                            if (entry[k].filename[0] != 0xE5) break;
+                        }
                     }
                 }
 
@@ -1170,7 +1216,7 @@ static bool realfs_delete_from_vol(FAT32_Volume *vol, const char *path) {
                     
                     if (*p == 0) {
                         // Found target file/directory to delete
-                        // Mark LFN entries as deleted too (if in same sector)
+                        // Mark LFN entries as deleted too
                         if (lfn_start_entry != -1) {
                             for (int k = lfn_start_entry; k < e; k++) {
                                 entry[k].filename[0] = 0xE5;
@@ -1180,10 +1226,49 @@ static bool realfs_delete_from_vol(FAT32_Volume *vol, const char *path) {
                         entry[e].filename[0] = 0xE5;
                         
                         // Persist the changes to disk
-                        // Calculate exactly which sector within the cluster we modified
+                        // CRITICAL FIX: Write ALL sectors that contain modified entries
+                        // LFN entries and main entry may span multiple sectors in the cluster
                         uint32_t lba = vol->cluster_begin_lba + (search_cluster - 2) * vol->sectors_per_cluster;
-                        int sect_in_cluster = (e * 32) / 512;
-                        vol->disk->write_sector(vol->disk, lba + sect_in_cluster, ((uint8_t*)entry) + (sect_in_cluster * 512));
+                        
+                        // Find all sectors touched by LFN and main entries
+                        uint8_t sectors_to_write[8] = {0};  // Max 8 sectors per cluster
+                        int num_sectors = 0;
+                        
+                        // Mark sectors containing LFN entries
+                        if (lfn_start_entry != -1) {
+                            for (int k = lfn_start_entry; k < e; k++) {
+                                int sect_idx = (k * 32) / 512;
+                                bool already_marked = false;
+                                for (int s = 0; s < num_sectors; s++) {
+                                    if (sectors_to_write[s] == sect_idx) {
+                                        already_marked = true;
+                                        break;
+                                    }
+                                }
+                                if (!already_marked && num_sectors < 8) {
+                                    sectors_to_write[num_sectors++] = sect_idx;
+                                }
+                            }
+                        }
+                        
+                        // Mark sector containing main entry
+                        int main_sect_idx = (e * 32) / 512;
+                        bool already_marked = false;
+                        for (int s = 0; s < num_sectors; s++) {
+                            if (sectors_to_write[s] == main_sect_idx) {
+                                already_marked = true;
+                                break;
+                            }
+                        }
+                        if (!already_marked && num_sectors < 8) {
+                            sectors_to_write[num_sectors++] = main_sect_idx;
+                        }
+                        
+                        // Write all modified sectors
+                        for (int i = 0; i < num_sectors; i++) {
+                            int sect_idx = sectors_to_write[i];
+                            vol->disk->write_sector(vol->disk, lba + sect_idx, ((uint8_t*)entry) + (sect_idx * 512));
+                        }
                         
                         found = true;
                     } else {

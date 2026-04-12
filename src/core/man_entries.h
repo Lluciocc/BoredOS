@@ -14,7 +14,7 @@ static size_t man_strlen(const char *str) {
 }
 
 static void write_man_file(const char *name, const char *content) {
-    char path[128] = "A:/Library/man/";
+    char path[128] = "/Library/man/";
     int i = 15;
     while (*name) path[i++] = *name++;
     path[i++] = '.';
@@ -31,8 +31,8 @@ static void write_man_file(const char *name, const char *content) {
 }
 
 void create_man_entries(void) {
-    fat32_mkdir("A:/Library");
-    fat32_mkdir("A:/Library/man");
+    fat32_mkdir("/Library");
+    fat32_mkdir("/Library/man");
 
     write_man_file("ping", "PING - Send ICMP echo requests\n\nUsage: ping <ip>\n\nSends ICMP echo requests to the specified IP address and displays the response times.");
     write_man_file("net", "NET - Network utilities\n\nUsage: net init\nnet info\nnet ipset >ip<\nnet udpsend >ip< >port< >message< net ping >ip< net help\n\nA collection of network-related commands.");
@@ -55,7 +55,7 @@ void create_man_entries(void) {
     write_man_file("touch", "TOUCH - Create empty file\n\nUsage: touch <filename>\n\nCreates a new empty file if it doesn't exist.");
     write_man_file("cc", "CC - C Compiler\n\nUsage: cc <file.c>\n\nThe BoredOS C Compiler. Compiles C source files into executables. (execute these with ./>file<)");
     write_man_file("crash", "CRASH - Trigger kernel exception\n\nUsage: crash\n\nIntentionally triggers a null pointer dereference to test handlers.");
-    write_man_file("sysfetch", "SYSFETCH - Show OS information\n\nUsage: sysfetch\n\nDisplays system information in a neofetch-like layout. Configurable via A:/Library/conf/sysfetch.cfg.");
+    write_man_file("sysfetch", "SYSFETCH - Show OS information\n\nUsage: sysfetch\n\nDisplays system information in a neofetch-like layout. Configurable via /Library/conf/sysfetch.cfg.");
     write_man_file("meminfo", "MEMINFO - Memory usage stats\n\nUsage: meminfo\n\nDisplays current physical and virtual memory allocation statistics.");
     write_man_file("pci_list", "PCI_LIST - Scan PCI bus\n\nUsage: pci_list\n\nScans the PCI bus and lists all detected hardware devices.");
     write_man_file("reboot", "REBOOT - Restart system\n\nUsage: reboot\n\nRestarts the computer immediately.");

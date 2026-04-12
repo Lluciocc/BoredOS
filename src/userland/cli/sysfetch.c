@@ -9,15 +9,6 @@
 #define MAX_ASCII_WIDTH 80
 #define MAX_INFO_LINES 10
 
-static char* strchr(const char *s, int c) {
-    while (*s != (char)c) {
-        if (!*s++) {
-            return 0;
-        }
-    }
-    return (char *)s;
-}
-
 static char* strncpy(char *dest, const char *src, size_t n) {
     size_t i;
     for (i = 0; i < n && src[i] != '\0'; i++) dest[i] = src[i];
@@ -117,7 +108,7 @@ static char* trim(char *str) {
 }
 
 static void set_config_defaults() {
-    strcpy(config.ascii_art_file, "A:/Library/art/boredos.txt");
+    strcpy(config.ascii_art_file, "/Library/art/boredos.txt");
     strcpy(config.user_host_string, "root@boredos");
     strcpy(config.separator, "------------");
     strcpy(config.os_label, "OS");
@@ -160,7 +151,7 @@ static void parse_config(char* buffer) {
 
 static void load_config() {
     set_config_defaults();
-    int fd = sys_open("A:/Library/conf/sysfetch.cfg", "r");
+    int fd = sys_open("/Library/conf/sysfetch.cfg", "r");
     if (fd < 0) return;
 
     char *buffer = malloc(4096);
@@ -237,52 +228,82 @@ int main(int argc, char **argv) {
     if (config.separator[0]) {
         strcpy(info_lines[info_line_count++], config.separator);
     }
-    os_info_t os_info;
-    sys_get_os_info(&os_info);
+    // Helper for proc parsing
+    auto int find_v(const char *b, const char *k) {
+        char *p = (char*)b; int kl = strlen(k);
+        while (*p) {
+            if (memcmp(p, k, kl) == 0 && p[kl] == ':') {
+                p += kl + 1; while (*p == ' ') p++; return atoi(p);
+            }
+            while (*p && *p != '\n') p++; if (*p == '\n') p++;
+        }
+        return 0;
+    }
+
+    int fd_v = sys_open("/proc/version", "r");
+    char v_buf[512];
+    if (fd_v >= 0) {
+        int b = sys_read(fd_v, v_buf, 511);
+        v_buf[b] = 0;
+        sys_close(fd_v);
+    } else strcpy(v_buf, "Unknown");
 
     if (config.os_label[0]) {
         strcpy(info_lines[info_line_count], config.os_label);
         strcat(info_lines[info_line_count], ": ");
-        strcat(info_lines[info_line_count], os_info.os_name);
-        strcat(info_lines[info_line_count], " V");
-        strcat(info_lines[info_line_count], os_info.os_version);
-        strcat(info_lines[info_line_count], " '");
-        strcat(info_lines[info_line_count], os_info.os_codename);
-        strcat(info_lines[info_line_count], "'");
+        // Parse "BoredOS [codename] Version X.Y.Z"
+        strcat(info_lines[info_line_count], v_buf);
+        // Truncate at newline
+        char *nl = strchr(info_lines[info_line_count], '\n');
+        if (nl) *nl = 0;
         info_line_count++;
     }
     if (config.kernel_label[0]) {
         strcpy(info_lines[info_line_count], config.kernel_label);
         strcat(info_lines[info_line_count], ": ");
-        strcat(info_lines[info_line_count], os_info.kernel_name);
-        strcat(info_lines[info_line_count], " V");
-        strcat(info_lines[info_line_count], os_info.kernel_version);
-        strcat(info_lines[info_line_count], " ");
-        strcat(info_lines[info_line_count], os_info.build_arch);
+        char *kstart = strchr(v_buf, '\n');
+        if (kstart) {
+            strcat(info_lines[info_line_count], kstart + 1);
+            char *knext = strchr(info_lines[info_line_count], '\n');
+            if (knext) *knext = 0;
+        } else strcat(info_lines[info_line_count], "Unknown");
         info_line_count++;
     }
     if (config.uptime_label[0]) {
-        uint64_t ticks = sys_system(16, 0, 0, 0, 0);
-        int minutes = ticks / 3600; // 60Hz timer
-        strcpy(info_lines[info_line_count], config.uptime_label);
-        strcat(info_lines[info_line_count], ": ");
-        itoa(minutes, temp_buf);
-        strcat(info_lines[info_line_count], temp_buf);
-        strcat(info_lines[info_line_count++], " mins");
+        int fd_u = sys_open("/proc/uptime", "r");
+        if (fd_u >= 0) {
+            char u_buf[64];
+            int b = sys_read(fd_u, u_buf, 63);
+            u_buf[b] = 0;
+            sys_close(fd_u);
+            int sec = atoi(u_buf);
+            int mins = sec / 60;
+            strcpy(info_lines[info_line_count], config.uptime_label);
+            strcat(info_lines[info_line_count], ": ");
+            itoa(mins, temp_buf);
+            strcat(info_lines[info_line_count], temp_buf);
+            strcat(info_lines[info_line_count++], " mins");
+        }
     }
     if (config.shell_label[0]) {
         strcpy(info_lines[info_line_count], config.shell_label);
         strcat(info_lines[info_line_count++], ": bsh");
     }
     if (config.memory_label[0]) {
-        uint64_t mem[2];
-        if (sys_system(15, (uint64_t)mem, 0, 0, 0) == 0) {
+        int fd_m = sys_open("/proc/meminfo", "r");
+        if (fd_m >= 0) {
+            char m_buf[512];
+            int b = sys_read(fd_m, m_buf, 511);
+            m_buf[b] = 0;
+            sys_close(fd_m);
+            int total = find_v(m_buf, "MemTotal");
+            int used = find_v(m_buf, "MemUsed");
             strcpy(info_lines[info_line_count], config.memory_label);
             strcat(info_lines[info_line_count], ": ");
-            itoa((int)(mem[1] / 1024 / 1024), temp_buf);
+            itoa(used / 1024, temp_buf);
             strcat(info_lines[info_line_count], temp_buf);
             strcat(info_lines[info_line_count], "MiB / ");
-            itoa((int)(mem[0] / 1024 / 1024), temp_buf);
+            itoa(total / 1024, temp_buf);
             strcat(info_lines[info_line_count], temp_buf);
             strcat(info_lines[info_line_count++], "MiB");
         }

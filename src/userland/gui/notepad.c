@@ -37,7 +37,7 @@ static void notepad_ensure_cursor_visible(int h) {
 }
 
 static void notepad_load_state() {
-    int fd = sys_open("A:/tmp/notepad_state.txt", "r");
+    int fd = sys_open("/tmp/notepad_state.txt", "r");
     if (fd >= 0) {
         sys_serial_write("Notepad: Loading state...\n");
         buf_len = sys_read(fd, buffer, NOTEPAD_BUF_SIZE - 1);
@@ -50,8 +50,8 @@ static void notepad_load_state() {
 
 static void notepad_save_state() {
     // Ensure dir exists
-    sys_mkdir("A:/tmp");
-    int fd = sys_open("A:/tmp/notepad_state.txt", "w");
+    sys_mkdir("/tmp");
+    int fd = sys_open("/tmp/notepad_state.txt", "w");
     if (fd >= 0) {
         sys_write_fs(fd, buffer, buf_len);
         sys_close(fd);

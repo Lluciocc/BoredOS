@@ -28,7 +28,7 @@ static uint32_t *canvas_buffer = NULL;
 static uint32_t current_color = COLOR_BLACK;
 static int last_mx = -1;
 static int last_my = -1;
-static char current_file_path[256] = "/Desktop/drawing.pnt";
+static char current_file_path[256] = "/root/Desktop/drawing.pnt";
 
 static void paint_strcpy(char *dest, const char *src) {
     while (*src) *dest++ = *src++;

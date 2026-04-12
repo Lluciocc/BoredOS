@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "limine.h"
 #include <stddef.h>
+#include "platform.h"
 static volatile struct limine_hhdm_request hhdm_request __attribute__((used, section(".requests"))) = {
     .id = LIMINE_HHDM_REQUEST,
     .revision = 0,
@@ -68,4 +69,14 @@ void platform_get_cpu_model(char *model) {
         model[i] = p[i];
     }
     model[48] = '\0';
+}
+void platform_get_cpu_vendor(char *vendor) {
+    uint32_t eax, ebx, ecx, edx;
+    asm volatile("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx) : "a"(0));
+    
+    char *p = (char *)vendor;
+    *((uint32_t *)&p[0]) = ebx;
+    *((uint32_t *)&p[4]) = edx;
+    *((uint32_t *)&p[8]) = ecx;
+    p[12] = '\0';
 }
