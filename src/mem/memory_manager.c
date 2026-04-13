@@ -479,7 +479,7 @@ void memory_validate(void) {
     }
     
     if (errors == 0) {
-        cmd_write("Memory validation: OK\n");
+        cmd_write("Memory validation: [OK]\n");
     } else {
         cmd_write("Memory validation failed with ");
         cmd_write_int(errors);

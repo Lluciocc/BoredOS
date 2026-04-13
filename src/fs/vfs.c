@@ -189,7 +189,7 @@ void vfs_init(void) {
     }
     mount_count = 0;
 
-    serial_write("[VFS] Virtual File System initialized\n");
+    serial_write("[VFS] Ready\n");
 }
 
 // ===============

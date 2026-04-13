@@ -21,6 +21,7 @@
 #include "disk.h"
 #include "../sys/work_queue.h"
 #include "../sys/smp.h"
+#include "../core/kconsole.h"
 
 
 // Hello developer,
@@ -44,6 +45,8 @@ void wm_lock_release(uint64_t flags) {
 }
 
 extern void serial_write(const char *str);
+extern void log_ok(const char *msg);
+extern void log_fail(const char *msg);
 
 static bool str_eq(const char *s1, const char *s2) {
     if (!s1 || !s2) return false;
@@ -1919,7 +1922,7 @@ void wm_remove_window(Window *win) {
         force_redraw = true;
     } else {
         wm_lock_release(rflags);
-        serial_write("WM: Window not found in all_windows list!\n");
+        log_fail("Window not found in all_windows list!");
         return;
     }
     
@@ -3096,25 +3099,33 @@ void wm_process_deferred_thumbs(void) {
 
 void wm_init(void) {
     disk_manager_init();
+    log_ok("Disk Manager ready");
+    
     disk_manager_scan();
+    log_ok("Disk scanning complete");
 
     cmd_init();
+    log_ok("Command CLI ready");
+    
     explorer_init();
+    log_ok("Explorer ready");
+    
     wallpaper_init();
+    log_ok("Wallpaper engine ready");
     
     file_index_init();
+    log_ok("File Indexer ready");
     
-    // Try to load the file index from persistent cache
-    // If it doesn't exist, queue an async build
     if (!file_index_load()) {
-        // No cache exists - queue async build to background
+        log_ok("No Index cache, background build started");
         work_queue_submit(build_file_index_async, NULL);
     } else {
-        // Cache loaded - mark as ready
+        log_ok("Index cache loaded");
         lumos_index_built = true;
     }
     
     refresh_desktop_icons();
+    log_ok("Desktop icons refreshed");
     
     // Initialize z-indices
     win_cmd.z_index = 0;
@@ -3131,6 +3142,10 @@ void wm_init(void) {
     win_cmd.visible = false;
     
     force_redraw = true;
+
+    serial_write("[WM] Initialization complete, transitioning to GUI\n");
+    kconsole_set_active(false);
+    graphics_flip_buffer();
 }
 
 uint32_t wm_get_ticks(void) {

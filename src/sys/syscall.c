@@ -203,12 +203,14 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
         
         if (cmd == GUI_CMD_WINDOW_CREATE) {
             extern void serial_write(const char *str);
-            serial_write("Kernel: GUI_CMD_WINDOW_CREATE\n");
-            
             const char *title = (const char *)arg2;
+            
+            serial_write("[WM] CreateWindow: ");
+            serial_write(title ? title : "Unknown");
+            serial_write("\n");
             uint64_t *u_params = (uint64_t *)arg3;
             if (!u_params) {
-                serial_write("Kernel: Error - params is NULL\n");
+                serial_write("[WM] Error - params is NULL\n");
                 return 0;
             }
 
@@ -216,14 +218,14 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             uint64_t params[4];
             for (int i = 0; i < 4; i++) params[i] = u_params[i];
             
-            serial_write("Kernel: Window params copied.\n");
+            // params verified
             
             Window *win = kmalloc(sizeof(Window));
             if (!win) {
-                serial_write("Kernel: Error - kmalloc failed for Window\n");
+                serial_write("[WM] Error - kmalloc failed for Window\n");
                 return 0;
             }
-            serial_write("Kernel: Window allocated.\n");
+            // win allocated
             
             extern void mem_memset(void *dest, int val, size_t len);
             mem_memset(win, 0, sizeof(Window));
@@ -240,11 +242,8 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                     kernel_title[i] = title[i];
                 }
                 kernel_title[title_len] = '\0';
-                serial_write("Kernel: Title copied: ");
-                serial_write(kernel_title);
-                serial_write("\n");
             } else {
-                serial_write("Kernel: Warning - kernel_title kmalloc failed\n");
+                serial_write("[WM] Warning: kernel_title kmalloc failed\n");
             }
             
             // Basic initialization
@@ -254,7 +253,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             win->w = (int)params[2];
             win->h = (int)params[3];
             
-            serial_write("Kernel: Init win dims.\n");
+            // dims ready
             
             // Sanity checks for dimensions
             if (win->w <= 0 || win->w > 4096) win->w = 400;
@@ -268,7 +267,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             win->font = NULL;
             win->lock = SPINLOCK_INIT;
             
-            serial_write("Kernel: Dims initialized.\n");
+            // ready
             
             size_t pixel_size = 0;
             // Safe allocation
@@ -283,7 +282,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 win->comp_pixels = kmalloc(pixel_size);
             }
             
-            serial_write("Kernel: Buffers allocated.\n");
+            // buffs ok
             
             if (win->pixels) {
                 extern void mem_memset(void *dest, int val, size_t len);
@@ -294,7 +293,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 mem_memset(win->comp_pixels, 0, pixel_size);
             }
             
-            serial_write("Kernel: Buffers cleared.\n");
+            serial_write("[WM] Buffers ready\n");
 
             // Set callbacks
             win->paint = user_window_paint;
@@ -800,7 +799,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             Window *win = (Window *)arg2;
             if (win) {
                 extern void serial_write(const char *str);
-                serial_write("Kernel: Setting window resizable to ");
+                serial_write("[WM] Resizable: ");
                 serial_write(arg3 ? "true\n" : "false\n");
                 win->resizable = (arg3 != 0);
             }

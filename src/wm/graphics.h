@@ -56,6 +56,7 @@ void graphics_clear_dirty_no_lock(void);
 // Double buffering
 void graphics_flip_buffer(void);
 void graphics_clear_back_buffer(uint32_t color);
+void graphics_scroll_back_buffer(int lines);
 
 // Clipping
 void graphics_set_clipping(int x, int y, int w, int h);

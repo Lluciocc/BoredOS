@@ -21,6 +21,8 @@ static int next_sd_index = 0;  // For sda, sdb, sdc...
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint64_t num);
+extern void log_ok(const char *msg);
+extern void log_fail(const char *msg);
 
 // === String Helpers ===
 
@@ -306,14 +308,16 @@ void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_
             dm_strcpy(mount_path + 5, part->devname);
             
             if (vfs_mount(mount_path, part->devname, "fat32", fat32_get_realfs_ops(), vol)) {
-                serial_write("[VFS] Mounted ");
-                serial_write(mount_path);
-                serial_write(" to VFS\n");
+                char ok_msg[64];
+                dm_strcpy(ok_msg, "Mounted ");
+                dm_strcpy(ok_msg + 8, mount_path);
+                log_ok(ok_msg);
                 wm_notify_fs_change();
             } else {
-                serial_write("[VFS] Failed to mount ");
-                serial_write(mount_path);
-                serial_write("\n");
+                char fail_msg[64];
+                dm_strcpy(fail_msg, "Failed to mount ");
+                dm_strcpy(fail_msg + 16, mount_path);
+                log_fail(fail_msg);
             }
         }
     }
@@ -499,7 +503,7 @@ void disk_manager_init(void) {
     next_sd_index = 0;
     next_drive_letter_idx = 0;
 
-    serial_write("[DISK] Disk manager initialized (VFS mode)\n");
+    log_ok("Disk manager ready");
     // NOTE: Ramdisk (A:) is no longer registered here.
     // RAMFS is managed directly by fat32.c and mounted at "/" via VFS.
 }
@@ -509,12 +513,13 @@ void disk_manager_scan(void) {
     ahci_init();
     
     if (ahci_get_port_count() == 0) {
-        serial_write("[DISK] No AHCI ports found, falling back to legacy IDE PIO...\n");
+        serial_write("[DISK] No AHCI ports found, falling back to legacy IDE...\n");
         try_add_ata_drive(ATA_PRIMARY_IO, false, "IDE Primary Master");
         try_add_ata_drive(ATA_PRIMARY_IO, true, "IDE Primary Slave");
         try_add_ata_drive(ATA_SECONDARY_IO, false, "IDE Secondary Master");
         try_add_ata_drive(ATA_SECONDARY_IO, true, "IDE Secondary Slave");
+        log_ok("IDE probing complete");
     } else {
-        serial_write("[DISK] AHCI initialized successfully, skipping legacy IDE.\n");
+        log_ok("AHCI ports initialized, skipping IDE");
     }
 }

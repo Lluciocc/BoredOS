@@ -7,6 +7,7 @@
 #include "io.h"
 #include "font_manager.h"
 #include "../mem/memory_manager.h"
+#include "sys/spinlock.h"
 
 static struct limine_framebuffer *g_fb = NULL;
 static uint32_t g_bg_color = 0xFF696969;
@@ -25,6 +26,7 @@ static int g_bg_image_h = 0;
 static bool g_use_image = false;
 
 static DirtyRect g_dirty = {0, 0, 0, 0, false};
+static spinlock_t graphics_lock = SPINLOCK_INIT;
 
 
 #define MAX_FB_WIDTH 2048
@@ -163,15 +165,19 @@ void graphics_mark_dirty(int x, int y, int w, int h) {
         return;
     }
     
+    uint64_t flags = spinlock_acquire_irqsave(&graphics_lock);
     merge_dirty_rect(x, y, w, h);
+    spinlock_release_irqrestore(&graphics_lock, flags);
 }
 
 void graphics_mark_screen_dirty(void) {
+    uint64_t flags = spinlock_acquire_irqsave(&graphics_lock);
     g_dirty.x = 0;
     g_dirty.y = 0;
     g_dirty.w = get_screen_width();
     g_dirty.h = get_screen_height();
     g_dirty.active = true;
+    spinlock_release_irqrestore(&graphics_lock, flags);
 }
 
 DirtyRect graphics_get_dirty_rect(void) {
@@ -179,11 +185,9 @@ DirtyRect graphics_get_dirty_rect(void) {
 }
 
 void graphics_clear_dirty(void) {
-    extern uint64_t wm_lock_acquire(void);
-    extern void wm_lock_release(uint64_t);
-    uint64_t rflags = wm_lock_acquire();
+    uint64_t flags = spinlock_acquire_irqsave(&graphics_lock);
     g_dirty.active = false;
-    wm_lock_release(rflags);
+    spinlock_release_irqrestore(&graphics_lock, flags);
 }
 
 void graphics_clear_dirty_no_lock(void) {
@@ -796,12 +800,22 @@ void graphics_clear_back_buffer(uint32_t color) {
 }
 
 void graphics_flip_buffer(void) {
-    if (!g_fb || !g_dirty.active) return;
+    if (!g_fb) return;
+
+    uint64_t flags = spinlock_acquire_irqsave(&graphics_lock);
+    if (!g_dirty.active) {
+        spinlock_release_irqrestore(&graphics_lock, flags);
+        return;
+    }
 
     int x = g_dirty.x;
     int y = g_dirty.y;
     int w = g_dirty.w;
     int h = g_dirty.h;
+    
+    // Clear dirty state
+    g_dirty.active = false;
+    spinlock_release_irqrestore(&graphics_lock, flags);
 
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
@@ -1020,4 +1034,27 @@ void graphics_blit_buffer(uint32_t *src, int dst_x, int dst_y, int w, int h) {
             }
         }
     }
+}
+void graphics_scroll_back_buffer(int lines) {
+    if (!g_fb || lines <= 0 || lines >= (int)g_fb->height) return;
+    
+    extern uint64_t wm_lock_acquire(void);
+    extern void wm_lock_release(uint64_t);
+    uint64_t rflags = wm_lock_acquire();
+
+    int sw = (int)g_fb->width;
+    int sh = (int)g_fb->height;
+    
+    for (int y = 0; y < sh - lines; y++) {
+        uint32_t *dst = &g_back_buffer[y * sw];
+        uint32_t *src = &g_back_buffer[(y + lines) * sw];
+        for (int x = 0; x < sw; x++) dst[x] = src[x];
+    }
+    
+    for (int y = sh - lines; y < sh; y++) {
+        uint32_t *dst = &g_back_buffer[y * sw];
+        for (int x = 0; x < sw; x++) dst[x] = 0;
+    }
+
+    wm_lock_release(rflags);
 }

@@ -212,7 +212,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     size_t elf_load_size = 0;
     uint64_t entry_point = elf_load(filepath, new_proc->pml4_phys, &elf_load_size);
     if (entry_point == 0) {
-        serial_write("[PROCESS] Failed to load ELF: ");
+        serial_write("[PROC] Failed to load ELF: ");
         serial_write(filepath);
         serial_write("\n");
         // We technically leak the page table here, but let's ignore cleanup for now
@@ -371,7 +371,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     current_process[0]->next = new_proc;
     spinlock_release_irqrestore(&runqueue_lock, rflags);
     
-    serial_write("[PROCESS] Spawned ELF Executable: ");
+    serial_write("[PROC] Exec: ");
     serial_write(filepath);
     serial_write("\n");
     return new_proc;

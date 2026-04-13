@@ -88,7 +88,7 @@ int network_init(void) {
         ipv4_address_t ip;
         network_get_ipv4_address(&ip);
         extern void serial_write(const char *str);
-        serial_write("[NETWORK] IP Assigned: ");
+        serial_write("[NET] IP Assigned: ");
         char buf[32];
         k_itoa(ip.bytes[0], buf); serial_write(buf); serial_write(".");
         k_itoa(ip.bytes[1], buf); serial_write(buf); serial_write(".");
@@ -96,7 +96,7 @@ int network_init(void) {
         k_itoa(ip.bytes[3], buf); serial_write(buf); serial_write("\n");
     } else {
         extern void serial_write(const char *str);
-        serial_write("[NETWORK] DHCP Failed during init\n");
+        serial_write("[NET] DHCP Failed during init\n");
     }
 
     // Set default DNS server (1.1.1.1)

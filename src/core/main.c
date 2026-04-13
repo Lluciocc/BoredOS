@@ -18,6 +18,7 @@
 #include "fat32.h"
 #include "tar.h"
 #include "vfs.h"
+#include "core/kconsole.h"
 #include "memory_manager.h"
 #include "platform.h"
 #include "wallpaper.h"
@@ -91,25 +92,69 @@ static void init_serial() {
     outb(0x3F8 + 4, 0x0B);
 }
 
+static spinlock_t serial_lock = SPINLOCK_INIT;
+
 void serial_write(const char *str) {
-    while (*str) {
+    uint64_t flags = spinlock_acquire_irqsave(&serial_lock);
+    const char *p = str;
+    while (*p) {
+        char c = *p++;
         while ((inb(0x3F8 + 5) & 0x20) == 0);
-        outb(0x3F8, *str++);
+        outb(0x3F8, c);
     }
+    kconsole_write(str);
+    spinlock_release_irqrestore(&serial_lock, flags);
+}
+
+static void serial_write_num_locked(uint32_t n) {
+    if (n >= 10) serial_write_num_locked(n / 10);
+    char c = '0' + (n % 10);
+    while ((inb(0x3F8 + 5) & 0x20) == 0);
+    outb(0x3F8, c);
+    kconsole_putc(c);
 }
 
 void serial_write_num(uint32_t n) {
-    if (n >= 10) serial_write_num(n / 10);
+    uint64_t flags = spinlock_acquire_irqsave(&serial_lock);
+    serial_write_num_locked(n);
+    spinlock_release_irqrestore(&serial_lock, flags);
+}
+
+static void serial_write_hex_locked(uint64_t n) {
+    char *hex = "0123456789ABCDEF";
+    if (n >= 16) serial_write_hex_locked(n / 16);
+    char c = hex[n % 16];
     while ((inb(0x3F8 + 5) & 0x20) == 0);
-    outb(0x3F8, '0' + (n % 10));
+    outb(0x3F8, c);
+    kconsole_putc(c);
 }
 
 void serial_write_hex(uint64_t n) {
-    char *hex = "0123456789ABCDEF";
-    if (n >= 16) serial_write_hex(n / 16);
-    while ((inb(0x3F8 + 5) & 0x20) == 0);
-    outb(0x3F8, hex[n % 16]);
+    uint64_t flags = spinlock_acquire_irqsave(&serial_lock);
+    serial_write_hex_locked(n);
+    spinlock_release_irqrestore(&serial_lock, flags);
 }
+
+void log_ok(const char *msg) {
+    serial_write("[  ");
+    kconsole_set_color(0xFF00FF00); 
+    serial_write("OK");
+    kconsole_set_color(0xFFFFFFFF); 
+    serial_write("  ] ");
+    serial_write(msg);
+    serial_write("\n");
+}
+
+void log_fail(const char *msg) {
+    serial_write("[ ");
+    kconsole_set_color(0xFFFF0000); 
+    serial_write("FAIL");
+    kconsole_set_color(0xFFFFFFFF); 
+    serial_write(" ] ");
+    serial_write(msg);
+    serial_write("\n");
+}
+
 
 // Kernel Entry Point
 
@@ -141,64 +186,65 @@ static void fat32_mkdir_recursive(const char *path) {
 void kmain(void) {
     init_serial();
     vfs_init();
-    serial_write("\n[DEBUG] Entering kmain...\n");
+    serial_write("\n");
 
     platform_init();
-    serial_write("[DEBUG] platform_init OK\n");
+    log_ok("Platform initialized");
     
     extern uint64_t hhdm_offset;
     extern uint64_t kernel_phys_base;
     extern uint64_t kernel_virt_base;
     
-    serial_write("[DEBUG] HHDM Offset: 0x");
+    serial_write("[INIT] HHDM Offset: 0x");
     serial_write_hex(hhdm_offset);
     serial_write("\n");
-    serial_write("[DEBUG] Kernel Phys: 0x");
+    serial_write("[INIT] Kernel Phys: 0x");
     serial_write_hex(kernel_phys_base);
     serial_write("\n");
-    serial_write("[DEBUG] Kernel Virt: 0x");
+    serial_write("[INIT] Kernel Virt: 0x");
     serial_write_hex(kernel_virt_base);
     serial_write("\n");
 
-    if (memmap_request.response != NULL) {
-        // The memory manager will now scan the memory map and manage all usable regions.
-        memory_manager_init_from_memmap(memmap_request.response);
-        serial_write("[DEBUG] memory_manager_init OK\n");
-        smp_init_bsp();
-        serial_write("[DEBUG] smp_init_bsp OK\n");
-    } else {
-        serial_write("[DEBUG] ERROR: No usable memory for heap! Check Limine memmap.\n");
-        hcf();
-    }
-
     if (framebuffer_request.response == NULL || framebuffer_request.response->framebuffer_count < 1) {
-        serial_write("[DEBUG] No framebuffer! Halting.\n");
+        serial_write("[INIT] No framebuffer! Halting.\n");
         hcf();
     }
 
     struct limine_framebuffer *fb = framebuffer_request.response->framebuffers[0];
     graphics_init(fb);
-    serial_write("[DEBUG] graphics_init OK\n");
+    kconsole_init();
+    log_ok("Graphics and Console ready");
+
+    if (memmap_request.response != NULL) {
+        // The memory manager will now scan the memory map and manage all usable regions.
+        memory_manager_init_from_memmap(memmap_request.response);
+        log_ok("Memory manager ready");
+        smp_init_bsp();
+        log_ok("SMP BSP initialized");
+    } else {
+        log_fail("No usable memory for heap! Check Limine memmap.");
+        hcf();
+    }
 
     gdt_init();
-    serial_write("[DEBUG] gdt_init OK\n");
+    log_ok("GDT initialized");
 
     paging_init();
-    serial_write("[DEBUG] paging_init OK\n");
+    log_ok("Paging ready");
 
     syscall_init();
-    serial_write("[DEBUG] syscall_init OK\n");
+    log_ok("Syscalls ready");
 
     idt_init();
     idt_register_interrupts();
     idt_load();
-    serial_write("[DEBUG] idt_init OK\n");
+    log_ok("IDT ready");
 
     process_init();
 
     
     fat32_init();
-    serial_write("[DEBUG] fat32_init OK\n");
+    log_ok("FAT32 ready");
     fat32_mkdir("/bin");
     fat32_mkdir("/Library");
     fat32_mkdir("/Library/images");
@@ -214,11 +260,9 @@ void kmain(void) {
     vfs_mount("/proc", "procfs", "procfs", procfs_get_ops(), NULL);
 
     if (module_request.response == NULL) {
-        serial_write("[DEBUG] ERROR: Limine Module Response is NULL!\n");
+        log_fail("Limine module response NULL");
     } else {
-        serial_write("[DEBUG] Limine Module Response found. Count: ");
-        serial_write_num(module_request.response->module_count);
-        serial_write("\n");
+        log_ok("Limine modules loaded");
         for (uint64_t i = 0; i < module_request.response->module_count; i++) {
             struct limine_file *mod = module_request.response->modules[i];
 
@@ -230,7 +274,7 @@ void kmain(void) {
             while(clean_path[len]) len++;
             
             if (len >= 4 && clean_path[len-4] == '.' && clean_path[len-3] == 't' && clean_path[len-2] == 'a' && clean_path[len-1] == 'r') {
-                serial_write("[DEBUG] Parsing TAR initrd: ");
+                serial_write("[INIT] Parsing TAR initrd: ");
                 serial_write(clean_path);
                 serial_write("\n");
                 tar_parse(mod->address, mod->size);
@@ -260,7 +304,7 @@ void kmain(void) {
     // Initialize fonts now that FAT32 and modules are loaded
     uint64_t current_rsp;
     asm volatile("mov %%rsp, %0" : "=r"(current_rsp));
-    serial_write("[DEBUG] Stack Alignment: 0x");
+    serial_write("[INIT] Stack Alignment: 0x");
     serial_write_hex(current_rsp);
     serial_write("\n");
 
@@ -276,11 +320,9 @@ void kmain(void) {
     // Initialize SMP 
     if (smp_request.response != NULL) {
         uint32_t online = smp_init(smp_request.response);
-        serial_write("[DEBUG] SMP init complete, CPUs online: ");
-        serial_write_num(online);
-        serial_write("\n");
+        log_ok("SMP initialized");
     } else {
-        serial_write("[DEBUG] No SMP response from bootloader\n");
+        serial_write("[INIT] No SMP response from bootloader\n");
         smp_init(NULL);
     }
 

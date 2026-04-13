@@ -239,8 +239,8 @@ int main(int argc, char** argv) {
     }
     
     if (strcmp(argv[1], "init") == 0) {
-        if (sys_network_init() == 0) printf("Network OK\n");
-        else printf("Network Fail\n");
+        if (sys_network_init() == 0) printf("Network [OK]\n");
+        else printf("Network [FAIL]\n");
         return 0;
     }
 

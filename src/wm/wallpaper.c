@@ -107,7 +107,7 @@ void wallpaper_process_pending(void) {
         const char *path = (const char *)pending_wallpaper_path;
         pending_wallpaper_path = NULL;
 
-        serial_str("[WP] Processing wallpaper: ");
+        serial_str("[WM] Processing wallpaper: ");
         serial_str(path);
         serial_str("\n");
 

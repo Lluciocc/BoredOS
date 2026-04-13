@@ -1133,7 +1133,6 @@ tcp_connect(struct tcp_pcb *pcb, const ip_addr_t *ipaddr, u16_t port,
               (cpcb->remote_port == port) &&
               ip_addr_cmp(&cpcb->local_ip, &pcb->local_ip) &&
               ip_addr_cmp(&cpcb->remote_ip, ipaddr)) {
-            /* linux returns EISCONN here, but ERR_USE should be OK for us */
             return ERR_USE;
           }
         }

@@ -37,10 +37,13 @@ static uint32_t read_lapic_id(void) {
 }
 
 uint32_t smp_this_cpu_id(void) {
-    if (total_cpus <= 1) return 0;
+    if (total_cpus <= 1 || !cpu_states) return 0;
     
     // Use GS-based self-pointer to get the structure first
-    cpu_state_t *state;
+    cpu_state_t *state = NULL;
+    // Safely check GS:0. If GS is not set or base is 0, this should be handled carefully.
+    // In BoredOS, if GS is not set, this might still fault depending on address space.
+    // However, the cpu_states check above covers the most likely early-boot failure.
     asm volatile("movq %%gs:0, %0" : "=r"(state) : : "memory");
     if (state) return state->cpu_id;
 
