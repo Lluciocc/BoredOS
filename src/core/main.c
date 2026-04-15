@@ -242,7 +242,6 @@ void kmain(void) {
     log_ok("Graphics and Console ready");
 
     if (memmap_request.response != NULL) {
-        // The memory manager will now scan the memory map and manage all usable regions.
         memory_manager_init_from_memmap(memmap_request.response);
         log_ok("Memory manager ready");
         smp_init_bsp();
@@ -278,17 +277,15 @@ void kmain(void) {
     fat32_mkdir("/Library/images/gif");
     fat32_mkdir("/Library/Fonts");
     fat32_mkdir("/Library/DOOM");
+    fat32_mkdir("/Library/bsh");
     fat32_mkdir("/docs");
 
-    // Initialize Virtual Filesystems
     sysfs_init_subsystems();
     vfs_mount("/sys", "sysfs", "sysfs", sysfs_get_ops(), NULL);
     vfs_mount("/proc", "procfs", "procfs", procfs_get_ops(), NULL);
     
-    // Initialize bootfs with default values
     bootfs_init();
     
-    // Populate bootfs with real Limine bootloader information BEFORE mounting
     if (bootloader_info_request.response != NULL) {
         if (bootloader_info_request.response->name) {
             k_strcpy(g_bootfs_state.bootloader_name, bootloader_info_request.response->name);
@@ -298,7 +295,6 @@ void kmain(void) {
         }
     }
     
-    // Get kernel size from kernel file request
     if (kernel_file_request.response != NULL && kernel_file_request.response->kernel_file != NULL) {
         g_bootfs_state.kernel_size = kernel_file_request.response->kernel_file->size;
         serial_write("[INIT] Kernel size from bootloader: ");
@@ -306,16 +302,13 @@ void kmain(void) {
         serial_write(" bytes\n");
     }
     
-    // Set boot time to current ticks
     extern uint32_t wm_get_ticks(void);
     g_bootfs_state.boot_time_ms = wm_get_ticks();
 
-    // BEFORE mounting bootfs, capture initrd from Limine modules
     if (module_request.response != NULL) {
         g_bootfs_state.num_modules = module_request.response->module_count;
         
         serial_write("[INIT] Scanning modules for bootfs state...\n");
-        // Scan modules to find initrd
         for (uint64_t i = 0; i < module_request.response->module_count; i++) {
             struct limine_file *mod = module_request.response->modules[i];
             const char *path = mod->path;
@@ -379,12 +372,10 @@ void kmain(void) {
                     fat32_close(fh);
                 }
             }
-            // Register all discovered modules in our module manager for /sys/module
             module_manager_register(clean_path, (uint64_t)mod->address, mod->size);
         }
     }
     
-    // Initialize fonts now that FAT32 and modules are loaded
     uint64_t current_rsp;
     asm volatile("mov %%rsp, %0" : "=r"(current_rsp));
     serial_write("[INIT] Stack Alignment: 0x");
@@ -397,10 +388,8 @@ void kmain(void) {
     ps2_init();
     asm("sti");
 
-    // Initialize LAPIC for IPI support
     lapic_init();
 
-    // Initialize SMP 
     if (smp_request.response != NULL) {
         uint32_t online = smp_init(smp_request.response);
         log_ok("SMP initialized");

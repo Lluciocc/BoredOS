@@ -72,6 +72,20 @@
 #define SYSTEM_CMD_TCP_RECV_NB 42
 #define SYSTEM_CMD_YIELD 43
 #define SYSTEM_CMD_PARALLEL_RUN 50
+#define SYSTEM_CMD_TTY_CREATE 60
+#define SYSTEM_CMD_TTY_READ_OUT 61
+#define SYSTEM_CMD_TTY_WRITE_IN 62
+#define SYSTEM_CMD_TTY_READ_IN 63
+#define SYSTEM_CMD_SPAWN 64
+#define SYSTEM_CMD_TTY_SET_FG 65
+#define SYSTEM_CMD_TTY_GET_FG 66
+#define SYSTEM_CMD_TTY_KILL_FG 67
+#define SYSTEM_CMD_TTY_KILL_ALL 68
+#define SYSTEM_CMD_TTY_DESTROY 69
+
+#define SPAWN_FLAG_TERMINAL 0x1
+#define SPAWN_FLAG_INHERIT_TTY 0x2
+#define SPAWN_FLAG_TTY_ID 0x4
 
 // Internal assembly entry into Ring 0
 extern uint64_t syscall0(uint64_t sys_num);
@@ -114,6 +128,17 @@ int sys_mkdir(const char *path);
 int sys_exists(const char *path);
 int sys_getcwd(char *buf, int size);
 int sys_chdir(const char *path);
+
+int sys_tty_create(void);
+int sys_tty_read_out(int tty_id, char *buf, int len);
+int sys_tty_write_in(int tty_id, const char *buf, int len);
+int sys_tty_read_in(char *buf, int len);
+int sys_spawn(const char *path, const char *args, uint64_t flags, uint64_t tty_id);
+int sys_tty_set_fg(int tty_id, int pid);
+int sys_tty_get_fg(int tty_id);
+int sys_tty_kill_fg(int tty_id);
+int sys_tty_kill_all(int tty_id);
+int sys_tty_destroy(int tty_id);
 
 typedef struct {
     char name[256];

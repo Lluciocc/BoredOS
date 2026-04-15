@@ -1,0 +1,35 @@
+# BoredShell rc file
+# Location: /Library/bsh/bshrc
+#
+# Format (initial): key=value
+# Lines starting with # are comments.
+#
+# PATH controls command lookup order (colon-separated).
+PATH=/bin:/root/Apps
+
+# Scripts to run automatically.
+# STARTUP runs for interactive shells.
+# BOOT_SCRIPT runs once on boot (if enabled by the shell).
+STARTUP=/Library/bsh/startup.bsh
+BOOT_SCRIPT=/Library/bsh/boot.bsh
+
+# Prompt templates.
+# Tokens:
+#   %n = username
+#   %h = hostname
+#   %~ = cwd ("~" for /root)
+#   %T = time (HH:MM)
+PROMPT_LEFT=%n@%h:%~$ 
+PROMPT_RIGHT=%T
+
+# History settings.
+HISTORY_FILE=/Library/bsh/history
+HISTORY_SIZE=200
+
+# Feature toggles.
+GLOB=true
+COMPLETE=true
+SUGGEST=true
+
+# Example aliases (future support).
+# alias ll=ls -la

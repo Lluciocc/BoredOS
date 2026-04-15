@@ -145,6 +145,46 @@ int sys_chdir(const char *path) {
     return (int)syscall2(SYS_FS, FS_CMD_CHDIR, (uint64_t)path);
 }
 
+int sys_tty_create(void) {
+    return (int)syscall2(SYS_SYSTEM, SYSTEM_CMD_TTY_CREATE, 0);
+}
+
+int sys_tty_read_out(int tty_id, char *buf, int len) {
+    return (int)syscall5(SYS_SYSTEM, SYSTEM_CMD_TTY_READ_OUT, (uint64_t)tty_id, (uint64_t)buf, (uint64_t)len, 0);
+}
+
+int sys_tty_write_in(int tty_id, const char *buf, int len) {
+    return (int)syscall5(SYS_SYSTEM, SYSTEM_CMD_TTY_WRITE_IN, (uint64_t)tty_id, (uint64_t)buf, (uint64_t)len, 0);
+}
+
+int sys_tty_read_in(char *buf, int len) {
+    return (int)syscall4(SYS_SYSTEM, SYSTEM_CMD_TTY_READ_IN, (uint64_t)buf, (uint64_t)len, 0);
+}
+
+int sys_spawn(const char *path, const char *args, uint64_t flags, uint64_t tty_id) {
+    return (int)syscall5(SYS_SYSTEM, SYSTEM_CMD_SPAWN, (uint64_t)path, (uint64_t)args, flags, (uint64_t)tty_id);
+}
+
+int sys_tty_set_fg(int tty_id, int pid) {
+    return (int)syscall4(SYS_SYSTEM, SYSTEM_CMD_TTY_SET_FG, (uint64_t)tty_id, (uint64_t)pid, 0);
+}
+
+int sys_tty_get_fg(int tty_id) {
+    return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_TTY_GET_FG, (uint64_t)tty_id, 0);
+}
+
+int sys_tty_kill_fg(int tty_id) {
+    return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_TTY_KILL_FG, (uint64_t)tty_id, 0);
+}
+
+int sys_tty_kill_all(int tty_id) {
+    return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_TTY_KILL_ALL, (uint64_t)tty_id, 0);
+}
+
+int sys_tty_destroy(int tty_id) {
+    return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_TTY_DESTROY, (uint64_t)tty_id, 0);
+}
+
 void sys_kill(int pid) {
     syscall1(SYS_KILL, (uint64_t)pid);
 }

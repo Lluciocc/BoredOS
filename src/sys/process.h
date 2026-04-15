@@ -43,6 +43,8 @@ typedef struct process {
     void *user_stack_alloc;  
 
     bool is_terminal_proc;   
+    int tty_id;              
+    bool kill_pending;       
 
     struct process *next;
 
@@ -75,6 +77,7 @@ uint64_t process_schedule(uint64_t current_rsp);
 uint64_t process_terminate_current(void);
 void process_terminate(process_t *proc);
 process_t* process_get_by_pid(uint32_t pid);
+void process_kill_by_tty(int tty_id);
 
 // SMP: IPI handler for AP scheduling 
 uint64_t sched_ipi_handler(registers_t *regs);

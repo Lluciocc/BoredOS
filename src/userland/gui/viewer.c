@@ -41,6 +41,40 @@ static int viewer_strlen(const char *s) {
     return len;
 }
 
+static void viewer_strncat(char *dst, const char *src, int max_len) {
+    if (!dst || !src || max_len <= 0) return;
+    int dlen = viewer_strlen(dst);
+    int i = 0;
+    while (dlen + i < max_len - 1 && src[i]) {
+        dst[dlen + i] = src[i];
+        i++;
+    }
+    dst[dlen + i] = 0;
+}
+
+static void viewer_resolve_path(const char *input, char *out, int max_len) {
+    if (!out || max_len <= 0) return;
+    if (!input || input[0] == 0) {
+        out[0] = 0;
+        return;
+    }
+    if (input[0] == '/') {
+        viewer_strcpy(out, input);
+        return;
+    }
+
+    char cwd[256];
+    if (sys_getcwd(cwd, sizeof(cwd)) < 0) {
+        viewer_strcpy(out, input);
+        return;
+    }
+
+    viewer_strcpy(out, cwd);
+    int len = viewer_strlen(out);
+    if (len > 0 && out[len - 1] != '/') viewer_strncat(out, "/", max_len);
+    viewer_strncat(out, input, max_len);
+}
+
 static void viewer_scale_rgba_to_argb(const unsigned char *rgba, int src_w, int src_h,
                                       uint32_t *dst, int dst_w, int dst_h) {
     if (src_w == dst_w && src_h == dst_h) {
@@ -141,7 +175,9 @@ static void viewer_paint(ui_window_t win) {
 }
 
 void viewer_open_file(const char *path) {
-    int fd = sys_open(path, "r");
+    char resolved[256];
+    viewer_resolve_path(path, resolved, sizeof(resolved));
+    int fd = sys_open(resolved, "r");
     if (fd < 0) return;
 
     uint32_t file_size = sys_size(fd);
@@ -250,13 +286,13 @@ void viewer_open_file(const char *path) {
     stbi_image_free(rgba);
     free(buf);
 
-    viewer_strcpy(viewer_file_path, path);
+    viewer_strcpy(viewer_file_path, resolved);
 
-    const char *fname = path;
-    int plen = viewer_strlen(path);
+    const char *fname = resolved;
+    int plen = viewer_strlen(resolved);
     for (int i = plen - 1; i >= 0; i--) {
-        if (path[i] == '/') {
-            fname = &path[i + 1];
+        if (resolved[i] == '/') {
+            fname = &resolved[i + 1];
             break;
         }
     }

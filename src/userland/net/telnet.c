@@ -3,8 +3,6 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include <stdlib.h>
 #include <syscall.h>
-#include "libc/libui.h"
-
 
 static int term_cols = 116;
 static int term_rows = 41;
@@ -80,13 +78,10 @@ static void telnet_handle_option(uint8_t cmd, uint8_t opt) {
 
         case WILL:
             if (opt == OPT_SUPPRESS_GA) {
-                // Good — accept suppressed GA (most BBS systems do this)
                 telnet_send_3(IAC, DO, OPT_SUPPRESS_GA);
             } else if (opt == OPT_ECHO) {
-                // Server will echo chars (remote echo) — accept it
                 telnet_send_3(IAC, DO, OPT_ECHO);
             } else {
-                // Refuse other server offers
                 telnet_send_3(IAC, DONT, opt);
             }
             break;
@@ -115,14 +110,13 @@ static void telnet_handle_sb_terminal_type(const uint8_t *sb_data, int sb_len) {
 }
 
 
-
 typedef enum {
     TS_DATA = 0,
     TS_IAC,
-    TS_CMD,         
-    TS_OPT,         
-    TS_SB,         
-    TS_SB_IAC     
+    TS_CMD,
+    TS_OPT,
+    TS_SB,
+    TS_SB_IAC
 } TelnetParseState;
 
 static TelnetParseState ts_state = TS_DATA;
@@ -133,7 +127,7 @@ static int ts_sb_pos = 0;
 
 // Output buffer — accumulate non-IAC bytes to write in bulk
 static char out_buf[4096];
-static int  out_pos = 0;
+static int out_pos = 0;
 
 static void flush_out(void) {
     if (out_pos > 0) {
@@ -159,7 +153,6 @@ static int telnet_process(const uint8_t *data, int len) {
                 if (b == IAC) {
                     ts_state = TS_IAC;
                 } else {
-                    // Pass directly to display
                     out_char((char)b);
                 }
                 break;
@@ -167,7 +160,6 @@ static int telnet_process(const uint8_t *data, int len) {
             case TS_IAC:
                 switch (b) {
                     case IAC:
-                        // Escaped IAC — literal 0xFF
                         out_char((char)0xFF);
                         ts_state = TS_DATA;
                         break;
@@ -233,10 +225,9 @@ static int telnet_process(const uint8_t *data, int len) {
     return 1;
 }
 
-
 static int map_key(char c, uint8_t *key_out) {
     if (c == 29) {
-        // Ctrl+] 
+        // Ctrl+]
         return -1;
     }
     if (c == 17) {
@@ -260,12 +251,12 @@ static int map_key(char c, uint8_t *key_out) {
         return 3;
     }
     if (c == '\n') {
-        // Enter 
+        // Enter
         key_out[0] = '\r'; key_out[1] = '\n';
         return 2;
     }
     if (c == '\b') {
-        // Backspace 
+        // Backspace
         key_out[0] = '\x7f';
         return 1;
     }
@@ -276,7 +267,7 @@ static int map_key(char c, uint8_t *key_out) {
 
 static int my_atoi(const char *s) {
     int v = 0;
-    while (*s >= '0' && *s <= '9') { v = v*10 + (*s - '0'); s++; }
+    while (*s >= '0' && *s <= '9') { v = v * 10 + (*s - '0'); s++; }
     return v;
 }
 
@@ -284,7 +275,7 @@ static int parse_ip(const char *s, net_ipv4_address_t *ip) {
     int part = 0, val = 0;
     while (*s) {
         if (*s >= '0' && *s <= '9') {
-            val = val*10 + (*s - '0');
+            val = val * 10 + (*s - '0');
             if (val > 255) return -1;
         } else if (*s == '.') {
             if (part > 3) return -1;
@@ -340,8 +331,6 @@ int main(int argc, char **argv) {
         return 1;
     }
     printf("Connected. Press Ctrl+] to disconnect.\n\n");
-    
-    sys_system(41, 1, 0, 0, 0); // SYSTEM_CMD_SET_RAW_MODE = 1
 
     uint8_t recv_buf[4096];
     int total = 0;
@@ -349,19 +338,17 @@ int main(int argc, char **argv) {
     int connected = 1;
 
     while (connected) {
-        gui_event_t ev;
-        while (ui_get_event(0, &ev)) { // win=0 for console proc
-            if (ev.type == GUI_EVENT_KEY) {
-                uint8_t key_data[16];
-                int key_len = map_key((char)ev.arg1, key_data);
-                if (key_len < 0) {
-                    connected = 0;
-                    break;
-                }
-                telnet_send(key_data, key_len);
+        char ch = 0;
+        int got = sys_tty_read_in(&ch, 1);
+        if (got > 0) {
+            uint8_t key_data[16];
+            int key_len = map_key(ch, key_data);
+            if (key_len < 0) {
+                connected = 0;
+                break;
             }
+            telnet_send(key_data, key_len);
         }
-        if (!connected) break;
 
         int len = sys_tcp_recv_nb(recv_buf, sizeof(recv_buf) - 1);
         if (len < 0) {
@@ -371,8 +358,7 @@ int main(int argc, char **argv) {
         }
         if (len == 0) {
             idle_count++;
-            // Don't timeout too fast if we are just waiting for user input
-            if (idle_count > 10000000) { 
+            if (idle_count > 10000000) {
                 printf("\r\n[Connection timed out]\r\n");
                 connected = 0;
                 break;
@@ -395,11 +381,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Disable raw mode before exiting
-    sys_system(41, 0, 0, 0, 0);
-
     sys_tcp_close();
     printf("\r\n[Telnet session ended]\r\n");
     return 0;
 }
-

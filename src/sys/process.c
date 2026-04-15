@@ -27,23 +27,24 @@ static uint64_t free_pml4_later[MAX_CPUS_SCHED] = {0};
 static spinlock_t runqueue_lock = SPINLOCK_INIT;
 static uint32_t next_cpu_assign = 1; 
 
+static void process_cleanup_inner(process_t *proc);
+
 void process_init(void) {
     for (int i = 0; i < MAX_PROCESSES; i++) {
         processes[i].pid = 0xFFFFFFFF;
     }
 
-    // Current kernel execution is PID 0
     process_t *kernel_proc = &processes[0];
     kernel_proc->pid = next_pid++;
     kernel_proc->is_user = false;
     kernel_proc->is_idle = true;
+    kernel_proc->tty_id = -1;
+    kernel_proc->kill_pending = false;
     
-    // We don't have its RSP or PML4 yet, but it's already running.
-    // The timer interrupt will naturally capture its context on the first tick!
+
     kernel_proc->pml4_phys = paging_get_pml4_phys();
     kernel_proc->kernel_stack = 0;
     
-    // Initialize FPU/SSE state for kernel (first interrupt will capture it on stack)
     kernel_proc->fpu_initialized = true;
 
     for (int i = 0; i < MAX_PROCESS_FDS; i++) kernel_proc->fds[i] = NULL;
@@ -78,11 +79,14 @@ process_t* process_create(void (*entry_point)(void), bool is_user) {
     
     new_proc->pid = next_pid++;
     new_proc->is_user = is_user;
+    new_proc->tty_id = -1;
+    new_proc->kill_pending = false;
     
     process_t *parent = process_get_current();
     if (parent) {
         extern void mem_memcpy(void *dest, const void *src, size_t len);
         mem_memcpy(new_proc->cwd, parent->cwd, 1024);
+        new_proc->tty_id = parent->tty_id;
     } else {
         mem_memset(new_proc->cwd, 0, 1024);
         new_proc->cwd[0] = '/';
@@ -207,6 +211,18 @@ process_t* process_create_elf(const char* filepath, const char* args_str) {
     new_proc->heap_start = 0x20000000; // 512MB mark
     new_proc->heap_end = 0x20000000;
     new_proc->is_terminal_proc = false;
+    new_proc->tty_id = -1;
+    new_proc->kill_pending = false;
+
+    process_t *parent = process_get_current();
+    if (parent) {
+        extern void mem_memcpy(void *dest, const void *src, size_t len);
+        mem_memcpy(new_proc->cwd, parent->cwd, 1024);
+    } else {
+        extern void mem_memset(void *dest, int val, size_t len);
+        mem_memset(new_proc->cwd, 0, 1024);
+        new_proc->cwd[0] = '/';
+    }
 
     // 2. Load ELF executable
     size_t elf_load_size = 0;
@@ -426,6 +442,69 @@ uint64_t process_schedule(uint64_t current_rsp) {
     // Save context
     cur->rsp = current_rsp;
 
+    if (cur->kill_pending && cur->pid != 0xFFFFFFFF && cur->pid != 0) {
+        process_cleanup_inner(cur);
+
+        process_t *prev = cur;
+        while (prev->next != cur) {
+            prev = prev->next;
+        }
+
+        if (prev != cur) {
+            prev->next = cur->next;
+
+            process_t *next_proc = cur->next;
+            while (next_proc != cur) {
+                if (next_proc->cpu_affinity == my_cpu && next_proc->pid != 0xFFFFFFFF && !next_proc->kill_pending) break;
+                next_proc = next_proc->next;
+            }
+
+            if (next_proc == cur || next_proc->cpu_affinity != my_cpu) {
+                for (int i = 0; i < MAX_PROCESSES; i++) {
+                    if (processes[i].pid == 0 || (processes[i].cpu_affinity == my_cpu && processes[i].is_user == false)) {
+                        next_proc = &processes[i];
+                        break;
+                    }
+                }
+            }
+
+            current_process[my_cpu] = next_proc;
+
+            cur->pid = 0xFFFFFFFF;
+            cur->cpu_affinity = 0xFFFFFFFF;
+            cur->ui_window = NULL;
+            cur->is_terminal_proc = false;
+            cur->kill_pending = false;
+
+            free_kernel_stack_later[my_cpu] = cur->kernel_stack_alloc;
+            cur->kernel_stack_alloc = NULL;
+            free_pml4_later[my_cpu] = cur->pml4_phys;
+            cur->pml4_phys = 0;
+
+            if (current_process[my_cpu]->is_user && current_process[my_cpu]->kernel_stack) {
+                tss_set_stack_cpu(my_cpu, current_process[my_cpu]->kernel_stack);
+                cpu_state_t *cpu_state = smp_get_cpu(my_cpu);
+                if (cpu_state) {
+                    cpu_state->kernel_syscall_stack = current_process[my_cpu]->kernel_stack;
+                }
+            }
+
+            paging_switch_directory(current_process[my_cpu]->pml4_phys);
+
+            current_process[my_cpu]->ticks++;
+            uint64_t next_rsp = current_process[my_cpu]->rsp;
+
+            spinlock_release_irqrestore(&runqueue_lock, rflags);
+            if (cleanup_stack) kfree(cleanup_stack);
+            if (cleanup_pml4) {
+                extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
+                paging_destroy_user_pml4_phys(cleanup_pml4);
+            }
+
+            return next_rsp;
+        }
+    }
+
     // Switch to next ready process assigned to this CPU
     extern uint32_t wm_get_ticks(void);
     uint32_t now = wm_get_ticks();
@@ -435,7 +514,7 @@ uint64_t process_schedule(uint64_t current_rsp) {
     
     while (next_proc != start) {
         // Only consider processes assigned to our CPU and not terminated
-        if (next_proc->cpu_affinity == my_cpu && next_proc->pid != 0xFFFFFFFF) {
+        if (next_proc->cpu_affinity == my_cpu && next_proc->pid != 0xFFFFFFFF && !next_proc->kill_pending) {
             if (next_proc->pid == 0 || next_proc->sleep_until == 0 || next_proc->sleep_until <= now) {
                 break;
             }
@@ -497,12 +576,20 @@ process_t* process_get_by_pid(uint32_t pid) {
     return NULL;
 }
 
+void process_kill_by_tty(int tty_id) {
+    if (tty_id < 0) return;
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[i].pid != 0xFFFFFFFF && processes[i].pid != 0 && processes[i].tty_id == tty_id) {
+            process_terminate(&processes[i]);
+        }
+    }
+}
+
 static void process_cleanup_inner(process_t *proc) {
     if (!proc || proc->pid == 0xFFFFFFFF) return;
 
     // 1. Cleanup side effects
-    extern Window win_cmd;
-    if (proc->ui_window && (proc->ui_window != &win_cmd)) {
+    if (proc->ui_window) {
         wm_remove_window((Window *)proc->ui_window);
         proc->ui_window = NULL;
     }
@@ -529,6 +616,14 @@ static void process_cleanup_inner(process_t *proc) {
 void process_terminate(process_t *to_delete) {
     if (!to_delete || to_delete->pid == 0xFFFFFFFF || to_delete->pid == 0) return;
 
+    uint32_t cpu_count = smp_cpu_count();
+    for (uint32_t c = 0; c < cpu_count && c < MAX_CPUS_SCHED; c++) {
+        if (current_process[c] == to_delete) {
+            to_delete->kill_pending = true;
+            return;
+        }
+    }
+
     uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
 
     process_cleanup_inner(to_delete);
@@ -549,7 +644,6 @@ void process_terminate(process_t *to_delete) {
     prev->next = to_delete->next;
     
     // Update per-CPU current_process if this was the current on any CPU
-    uint32_t cpu_count = smp_cpu_count();
     for (uint32_t c = 0; c < cpu_count && c < MAX_CPUS_SCHED; c++) {
         if (current_process[c] == to_delete) {
             process_t *np = to_delete->next;
@@ -571,6 +665,7 @@ void process_terminate(process_t *to_delete) {
     // Mark slot as free
     to_delete->pid = 0xFFFFFFFF; 
     to_delete->cpu_affinity = 0xFFFFFFFF;
+    to_delete->kill_pending = false;
 
     if (to_delete->user_stack_alloc) kfree(to_delete->user_stack_alloc);
     // Defer kernel stack until we switch away from it
@@ -639,6 +734,7 @@ uint64_t process_terminate_current(void) {
     to_delete->cpu_affinity = 0xFFFFFFFF;
     to_delete->ui_window = NULL;
     to_delete->is_terminal_proc = false;
+    to_delete->kill_pending = false;
 
     // 4. Load context for the NEXT process
     if (current_process[my_cpu]->is_user && current_process[my_cpu]->kernel_stack) {

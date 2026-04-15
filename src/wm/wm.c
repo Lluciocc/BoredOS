@@ -4,7 +4,6 @@
 #include "wm.h"
 #include "graphics.h"
 #include "io.h"
-#include "cmd.h"
 #include "process.h"
 #include "syscall.h"
 #include "kutils.h"
@@ -2485,7 +2484,7 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                 if (existing) wm_bring_to_front_locked(existing);
                 else process_create_elf("/bin/boredword.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Terminal")) {
-                cmd_reset(); wm_bring_to_front_locked(&win_cmd);
+                process_create_elf("/bin/terminal.elf", NULL);
             } else if (str_starts_with(start_menu_pending_app, "Grapher")) {
                 Window *existing = wm_find_window_by_title_locked("Grapher");
                 if (existing) wm_bring_to_front_locked(existing);
@@ -2550,7 +2549,7 @@ static void wm_handle_mouse_internal(int dx, int dy, uint8_t buttons, int dz) {
                     } else if (str_ends_with(icon->name, "Settings.shortcut")) {
                         process_create_elf("/bin/settings.elf", NULL); handled = true;
                     } else if (str_ends_with(icon->name, "Terminal.shortcut")) {
-                        wm_bring_to_front_locked(&win_cmd); handled = true;
+                        process_create_elf("/bin/terminal.elf", NULL); handled = true;
                     } else if (str_ends_with(icon->name, "About.shortcut")) {
                         process_create_elf("/bin/about.elf", NULL); handled = true;
                     } else if (str_ends_with(icon->name, "Files.shortcut")) {
@@ -3104,9 +3103,6 @@ void wm_init(void) {
     disk_manager_scan();
     log_ok("Disk scanning complete");
 
-    cmd_init();
-    log_ok("Command CLI ready");
-    
     explorer_init();
     log_ok("Explorer ready");
     
@@ -3128,18 +3124,14 @@ void wm_init(void) {
     log_ok("Desktop icons refreshed");
     
     // Initialize z-indices
-    win_cmd.z_index = 0;
     win_explorer.z_index = 1;
-    
-    all_windows[0] = &win_cmd;
-    all_windows[1] = &win_explorer;
-    window_count = 2;
+
+    all_windows[0] = &win_explorer;
+    window_count = 1;
     
     win_explorer.visible = false;
     win_explorer.focused = false;
     win_explorer.z_index = 10;
-    
-    win_cmd.visible = false;
     
     force_redraw = true;
 

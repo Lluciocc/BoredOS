@@ -92,17 +92,7 @@ uint64_t keyboard_handler(registers_t *regs) {
         extended_scancode = false;
     }
 
-    if (ps2_ctrl_pressed && scancode == 0x2E) {
-        extern process_t* process_get_current(void);
-        process_t* proc = process_get_current();
-        if (proc && proc->is_user && proc->is_terminal_proc && proc->ui_window) {
-            if (((Window*)proc->ui_window)->focused) {
-                extern uint64_t process_terminate_current(void);
-                outb(0x20, 0x20); 
-                return process_terminate_current();
-            }
-        }
-    }
+
 
     if (scancode == 0x2A || scancode == 0x36) { // Shift Down
         shift_pressed = true;

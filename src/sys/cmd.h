@@ -4,15 +4,15 @@
 #ifndef CMD_H
 #define CMD_H
 
-#include "wm.h"
-
-extern Window win_cmd;
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 void cmd_init(void);
 void cmd_reset(void);
 
-// IO Functions
 void cmd_write(const char *str);
+void cmd_write_len(const char *str, size_t len);
 void cmd_putchar(char c);
 void cmd_write_int(int n);
 void cmd_write_hex(uint64_t n);
@@ -22,10 +22,9 @@ void cmd_screen_clear(void);
 void cmd_increment_msg_count(void);
 void cmd_reset_msg_count(void);
 
-void cmd_handle_resize(Window *win, int w, int h);
-void cmd_handle_click(Window *win, int x, int y);
-
 uint32_t cmd_get_config_value(const char *key);
 void cmd_set_current_color(uint32_t color);
+void cmd_set_raw_mode(bool enabled);
+void cmd_process_finished(void);
 
 #endif

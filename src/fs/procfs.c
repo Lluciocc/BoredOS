@@ -297,6 +297,9 @@ int procfs_read(void *fs_private, void *handle, void *buf, int size) {
         if (k_strcmp(h->type, "name") == 0 || k_strcmp(h->type, "cmdline") == 0) {
             k_strcpy(out, proc->name);
             k_strcpy(out + k_strlen(out), "\n");
+        } else if (k_strcmp(h->type, "cwd") == 0) {
+            k_strcpy(out, proc->cwd);
+            k_strcpy(out + k_strlen(out), "\n");
         } else if (k_strcmp(h->type, "status") == 0) {
             k_strcpy(out, "Name: ");
             k_strcpy(out + k_strlen(out), proc->name);
@@ -387,6 +390,7 @@ int procfs_readdir(void *fs_private, const char *path, vfs_dirent_t *entries, in
         k_strcpy(entries[out++].name, "name");
         k_strcpy(entries[out++].name, "status");
         k_strcpy(entries[out++].name, "cmdline");
+        k_strcpy(entries[out++].name, "cwd");
         k_strcpy(entries[out++].name, "signal");
         for(int i=0; i<out; i++) entries[i].is_directory = 0;
         return out;

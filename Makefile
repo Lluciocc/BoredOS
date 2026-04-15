@@ -139,6 +139,7 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 	mkdir -p $(BUILD_DIR)/initrd/Library/images/gif
 	mkdir -p $(BUILD_DIR)/initrd/Library/Fonts/Emoji
 	mkdir -p $(BUILD_DIR)/initrd/Library/DOOM
+	mkdir -p $(BUILD_DIR)/initrd/Library/bsh
 	mkdir -p $(BUILD_DIR)/initrd/docs
 
 	@for f in $(SRC_DIR)/userland/bin/*.elf; do \
@@ -156,6 +157,9 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 	@for f in $(SRC_DIR)/fonts/Emoji/*.ttf; do \
 		if [ -f "$$f" ]; then cp "$$f" $(BUILD_DIR)/initrd/Library/Fonts/Emoji/; fi \
 	done
+	@if [ -f $(SRC_DIR)/library/bsh/bshrc ]; then cp $(SRC_DIR)/library/bsh/bshrc $(BUILD_DIR)/initrd/Library/bsh/; fi
+	@if [ -f $(SRC_DIR)/library/bsh/startup.bsh ]; then cp $(SRC_DIR)/library/bsh/startup.bsh $(BUILD_DIR)/initrd/Library/bsh/; fi
+	@if [ -f $(SRC_DIR)/library/bsh/boot.bsh ]; then cp $(SRC_DIR)/library/bsh/boot.bsh $(BUILD_DIR)/initrd/Library/bsh/; fi
 	@if [ -f $(SRC_DIR)/userland/games/doom/doom1.wad ]; then cp $(SRC_DIR)/userland/games/doom/doom1.wad $(BUILD_DIR)/initrd/Library/DOOM/; fi
 	@for f in $$(find docs -name '*.md' 2>/dev/null); do \
 		if [ -f "$$f" ]; then \

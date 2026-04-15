@@ -9,7 +9,6 @@
 #include "disk.h"
 #include "wm.h"
 #include "memory_manager.h"
-#include "cmd.h"
 #include "process.h"
 #define EXPLORER_ITEM_HEIGHT 80
 #define EXPLORER_ITEM_WIDTH 120
@@ -848,7 +847,7 @@ static void explorer_open_item(Window *win, int index) {
         } else if (explorer_strcmp(state->items[index].name, "Calculator.shortcut") == 0) {
             process_create_elf("/bin/calculator.elf", NULL); return;
         } else if (explorer_strcmp(state->items[index].name, "Terminal.shortcut") == 0) {
-            target = &win_cmd; cmd_reset();
+            process_create_elf("/bin/terminal.elf", NULL); return;
         } else if (explorer_strcmp(state->items[index].name, "Minesweeper.shortcut") == 0) {
             process_create_elf("/bin/minesweeper.elf", NULL); return;
         } else if (explorer_strcmp(state->items[index].name, "Control Panel.shortcut") == 0 || explorer_strcmp(state->items[index].name, "Settings.shortcut") == 0) {

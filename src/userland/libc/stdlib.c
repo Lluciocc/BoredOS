@@ -329,7 +329,7 @@ int chdir(const char *path) {
 }
 
 char* getcwd(char *buf, int size) {
-    if (sys_getcwd(buf, size) == 0) return buf;
+    if (sys_getcwd(buf, size) >= 0) return buf;
     return NULL;
 }
 

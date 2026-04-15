@@ -40,6 +40,46 @@ static void editor_strcpy(char *dest, const char *src) {
     *dest = 0;
 }
 
+static int editor_strlen(const char *s) {
+    int len = 0;
+    while (s && s[len]) len++;
+    return len;
+}
+
+static void editor_strncat(char *dst, const char *src, int max_len) {
+    if (!dst || !src || max_len <= 0) return;
+    int dlen = editor_strlen(dst);
+    int i = 0;
+    while (dlen + i < max_len - 1 && src[i]) {
+        dst[dlen + i] = src[i];
+        i++;
+    }
+    dst[dlen + i] = 0;
+}
+
+static void editor_resolve_path(const char *input, char *out, int max_len) {
+    if (!out || max_len <= 0) return;
+    if (!input || input[0] == 0) {
+        out[0] = 0;
+        return;
+    }
+    if (input[0] == '/') {
+        editor_strcpy(out, input);
+        return;
+    }
+
+    char cwd[256];
+    if (sys_getcwd(cwd, sizeof(cwd)) < 0) {
+        editor_strcpy(out, input);
+        return;
+    }
+
+    editor_strcpy(out, cwd);
+    int len = editor_strlen(out);
+    if (len > 0 && out[len - 1] != '/') editor_strncat(out, "/", max_len);
+    editor_strncat(out, input, max_len);
+}
+
 static void editor_clear_all(void) {
     for (int i = 0; i < EDITOR_MAX_LINES; i++) {
         for (int j = 0; j < EDITOR_MAX_LINE_LEN; j++) {
@@ -71,9 +111,11 @@ static void editor_ensure_cursor_visible(void) {
 
 void editor_open_file(const char *filename) {
     editor_clear_all();
-    editor_strcpy(open_filename, filename);
+    char resolved[256];
+    editor_resolve_path(filename, resolved, sizeof(resolved));
+    editor_strcpy(open_filename, resolved);
     
-    int fd = sys_open(filename, "r");
+    int fd = sys_open(resolved, "r");
     if (fd < 0) {
         file_modified = 0;
         return;

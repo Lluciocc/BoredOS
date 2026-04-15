@@ -19,10 +19,15 @@
 #include "network.h"
 #include "icmp.h"
 #include "cmd.h"
+#include "tty.h"
 #include "font_manager.h"
 #include "graphics.h"
 
 extern bool ps2_ctrl_pressed;
+
+#define SPAWN_FLAG_TERMINAL 0x1
+#define SPAWN_FLAG_INHERIT_TTY 0x2
+#define SPAWN_FLAG_TTY_ID 0x4
 
 // Read MSR
 static inline uint64_t rdmsr(uint32_t msr) {
@@ -180,6 +185,12 @@ static void user_window_resize(Window *win, int w, int h) {
         extern void mem_memset(void *dest, int val, size_t len);
         mem_memset(win->pixels, 0, w * h * sizeof(uint32_t));
     }
+
+    process_t *proc = process_get_by_ui_window(win);
+    if (proc) {
+        gui_event_t ev = { .type = GUI_EVENT_RESIZE, .arg1 = w, .arg2 = h };
+        process_push_gui_event(proc, &ev);
+    }
 }
 
 
@@ -197,9 +208,21 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
     if (syscall_num == 1) { // SYS_WRITE
         extern void cmd_write_len(const char *str, size_t len);
         process_t *proc = process_get_current();
-        if (!proc || !proc->is_user || proc->is_terminal_proc) {
-            cmd_write_len((const char*)arg2, (size_t)arg3);
+        const char *buf = (const char*)arg2;
+        size_t len = (size_t)arg3;
+        if (!proc || !proc->is_user) {
+            cmd_write_len(buf, len);
+            return len;
         }
+        if (proc->is_terminal_proc) {
+            if (proc->tty_id >= 0) {
+                tty_write_output(proc->tty_id, buf, len);
+                return len;
+            }
+            cmd_write_len(buf, len);
+            return len;
+        }
+        return len;
     } else if (syscall_num == 3) { // SYS_GUI
         int cmd = (int)arg1;
         process_t *proc = process_get_current();
@@ -1254,6 +1277,35 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             return cmd_get_config_value(key);
         } else if (cmd == 29) { // SYSTEM_CMD_SET_TEXT_COLOR
             uint32_t color = (uint32_t)arg2;
+            if (proc->is_terminal_proc && proc->tty_id >= 0) {
+                char seq[32];
+                int pos = 0;
+                int r = (color >> 16) & 0xFF;
+                int g = (color >> 8) & 0xFF;
+                int b = color & 0xFF;
+
+                seq[pos++] = 0x1B;
+                seq[pos++] = '[';
+                seq[pos++] = '3';
+                seq[pos++] = '8';
+                seq[pos++] = ';';
+                seq[pos++] = '2';
+                seq[pos++] = ';';
+
+                char num[8];
+                k_itoa(r, num);
+                for (int i = 0; num[i] && pos < (int)sizeof(seq) - 1; i++) seq[pos++] = num[i];
+                seq[pos++] = ';';
+                k_itoa(g, num);
+                for (int i = 0; num[i] && pos < (int)sizeof(seq) - 1; i++) seq[pos++] = num[i];
+                seq[pos++] = ';';
+                k_itoa(b, num);
+                for (int i = 0; num[i] && pos < (int)sizeof(seq) - 1; i++) seq[pos++] = num[i];
+                seq[pos++] = 'm';
+
+                tty_write_output(proc->tty_id, seq, (size_t)pos);
+                return 0;
+            }
             cmd_set_current_color(color);
             return 0;
         } else if (cmd == 31) { // SYSTEM_CMD_SET_WALLPAPER_PATH
@@ -1374,6 +1426,85 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             }
             return -1;
             return -1;
+        } else if (cmd == 60) { // SYSTEM_CMD_TTY_CREATE
+            return tty_create();
+        } else if (cmd == 61) { // SYSTEM_CMD_TTY_READ_OUT
+            int tty_id = (int)arg2;
+            char *buf = (char *)arg3;
+            size_t len = (size_t)arg4;
+            if (!buf || len == 0) return 0;
+            return tty_read_output(tty_id, buf, len);
+        } else if (cmd == 62) { // SYSTEM_CMD_TTY_WRITE_IN
+            int tty_id = (int)arg2;
+            const char *buf = (const char *)arg3;
+            size_t len = (size_t)arg4;
+            if (!buf || len == 0) return 0;
+            return tty_write_input(tty_id, buf, len);
+        } else if (cmd == 63) { // SYSTEM_CMD_TTY_READ_IN
+            char *buf = (char *)arg2;
+            size_t len = (size_t)arg3;
+            if (!buf || len == 0) return 0;
+            if (proc->tty_id < 0) return 0;
+            return tty_read_input(proc->tty_id, buf, len);
+        } else if (cmd == 65) { // SYSTEM_CMD_TTY_SET_FG
+            int tty_id = (int)arg2;
+            int pid = (int)arg3;
+            return tty_set_foreground(tty_id, pid);
+        } else if (cmd == 66) { // SYSTEM_CMD_TTY_GET_FG
+            int tty_id = (int)arg2;
+            return tty_get_foreground(tty_id);
+        } else if (cmd == 67) { // SYSTEM_CMD_TTY_KILL_FG
+            int tty_id = (int)arg2;
+            int pid = tty_get_foreground(tty_id);
+            if (pid <= 0) return 0;
+            process_t *target = process_get_by_pid((uint32_t)pid);
+            if (target) process_terminate(target);
+            tty_set_foreground(tty_id, 0);
+            return 0;
+        } else if (cmd == 68) { 
+            int tty_id = (int)arg2;
+            process_kill_by_tty(tty_id);
+            tty_set_foreground(tty_id, 0);
+            return 0;
+        } else if (cmd == 69) { 
+            int tty_id = (int)arg2;
+            return tty_destroy(tty_id);
+        } else if (cmd == 64) { 
+            const char *user_path = (const char *)arg2;
+            const char *user_args = (const char *)arg3;
+            uint64_t flags = arg4;
+            int tty_id = (int)arg5;
+
+            if (!user_path) return -1;
+
+            char path_buf[256];
+            int pi = 0;
+            while (pi < 255 && user_path[pi]) {
+                path_buf[pi] = user_path[pi];
+                pi++;
+            }
+            path_buf[pi] = 0;
+
+            char args_buf[512];
+            const char *args_ptr = NULL;
+            if (user_args) {
+                int ai = 0;
+                while (ai < 511 && user_args[ai]) {
+                    args_buf[ai] = user_args[ai];
+                    ai++;
+                }
+                args_buf[ai] = 0;
+                args_ptr = args_buf;
+            }
+
+            process_t *child = process_create_elf(path_buf, args_ptr);
+            if (!child) return -1;
+
+            if (flags & SPAWN_FLAG_TERMINAL) child->is_terminal_proc = true;
+            if (flags & SPAWN_FLAG_TTY_ID) child->tty_id = tty_id;
+            else if (flags & SPAWN_FLAG_INHERIT_TTY) child->tty_id = proc->tty_id;
+
+            return (uint64_t)child->pid;
         } else if (cmd == SYSTEM_CMD_PARALLEL_RUN) {
             void (*user_fn)(void*) = (void (*)(void*))arg2;
             void **args = (void **)arg3;
