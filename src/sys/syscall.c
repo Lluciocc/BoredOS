@@ -332,6 +332,7 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
             
             proc->ui_window = win;
             wm_add_window(win);
+            wm_mark_dirty(0, 0, get_screen_width(), 30);
             
             return (uint64_t)win;
         } else if (cmd == GUI_CMD_DRAW_RECT) {
@@ -1497,13 +1498,13 @@ static uint64_t syscall_handler_inner(registers_t *regs) {
                 args_ptr = args_buf;
             }
 
-            process_t *child = process_create_elf(path_buf, args_ptr);
+            bool terminal_proc = (flags & SPAWN_FLAG_TERMINAL) != 0;
+            int effective_tty = -1;
+            if (flags & SPAWN_FLAG_TTY_ID) effective_tty = tty_id;
+            else if (flags & SPAWN_FLAG_INHERIT_TTY) effective_tty = proc ? proc->tty_id : -1;
+
+            process_t *child = process_create_elf(path_buf, args_ptr, terminal_proc, effective_tty);
             if (!child) return -1;
-
-            if (flags & SPAWN_FLAG_TERMINAL) child->is_terminal_proc = true;
-            if (flags & SPAWN_FLAG_TTY_ID) child->tty_id = tty_id;
-            else if (flags & SPAWN_FLAG_INHERIT_TTY) child->tty_id = proc->tty_id;
-
             return (uint64_t)child->pid;
         } else if (cmd == SYSTEM_CMD_PARALLEL_RUN) {
             void (*user_fn)(void*) = (void (*)(void*))arg2;
