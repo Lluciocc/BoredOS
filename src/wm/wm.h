@@ -36,7 +36,7 @@ void wm_lock_release(uint64_t flags);
 #define COLOR_DARK_TEXT     0xFFF0F0F0  // Light gray text
 #define COLOR_DARK_BORDER   0xFF3A3A3A  // Border color
 #define COLOR_DOCK_BG       0xFF3A3A3A  // Dock background
-#define COLOR_TOPBAR_BG     0xFF1A1A1A  // Top bar background
+#define COLOR_MENUBAR_BG     0xFF1A1A1A  // Top bar background
 #define COLOR_TRAFFIC_RED   0xFFED6158  // Close button red
 #define COLOR_TRAFFIC_YELLOW 0xFFFCC02E // Minimize button (not used for now)
 #define COLOR_TRAFFIC_GREEN 0xFF5FC038  // Zoom button (not used for now)

@@ -95,7 +95,7 @@ static lumos_state_t lumos_state = {0};
 static bool lumos_index_built = false;  
 
 static bool force_redraw = true;
-static bool topbar_dirty_pending = false;
+static bool menubar_dirty_pending = false;
 
 static void lumos_update_search(void) {
 
@@ -1634,7 +1634,7 @@ static void wm_paint_region(int y_start, int y_end, DirtyRect dirty, int pass) {
         }
     } else if (pass == 2) {
         if (0 < cy + ch && 30 > cy) {
-            draw_rect(0, 0, sw, 30, COLOR_TOPBAR_BG);
+            draw_rect(0, 0, sw, 30, COLOR_MENUBAR_BG);
             draw_boredos_logo(8, 8, 1);
             draw_clock(sw - 80, 12);
         }
@@ -1754,10 +1754,10 @@ void wm_paint(void) {
     wm_mark_dirty(mx, my, 12, 12);
 
     DirtyRect dirty = graphics_get_dirty_rect();
-    if (topbar_dirty_pending) {
+    if (menubar_dirty_pending) {
         graphics_mark_dirty(0, 0, sw, 30);
         dirty = graphics_get_dirty_rect();
-        topbar_dirty_pending = false;
+        menubar_dirty_pending = false;
     }
     if (dirty.active) {
         int d_h = 60, d_y = sh - d_h - 6, d_total_w = 11 * (48 + 10);
@@ -1858,7 +1858,7 @@ void wm_add_window_locked(Window *win) {
         all_windows[window_count++] = win;
         wm_bring_to_front_locked(win); // Ensure newly added windows are on top
         wm_mark_dirty(0, 0, get_screen_width(), 30);
-        topbar_dirty_pending = true;
+        menubar_dirty_pending = true;
     }
 }
 
