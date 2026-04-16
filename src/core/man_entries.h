@@ -70,6 +70,7 @@ void create_man_entries(void) {
     write_man_file("math", "MATH - Expression evaluator\n\nUsage: math <expression>\n\nEvaluates simple arithmetic expressions from the command line.");
     write_man_file("viewer", "VIEWER - Image viewer\n\nUsage: viewer <file.ppm>\n\nA graphical application for viewing image files.");
     write_man_file("settings", "SETTINGS - System settings\n\nUsage: settings\n\nOpens the graphical system configuration tool.");
+    write_man_file("2048", "2048 - Classic game\n\nUsage: 2048\n\nPlays the classic 2048 game.");
 }
 
 #endif
