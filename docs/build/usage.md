@@ -33,14 +33,21 @@ To run BoredOS successfully (either in emulation or on bare metal), your target 
 
 To test the generated ISO quickly without real hardware, use the QEMU emulator:
 
+For MacOS:
 ```sh
-make run
+make run-mac
 ```
-
+For Linux:
+```sh
+make run-linux
+```
+For Windows:
+```sh
+make run-windows
+```
 This command invokes QEMU with specific arguments:
 -   `-m 4G`: Allocates 4 Gigabytes of RAM.
 -   `-cdrom boredos.iso`: Mounts the built OS image as a CD-ROM.
--   `-netdev user...`: Sets up a basic NAT network interface for the OS's networking stack.
 -   `-smp 4`: Enables 4 CPU cores.
 -   `-drive file=disk.img...`: Attaches a raw disk image included in this release of BoredOS.
 
