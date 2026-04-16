@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 /*
+@Lluciocc
 2048 for BoredOS
 Controls:
 - WASD keys or arrow keys or numpad keys to move
