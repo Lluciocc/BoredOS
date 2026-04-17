@@ -24,8 +24,10 @@ typedef struct {
     char boot_script[256];
     char prompt_left[128];
     char prompt_right[128];
+    char prompt_minimal_prefix[64];
     char history_file[128];
     int history_size;
+    bool prompt_minimal_history;
     bool glob_enabled;
     bool complete_enabled;
     bool suggest_enabled;
@@ -53,6 +55,69 @@ static uint32_t g_color_size = 0;
 static uint32_t g_color_error = 0;
 static uint32_t g_color_success = 0;
 static uint32_t g_color_default = 0;
+
+static bool str_eq(const char *a, const char *b);
+static void get_time_string(char *out, int max_len);
+
+static int hex_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+
+static bool parse_hex_color(const char *s, int len, uint32_t *out) {
+    if (!s || len <= 0 || !out) return false;
+    if (len == 7 && s[0] == '#') {
+        uint32_t rgb = 0;
+        for (int i = 1; i < 7; i++) {
+            int d = hex_digit(s[i]);
+            if (d < 0) return false;
+            rgb = (rgb << 4) | (uint32_t)d;
+        }
+        *out = 0xFF000000 | rgb;
+        return true;
+    }
+    if (len == 8 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        uint32_t rgb = 0;
+        for (int i = 2; i < 8; i++) {
+            int d = hex_digit(s[i]);
+            if (d < 0) return false;
+            rgb = (rgb << 4) | (uint32_t)d;
+        }
+        *out = 0xFF000000 | rgb;
+        return true;
+    }
+    if (len == 10 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        uint32_t argb = 0;
+        for (int i = 2; i < 10; i++) {
+            int d = hex_digit(s[i]);
+            if (d < 0) return false;
+            argb = (argb << 4) | (uint32_t)d;
+        }
+        *out = argb;
+        return true;
+    }
+    return false;
+}
+
+static bool parse_named_color(const char *s, uint32_t *out) {
+    if (!s || !out) return false;
+    if (str_eq(s, "default")) {
+        *out = g_color_default;
+        return true;
+    }
+    if (str_eq(s, "black")) { *out = 0xFF000000; return true; }
+    if (str_eq(s, "red")) { *out = 0xFFFF4444; return true; }
+    if (str_eq(s, "green")) { *out = 0xFF6A9955; return true; }
+    if (str_eq(s, "yellow")) { *out = 0xFFFFCC00; return true; }
+    if (str_eq(s, "blue")) { *out = 0xFF569CD6; return true; }
+    if (str_eq(s, "magenta")) { *out = 0xFFC586C0; return true; }
+    if (str_eq(s, "cyan")) { *out = 0xFF4EC9B0; return true; }
+    if (str_eq(s, "white")) { *out = 0xFFFFFFFF; return true; }
+    if (str_eq(s, "gray")) { *out = 0xFFCCCCCC; return true; }
+    return false;
+}
 
 static void str_copy(char *dst, const char *src, int max_len) {
     int i = 0;
@@ -159,8 +224,10 @@ static void config_defaults(void) {
     str_copy(g_cfg.boot_script, "", sizeof(g_cfg.boot_script));
     str_copy(g_cfg.prompt_left, DEFAULT_PROMPT, sizeof(g_cfg.prompt_left));
     str_copy(g_cfg.prompt_right, "", sizeof(g_cfg.prompt_right));
+    str_copy(g_cfg.prompt_minimal_prefix, "> ", sizeof(g_cfg.prompt_minimal_prefix));
     str_copy(g_cfg.history_file, "/Library/bsh/history", sizeof(g_cfg.history_file));
     g_cfg.history_size = 200;
+    g_cfg.prompt_minimal_history = false;
     g_cfg.glob_enabled = true;
     g_cfg.complete_enabled = true;
     g_cfg.suggest_enabled = true;
@@ -218,6 +285,88 @@ static void set_color(uint32_t color) {
 
 static void reset_color(void) {
     sys_set_text_color(g_color_default);
+}
+
+static void prompt_emit(const char *text, int len, char *out, int *out_idx, int max_len, bool do_write) {
+    if (!text || len <= 0) return;
+    if (do_write) sys_write(1, text, len);
+    if (!out || max_len <= 0 || !out_idx) return;
+    for (int i = 0; i < len && *out_idx < max_len - 1; i++) {
+        out[(*out_idx)++] = text[i];
+    }
+}
+
+static void render_prompt(const char *tmpl, char *out, int max_len, bool do_write) {
+    char cwd[256];
+    if (!getcwd(cwd, sizeof(cwd))) str_copy(cwd, "/", sizeof(cwd));
+
+    int out_idx = 0;
+    for (int i = 0; tmpl[i] && (!out || out_idx < max_len - 1); i++) {
+        if (tmpl[i] == '%' && tmpl[i + 1]) {
+            if (tmpl[i + 1] == '{') {
+                int j = i + 2;
+                while (tmpl[j] && tmpl[j] != '}') j++;
+                if (tmpl[j] == '}') {
+                    char color_buf[32];
+                    int len = j - (i + 2);
+                    if (len > (int)sizeof(color_buf) - 1) len = (int)sizeof(color_buf) - 1;
+                    for (int k = 0; k < len; k++) color_buf[k] = tmpl[i + 2 + k];
+                    color_buf[len] = 0;
+                    trim(color_buf);
+
+                    uint32_t color = 0;
+                    if (parse_hex_color(color_buf, (int)strlen(color_buf), &color) ||
+                        parse_named_color(color_buf, &color)) {
+                        if (do_write) set_color(color);
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+
+            char token = tmpl[i + 1];
+            if (token == '~') {
+                if (starts_with(cwd, "/root") && (cwd[5] == 0 || cwd[5] == '/')) {
+                    prompt_emit("~", 1, out, &out_idx, max_len, do_write);
+                    int j = 5;
+                    while (cwd[j]) {
+                        prompt_emit(&cwd[j], 1, out, &out_idx, max_len, do_write);
+                        j++;
+                    }
+                } else {
+                    int j = 0;
+                    while (cwd[j]) {
+                        prompt_emit(&cwd[j], 1, out, &out_idx, max_len, do_write);
+                        j++;
+                    }
+                }
+                i++;
+                continue;
+            }
+            if (token == 'n') {
+                const char *user = "root";
+                prompt_emit(user, (int)strlen(user), out, &out_idx, max_len, do_write);
+                i++;
+                continue;
+            }
+            if (token == 'h') {
+                const char *host = "boredos";
+                prompt_emit(host, (int)strlen(host), out, &out_idx, max_len, do_write);
+                i++;
+                continue;
+            }
+            if (token == 'T') {
+                char time_buf[16];
+                get_time_string(time_buf, sizeof(time_buf));
+                prompt_emit(time_buf, (int)strlen(time_buf), out, &out_idx, max_len, do_write);
+                i++;
+                continue;
+            }
+        }
+        prompt_emit(&tmpl[i], 1, out, &out_idx, max_len, do_write);
+    }
+    if (out && max_len > 0) out[out_idx] = 0;
+    if (do_write) reset_color();
 }
 
 static void config_load(void) {
@@ -284,6 +433,8 @@ static void config_load(void) {
             else if (str_eq(key, "BOOT_SCRIPT")) str_copy(g_cfg.boot_script, val, sizeof(g_cfg.boot_script));
             else if (str_eq(key, "PROMPT_LEFT")) str_copy(g_cfg.prompt_left, val, sizeof(g_cfg.prompt_left));
             else if (str_eq(key, "PROMPT_RIGHT")) str_copy(g_cfg.prompt_right, val, sizeof(g_cfg.prompt_right));
+            else if (str_eq(key, "PROMPT_MINIMAL_HISTORY")) parse_bool(val, &g_cfg.prompt_minimal_history);
+            else if (str_eq(key, "PROMPT_MINIMAL_PREFIX")) str_copy(g_cfg.prompt_minimal_prefix, val, sizeof(g_cfg.prompt_minimal_prefix));
             else if (str_eq(key, "HISTORY_FILE")) str_copy(g_cfg.history_file, val, sizeof(g_cfg.history_file));
             else if (str_eq(key, "HISTORY_SIZE")) g_cfg.history_size = atoi(val);
             else if (str_eq(key, "GLOB")) parse_bool(val, &g_cfg.glob_enabled);
@@ -379,55 +530,7 @@ static void get_time_string(char *out, int max_len) {
 }
 
 static void format_prompt(const char *tmpl, char *out, int max_len) {
-    char cwd[256];
-    if (!getcwd(cwd, sizeof(cwd))) str_copy(cwd, "/", sizeof(cwd));
-
-    int out_idx = 0;
-    for (int i = 0; tmpl[i] && out_idx < max_len - 1; i++) {
-        if (tmpl[i] == '%' && tmpl[i + 1]) {
-            char token = tmpl[i + 1];
-            if (token == '~') {
-                if (starts_with(cwd, "/root") && (cwd[5] == 0 || cwd[5] == '/')) {
-                    out[out_idx++] = '~';
-                    int j = 5;
-                    while (cwd[j] && out_idx < max_len - 1) {
-                        out[out_idx++] = cwd[j++];
-                    }
-                } else {
-                    int j = 0;
-                    while (cwd[j] && out_idx < max_len - 1) {
-                        out[out_idx++] = cwd[j++];
-                    }
-                }
-                i++;
-                continue;
-            }
-            if (token == 'n') {
-                const char *user = "root";
-                int j = 0;
-                while (user[j] && out_idx < max_len - 1) out[out_idx++] = user[j++];
-                i++;
-                continue;
-            }
-            if (token == 'h') {
-                const char *host = "boredos";
-                int j = 0;
-                while (host[j] && out_idx < max_len - 1) out[out_idx++] = host[j++];
-                i++;
-                continue;
-            }
-            if (token == 'T') {
-                char time_buf[16];
-                get_time_string(time_buf, sizeof(time_buf));
-                int j = 0;
-                while (time_buf[j] && out_idx < max_len - 1) out[out_idx++] = time_buf[j++];
-                i++;
-                continue;
-            }
-        }
-        out[out_idx++] = tmpl[i];
-    }
-    out[out_idx] = 0;
+    render_prompt(tmpl, out, max_len, false);
 }
 
 static int split_args(char *line, char *argv[], int max_args) {
@@ -677,21 +780,49 @@ static int collect_path_matches(const char *dir_part, const char *prefix, char m
     return count;
 }
 
-static void redraw_input(const char *prompt, const char *line, int len) {
+static void prompt_write(const char *tmpl) {
+    render_prompt(tmpl, NULL, 0, true);
+}
+
+static void prompt_write_with_right(const char *left_tmpl, const char *right_tmpl) {
+    prompt_write(left_tmpl);
+    if (!right_tmpl || !right_tmpl[0]) return;
+
+    char right_buf[128];
+    render_prompt(right_tmpl, right_buf, sizeof(right_buf), false);
+    int right_len = (int)strlen(right_buf);
+    if (right_len <= 0) return;
+
+    sys_write(1, "\x1b[s", 3);
+    sys_write(1, "\x1b[999C", 6);
+    if (right_len > 1) {
+        char num[8];
+        char seq[16];
+        itoa(right_len - 1, num);
+        str_copy(seq, "\x1b[", sizeof(seq));
+        str_append(seq, num, sizeof(seq));
+        str_append(seq, "D", sizeof(seq));
+        sys_write(1, seq, (int)strlen(seq));
+    }
+    prompt_write(right_tmpl);
+    sys_write(1, "\x1b[u", 3);
+}
+
+static void redraw_input(const char *prompt_tmpl, const char *line, int len) {
     sys_write(1, "\r", 1);
-    sys_write(1, prompt, (int)strlen(prompt));
+    prompt_write_with_right(prompt_tmpl, g_cfg.prompt_right);
     sys_write(1, line, len);
     sys_write(1, "\x1b[K", 3);
 }
 
-static void show_matches(const char *prompt, const char *line, int len, char matches[][MAX_MATCH_LEN], int count) {
+static void show_matches(const char *prompt_tmpl, const char *line, int len, char matches[][MAX_MATCH_LEN], int count) {
     sys_write(1, "\n", 1);
     for (int i = 0; i < count; i++) {
         sys_write(1, matches[i], (int)strlen(matches[i]));
         sys_write(1, "  ", 2);
     }
     sys_write(1, "\n", 1);
-    redraw_input(prompt, line, len);
+    redraw_input(prompt_tmpl, line, len);
 }
 
 static int pid_exists(int pid) {
@@ -1234,7 +1365,7 @@ static bool run_script(const char *path) {
     return true;
 }
 
-static int read_line(char *out, int max_len, const char *prompt) {
+static int read_line(char *out, int max_len, const char *prompt_tmpl) {
     int len = 0;
     int hist_index = g_history_count;
     bool search_mode = false;
@@ -1260,7 +1391,16 @@ static int read_line(char *out, int max_len, const char *prompt) {
         }
 
         if (ch == '\r' || ch == '\n') {
-            sys_write(1, "\n", 1);
+            if (g_cfg.prompt_minimal_history) {
+                const char *minimal_tmpl = g_cfg.prompt_minimal_prefix[0] ? g_cfg.prompt_minimal_prefix : "> ";
+                sys_write(1, "\r", 1);
+                sys_write(1, "\x1b[K", 3);
+                prompt_write(minimal_tmpl);
+                sys_write(1, out, len);
+                sys_write(1, "\n", 1);
+            } else {
+                sys_write(1, "\n", 1);
+            }
             out[len] = 0;
             return len;
         }
@@ -1322,7 +1462,7 @@ static int read_line(char *out, int max_len, const char *prompt) {
                 out[token_start] = 0;
                 str_append(out, matches[0], max_len);
                 len = (int)strlen(out);
-                redraw_input(prompt, out, len);
+                redraw_input(prompt_tmpl, out, len);
             } else {
                 int common_len = common_prefix_len(matches, match_count);
                 if (common_len > token_len) {
@@ -1333,9 +1473,9 @@ static int read_line(char *out, int max_len, const char *prompt) {
                     out[token_start] = 0;
                     str_append(out, prefix_buf, max_len);
                     len = (int)strlen(out);
-                    redraw_input(prompt, out, len);
+                    redraw_input(prompt_tmpl, out, len);
                 } else {
-                    show_matches(prompt, out, len, matches, match_count);
+                    show_matches(prompt_tmpl, out, len, matches, match_count);
                 }
             }
             search_mode = false;
@@ -1363,7 +1503,7 @@ static int read_line(char *out, int max_len, const char *prompt) {
                 hist_index = found;
                 str_copy(out, g_history[hist_index], max_len);
                 len = (int)strlen(out);
-                redraw_input(prompt, out, len);
+                redraw_input(prompt_tmpl, out, len);
             }
             continue;
         }
@@ -1387,7 +1527,7 @@ static int read_line(char *out, int max_len, const char *prompt) {
                 str_copy(out, saved_line, max_len);
                 len = (int)strlen(out);
             }
-            redraw_input(prompt, out, len);
+            redraw_input(prompt_tmpl, out, len);
             continue;
         }
 
@@ -1438,12 +1578,11 @@ int main(int argc, char **argv) {
     while (1) {
         if (g_tty_id >= 0) sys_tty_set_fg(g_tty_id, 0);
 
-        char prompt[128];
-        format_prompt(g_cfg.prompt_left[0] ? g_cfg.prompt_left : DEFAULT_PROMPT, prompt, sizeof(prompt));
-        sys_write(1, prompt, (int)strlen(prompt));
+        const char *prompt_tmpl = g_cfg.prompt_left[0] ? g_cfg.prompt_left : DEFAULT_PROMPT;
+        prompt_write_with_right(prompt_tmpl, g_cfg.prompt_right);
 
         char line[MAX_LINE];
-        int len = read_line(line, sizeof(line), prompt);
+        int len = read_line(line, sizeof(line), prompt_tmpl);
         if (len <= 0) continue;
 
         history_add(line);
