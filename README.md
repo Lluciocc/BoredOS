@@ -7,6 +7,7 @@
   [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
   ![Platform: x86_64](https://img.shields.io/badge/Platform-x86_64-lightgrey)
   ![Status: Active](https://img.shields.io/badge/Status-Active-brightgreen)
+  [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/boreddevhq)
 </div>
 
 ---
@@ -34,7 +35,7 @@ BoredOS is a x86_64 operating system featuring a custom Desktop Environment (DE)
 ### Graphical User Interface
 * **BoredWM:** A custom Window Manager with drag-and-drop, mouse-centered interaction.
 * **Customization:** Adjustable UI to suit your aesthetic.
-* **Media Support:** Built-in image decoding.
+* **Media Support:** Built-in image decoding. (PNG, GIF, JPEG, TGA, BMP)
 
 ### Included Applications
 * **Productivity:** GUI Text Editor calculator, Markdown Viewer, a simple browser and BoredWord.
