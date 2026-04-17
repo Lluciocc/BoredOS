@@ -400,13 +400,6 @@ static void game_paint(ui_window_t win) {
     draw_status(win);
 
     draw_board(win);
-    /* Not recommended to use
-    draw_button(win, 18, 352, 86, 30, "Restart", COLOR_ACCENT);
-    draw_button(win, 123, 352, BTN_W, BTN_H, "Left", COLOR_BORDER);
-    draw_button(win, 186, 352, BTN_W, BTN_H, "Right", COLOR_BORDER);
-    draw_button(win, 92, 390, BTN_W, BTN_H, "Up", COLOR_BORDER);
-    draw_button(win, 155, 390, BTN_W, BTN_H, "Down", COLOR_BORDER);
-    */
 }
 
 static bool point_in_rect(int px, int py, int x, int y, int w, int h) {
