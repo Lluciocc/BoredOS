@@ -667,24 +667,37 @@ static void draw_session(TerminalSession *s) {
                 line_cols = g_cols;
             }
         }
+
+        int input_start = s->cursor_col - s->input_len;
+        if (input_start < 0) input_start = 0;
+        if (input_start >= g_cols) input_start = g_cols - 1;
+
+        // lenght of a command
+        int cmd_len = 0;
+        while (cmd_len < s->input_len &&
+            s->current_input[cmd_len] != ' ') {
+            cmd_len++;
+        }
+
+        int input_end = input_start + cmd_len;
+        if (input_end > g_cols) input_end = g_cols;
+
         for (int col = 0; col < g_cols; col++) {
             char ch = ' ';
             uint32_t color = s->fg_color;
+
             if (line && col < line_cols) {
                 ch = line[col].c;
                 if (ch == 0) ch = ' ';
                 color = line[col].color;
             }
+
             if (s->scroll_offset == 0 && row == s->cursor_row) {
-                int cmd_len = 0;
-                while (cmd_len < s->input_len &&
-                    s->current_input[cmd_len] != ' ') {
-                    cmd_len++;
-                }
-                if (col < cmd_len) {
+                if (col >= input_start && col < input_end) {
                     color = s->input_color;
                 }
             }
+
             char str[2] = { ch, 0 };
             int x = col * CHAR_W;
             int y = base_y + row * g_line_h;
@@ -826,6 +839,39 @@ static bool command_exists(const char *cmd) {
     return false;
 }
 
+static bool command_starts_with(const char *prefix) {
+    if (!prefix || !prefix[0]) return false;
+
+    FAT32_FileInfo entries[128];
+    int count = sys_list("/bin", entries, 128);
+    if (count <= 0) return false;
+
+    for (int i = 0; i < count; i++) {
+        if (entries[i].is_directory) {
+            continue;
+        }
+
+        char name[256];
+        str_copy(name, entries[i].name, sizeof(name));
+
+        int len = (int)strlen(name);
+        if (len > 4 && strcmp(name + len - 4, ".elf") == 0) {
+            name[len - 4] = 0;
+        }
+
+        int j = 0;
+        while (prefix[j] && name[j] && prefix[j] == name[j]) {
+            j++;
+        }
+
+        if (prefix[j] == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void update_input_color(TerminalSession *s) {
     if (s->input_len == 0) {
         s->input_color = 0xFFFFFFFF;
@@ -845,6 +891,8 @@ static void update_input_color(TerminalSession *s) {
 
     if (command_exists(cmd)) {
         s->input_color = 0xFF55FF55; // green
+    } else if (command_starts_with(cmd)) {
+        s->input_color = 0xFFFFFF55; // yellow
     } else {
         s->input_color = 0xFFFF5555; // red
     }
