@@ -19,7 +19,7 @@ Bsh loads its configuration from:
 
 `/Library/bsh/bshrc`
 
-This file is similar to `.zshrc` and can define:
+This file is similar to `.zshrc` or `.bashrc` and can define:
 - `PATH` for command lookup
 - `STARTUP` for interactive shell startup scripts
 - `BOOT_SCRIPT` for a once-per-boot script
