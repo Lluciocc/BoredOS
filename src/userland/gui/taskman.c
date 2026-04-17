@@ -27,8 +27,8 @@ static int cpu_history[GRAPH_POINTS];
 static int mem_history[GRAPH_POINTS];
 static int history_idx = 0;
 
-static uint64_t uptime_prev = 0;
-static uint64_t kernel_ticks_prev = 0;
+static uint64_t user_ticks_prev = 0;
+static uint64_t total_ticks_prev = 0;
 static uint64_t total_mem_system = 0;
 static uint64_t used_mem_system = 0;
 static char cpu_model_name[64] = "Unknown CPU";
@@ -76,6 +76,7 @@ static void update_proc_list(void) {
 
     proc_count = 0;
     uint64_t user_ticks_now = 0;
+    uint64_t total_ticks_now = 0;
 
     for (int i = 0; i < count; i++) {
         if (entries[i].is_directory) {
@@ -107,6 +108,7 @@ static void update_proc_list(void) {
                     proc_list[proc_count].used_memory = (size_t)find_value(buf, "Memory") * 1024;
                     uint64_t ticks = (uint64_t)find_value(buf, "Ticks");
                     proc_list[proc_count].ticks = ticks;
+                    total_ticks_now += ticks;
                     
                     proc_list[proc_count].is_idle = find_value(buf, "Idle") == 1;
                     
@@ -118,32 +120,19 @@ static void update_proc_list(void) {
         }
     }
 
-    // Global stats
-    int fd_u = sys_open("/proc/uptime", "r");
-    uint64_t uptime_now = 0;
-    if (fd_u >= 0) {
-        char buf[256];
-        int bytes = sys_read(fd_u, buf, 255);
-        sys_close(fd_u);
-        if (bytes > 0) {
-            buf[bytes] = 0;
-            uptime_now = (uint64_t)find_value(buf, "Raw_Ticks");
-        }
-    }
-
-    if (uptime_prev > 0) {
-        uint64_t total_delta = uptime_now - uptime_prev;
+    if (total_ticks_prev > 0) {
+        uint64_t total_delta = total_ticks_now - total_ticks_prev;
         if (total_delta > 0) {
-            uint64_t used_delta = user_ticks_now - kernel_ticks_prev;
-            int cores = cpu_cores > 0 ? cpu_cores : 1;
-            int usage = (int)((used_delta * 100) / (total_delta * cores));
+            uint64_t used_delta = user_ticks_now - user_ticks_prev;
+            int usage = (int)((used_delta * 100) / total_delta);
             if (usage > 100) usage = 100;
+            if (usage < 0) usage = 0;
             cpu_history[history_idx] = usage;
         }
     }
-    
-    uptime_prev = uptime_now;
-    kernel_ticks_prev = user_ticks_now;
+
+    user_ticks_prev = user_ticks_now;
+    total_ticks_prev = total_ticks_now;
     
     int fd_m = sys_open("/proc/meminfo", "r");
     if (fd_m >= 0) {
