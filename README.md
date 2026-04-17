@@ -85,7 +85,7 @@ While BrewKernel served as the foundational learning ground for this OS, it has 
 
 ## License
 
-**Copyright (C) 2024-2026 boreddevnl**
+**Copyright (C) 2023-2026 boreddevnl**
 
 Distributed under the **GNU General Public License v3**. See the `LICENSE` file for details. 
 
