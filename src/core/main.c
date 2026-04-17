@@ -279,6 +279,11 @@ void kmain(void) {
     fat32_mkdir("/Library/DOOM");
     fat32_mkdir("/Library/bsh");
     fat32_mkdir("/docs");
+    fat32_mkdir("/root");
+    fat32_mkdir("/root/Desktop");
+    fat32_mkdir("/root/Pictures");
+    fat32_mkdir("/root/Documents");
+    fat32_mkdir("/root/Downloads");
 
     sysfs_init_subsystems();
     vfs_mount("/sys", "sysfs", "sysfs", sysfs_get_ops(), NULL);
