@@ -80,7 +80,7 @@ While BrewKernel served as the foundational learning ground for this OS, it has 
 
 ## Contributors
 
-- **boreddevnl** — Project creator and lead maintainer.
+- **BoredDevNL** — Project creator and lead maintainer.
 - **Lluciocc** — Contributor.
 
 ## License
