@@ -19,9 +19,8 @@
 #define TAB_CLOSE_W 12
 #define TAB_CLOSE_PAD 6
 #define MAX_TABS 4
-#define TTY_READ_CHUNK 512
-#define HISTORY_MAX 64
-#define HISTORY_LINE_MAX 256
+#define TTY_READ_CHUNK 512T
+#define LINE_MAX 256
 
 typedef struct {
     char c;
@@ -48,13 +47,9 @@ typedef struct {
     int ansi_param_count;
     int saved_row;
     int saved_col;
-    
 
-    char history[HISTORY_MAX][HISTORY_LINE_MAX];
-    int history_count;
-    int history_index;
-
-    char current_input[HISTORY_LINE_MAX];
+    // for color
+    char current_input[LINE_MAX];
     int input_len;
 } TerminalSession;
 
@@ -726,8 +721,7 @@ static void tab_init(TerminalSession *s, int tty_id, int bsh_pid) {
     s->ansi_param_count = 0;
     s->saved_row = 0;
     s->saved_col = 0;
-    s->history_count = 0;
-    s->history_index = 0;
+
     s->input_len = 0;
     s->current_input[0] = 0;
     session_reset_colors(s);
@@ -935,91 +929,12 @@ static void handle_key(gui_event_t *ev) {
         return;
     }
 
-    // enter = save command
     if (c == KEY_ENTER) {
-        if (s->input_len > 0) {
-            strcpy(s->history[s->history_count % HISTORY_MAX], s->current_input);
-            s->history_count++;
-        }
-
         s->input_color = 0xFFFFFFFF;
-        s->history_index = s->history_count;
         s->input_len = 0;
         s->current_input[0] = 0;
     }
 
-    // Storing command logic
-    // Backspace
-    else if (c == KEY_BACKSPACE) {
-        if (s->input_len > 0) {
-            s->input_len--;
-            s->current_input[s->input_len] = 0;
-        }
-        update_input_color(s);
-    }
-
-    // Normal char
-    else if (c >= 32 && c < 127) {
-        if (s->input_len < HISTORY_LINE_MAX - 1) {
-            s->current_input[s->input_len++] = c;
-            s->current_input[s->input_len] = 0;
-        }
-        update_input_color(s);
-    }
-
-    // Restoring command logic
-    if (c == KEY_UP) {
-        if (s->history_count > 0 && s->history_index > 0) {
-            s->history_index--;
-
-            char *cmd = s->history[s->history_index % HISTORY_MAX];
-
-            // remove actual line
-            for (int i = 0; i < s->input_len; i++) {
-                char bs = 8;
-                sys_tty_write_in(s->tty_id, &bs, 1);
-            }
-
-            strcpy(s->current_input, cmd);
-            s->input_len = strlen(cmd);
-            update_input_color(s);
-
-            sys_tty_write_in(s->tty_id, cmd, s->input_len);
-        }
-        return;
-    }
-
-    if (c == KEY_DOWN) {
-        if (s->history_index < s->history_count - 1) {
-            s->history_index++;
-
-            char *cmd = s->history[s->history_index % HISTORY_MAX];
-
-            for (int i = 0; i < s->input_len; i++) {
-                char bs = 8;
-                sys_tty_write_in(s->tty_id, &bs, 1);
-            }
-
-            strcpy(s->current_input, cmd);
-            s->input_len = strlen(cmd);
-            update_input_color(s);
-
-            sys_tty_write_in(s->tty_id, cmd, s->input_len);
-        }
-        else {
-            // we want an empty line if we go back and nothing in history
-            for (int i = 0; i < s->input_len; i++) {
-                char bs = 8;
-                sys_tty_write_in(s->tty_id, &bs, 1);
-            }
-
-            s->history_index = s->history_count;
-            s->input_len = 0;
-            s->current_input[0] = 0;
-            s->input_color = 0xFFFFFFFF;
-        }
-        return;
-    }
 
     sys_tty_write_in(s->tty_id, &c, 1);
 }
