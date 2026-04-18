@@ -901,6 +901,7 @@ static void update_input_color(TerminalSession *s) {
         cmd[i] = s->current_input[i];
         i++;
     }
+    cmd[i] = 0;
 
     if (command_exists(cmd)) {
         s->input_color = 0xFF55FF55; // green
