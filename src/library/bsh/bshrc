@@ -5,7 +5,7 @@
 # Lines starting with # are comments.
 #
 # PATH controls command lookup order (colon-separated).
-PATH=/bin:/root/Apps
+export PATH="/bin"
 
 # Scripts to run automatically.
 # STARTUP runs for interactive shells.
@@ -19,8 +19,20 @@ BOOT_SCRIPT=/Library/bsh/boot.bsh
 #   %h = hostname
 #   %~ = cwd ("~" for /root)
 #   %T = time (HH:MM)
-PROMPT_LEFT=%n@%h:%~$ 
+# Colors:
+#   %{color} switches text color; use names or hex.
+#   Names: default, red, green, yellow, blue, magenta, cyan, white, gray
+#   Hex: #RRGGBB, 0xRRGGBB, or 0xAARRGGBB
+PROMPT_LEFT=%{green}%n@%h%{default}:%~%{blue}$%{default} 
 PROMPT_RIGHT=%T
+
+# Minimal history mode
+# When enabled, the entered line is rewritten as PROMPT_MINIMAL_PREFIX + command.
+# Example:
+#   root@boredos:~$ echo hi
+#   > echo hi
+PROMPT_MINIMAL_HISTORY=true
+PROMPT_MINIMAL_PREFIX="> "
 
 # History settings.
 HISTORY_FILE=/Library/bsh/history
@@ -31,5 +43,3 @@ GLOB=true
 COMPLETE=true
 SUGGEST=true
 
-# Example aliases (future support).
-# alias ll=ls -la
